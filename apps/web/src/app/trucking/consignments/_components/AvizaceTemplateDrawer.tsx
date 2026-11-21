@@ -73,8 +73,9 @@ export const AvizaceTemplateDrawer = ({ consignmentId, open, onClose, onRecord }
             );
           })}
           <div>
+            {/* The screens say the English term; the Czech word stays in the e-mail text (mock test S21-094). */}
             <Button type="primary" onClick={onRecord}>
-              Record avizace…
+              Record {TERMS.avizace.toLowerCase()}…
             </Button>
           </div>
         </div>

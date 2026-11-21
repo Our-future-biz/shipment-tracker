@@ -62,6 +62,21 @@ describe("the invoices' Filter panel", () => {
     expect(receivableCellText(row({ paid: 20000, lastPaidOn: "2026-11-14" }), "paid")).toBe("20,000.00 CZK · 14.11.2026");
   });
 
+  it("finds a person by the name the list shows, and still by the e-mail they are stored by (mock test run)", () => {
+    const names: Record<string, string> = { "jana@example.com": "Jana Nováková", "tom@example.com": "Tomáš Dvořák", "libor@example.com": "Libor Král" };
+    const named = receivableTable("2026-11-18", null, (email) => names[email] ?? "");
+    const r = row();
+    expect(matchesTableFilters(named, r, [{ key: "pic", value: "novakova" }])).toBe(true);
+    expect(matchesTableFilters(named, r, [{ key: "pic", value: "Dvořák" }])).toBe(true);
+    expect(matchesTableFilters(named, r, [{ key: "pic", value: "tom@" }])).toBe(true);
+    expect(matchesTableFilters(named, r, [{ key: "issuedBy", value: "Král" }])).toBe(true);
+    expect(matchesTableFilters(named, r, [{ key: "issuedBy", value: "libor@" }])).toBe(true);
+    expect(matchesTableFilters(named, r, [{ key: "issuedBy", value: "Jana" }])).toBe(false);
+    // Before the users are read: by e-mail, as before.
+    expect(receivableCellText(r, "issuedBy")).toBe("libor@example.com");
+    expect(receivableCellText(row({ holidayCover: "" }), "pic")).toBe("jana@example.com");
+  });
+
   it("finds an invoice by a credit note's number in the number column", () => {
     expect(matchesTableFilters(TABLE, row({ creditNoteNumbers: ["CN2026CZFCL00000023-001"] }), [{ key: "number", value: "CN2026" }])).toBe(true);
     expect(matchesTableFilters(TABLE, row(), [{ key: "number", value: "CN2026" }])).toBe(false);

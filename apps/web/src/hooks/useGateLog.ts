@@ -40,13 +40,24 @@ export const useGateRowCache = () => {
   );
 };
 
+/**
+ * One record as opened: it first follows its shipment (customs status, a renumbered job's number), then is read
+ * (mock test S21-117: else a renumbered job reached the record only on the 5-minute run - and Refresh is gone once
+ * released). No `force`: the server's 30 s max-age keeps reopening cheap. A follow that fails (an archived record,
+ * Shipments down) never keeps the record from opening.
+ */
+export async function readFollowed(id: string): Promise<controllers.GateMovementResponse> {
+  await api.warehouseConcept.gateMovementFollow({ id }).catch(() => undefined);
+  return api.warehouseConcept.gateMovementGet(id);
+}
+
 // Mutations write the returned row into the cache so the list and the detail stay in step.
 export const useGateMovement = (id: string | undefined) => {
   const queryClient = useQueryClient();
 
   const query = useQuery({
     queryKey: gateKeys.one(id),
-    queryFn: () => api.warehouseConcept.gateMovementGet(id!),
+    queryFn: () => readFollowed(id!),
     enabled: !!id,
   });
 

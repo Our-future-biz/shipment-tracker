@@ -72,12 +72,21 @@ describe("handOverPreview", () => {
 
 describe("handOverRequest", () => {
   it("leaves out a field that stays as it is, and sends \"\" to clear the cover", () => {
-    expect(handOverRequest([job(), job({ id: "s2" })], { handledBy: "eva@firma.cz", holidayCover: null }, "  on holiday  ")).toEqual({
+    expect(handOverRequest([job(), job({ id: "s2" })], { handledBy: "eva@firma.cz", holidayCover: null }, "  on holiday  ")).toMatchObject({
       shipmentIds: ["s1", "s2"],
       handledBy: "eva@firma.cz",
       reason: "on holiday",
     });
-    expect(handOverRequest([job()], { handledBy: null, holidayCover: "" }, "back")).toEqual({ shipmentIds: ["s1"], holidayCover: "", reason: "back" });
+    const clearing = handOverRequest([job()], { handledBy: null, holidayCover: "" }, "back");
+    expect(clearing).toMatchObject({ shipmentIds: ["s1"], holidayCover: "", reason: "back" });
+    expect(clearing).not.toHaveProperty("handledBy");
+  });
+
+  it("sends the people each job had in the preview, so a job changed since is left as it is (mock test S20-123)", () => {
+    expect(handOverRequest([job(), job({ id: "s2", handledBy: "petr@firma.cz", holidayCover: "eva@firma.cz" })], { handledBy: "eva@firma.cz", holidayCover: null }, "ill").shown).toEqual({
+      s1: { handledBy: "jan@firma.cz", holidayCover: "" },
+      s2: { handledBy: "petr@firma.cz", holidayCover: "eva@firma.cz" },
+    });
   });
 });
 
@@ -168,7 +177,11 @@ describe("handing over all of a person's jobs (X9)", () => {
     expect(handOverAllNote({ jobs: jobs(200), total: 240 }, "jan@firma.cz", "Sea · Import")).toBe(
       "200 of 240 active jobs with jan@firma.cz in Handled By (Sea · Import): at most 200 go in one hand-over. Hand over the rest the same way once these are done.",
     );
-    expect(handOverAllNote({ jobs: jobs(1), total: 1 }, "jan@firma.cz", "")).toBe("All 1 active job with jan@firma.cz in Handled By, quiet ones too - not only those with a signal on the cards.");
+    // One job reads as one (mock test of 21 Nov).
+    expect(handOverAllNote({ jobs: jobs(1), total: 1 }, "jan@firma.cz", "")).toBe("The one active job with jan@firma.cz in Handled By - whether or not it has a signal on the cards.");
+    expect(handOverAllNote({ jobs: jobs(1), total: 1 }, "eva@firma.cz", "Air", { as: "holidayCover", changing: true })).toBe(
+      "The one active job with eva@firma.cz as Holiday Cover (Air) that this changes - whether or not it has a signal on the cards.",
+    );
   });
   it("says the jobs are those the chosen hand-over changes once one is chosen (n25), and of a cover by the cover (P12)", () => {
     const jobs = (n: number) => Array.from({ length: n }, (_, i) => i);

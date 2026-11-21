@@ -202,6 +202,17 @@ export interface BuyingCostInput {
   sortOrder?: number;
 }
 
+/**
+ * The real cost of a buying line as the page last loaded it, sent with a change of it (mock test run F1): on a billed
+ * job the save is refused as changed meanwhile when the line no longer has it, so a second person typing a late real
+ * cost on the same line does not overwrite the first. Amounts as decimal strings, "" for none; not written anywhere.
+ */
+export interface RealCostWas {
+  realQtyWas?: string;
+  realAmountWas?: string;
+  realCurrencyWas?: string;
+}
+
 /** A shipment and its weight in a split (freight tons, or any measure the split goes by). */
 export interface CostSplitLine {
   shipmentId: string;

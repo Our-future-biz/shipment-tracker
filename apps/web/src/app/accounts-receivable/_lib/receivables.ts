@@ -714,6 +714,21 @@ export function prunedSelection(selected: readonly string[], rows: readonly Pick
 export const NUMBER_SHOWN = 16;
 
 /**
+ * The list's widths up to Currency, in px with each cell's 8 px padding on both sides (mock test run): at 1440 px the
+ * 260 px menu, the page's 32 px sides and the card's border leave the table LIST_ROOM, which these, the tick box and the
+ * expand arrow fit (1,064 px) - so Currency ends on screen. Each is what its cell holds: the number shortened, the
+ * Status marks wrapping under it and the customer cut (both 120 px), each whole on hover.
+ */
+export const LIST_WIDTHS = { number: 150, status: 120, customer: 120, job: 120, due: 110, gross: 130, left: 130, currency: 92 } as const;
+/** The table's room at 1440 px: 1440 − 260 (menu) − 2 × 32 (page sides) − 2 (card border). */
+export const LIST_ROOM = 1114;
+/** The tick box column (one payment over several invoices) and antd's expand arrow column. */
+export const LIST_TICK_WIDTH = 44;
+export const LIST_EXPAND_WIDTH = 48;
+/** A cell's padding, left and right: what its content may take is its width less this. */
+export const LIST_CELL_PADDING = 16;
+
+/**
  * An invoice number as the list shows it in a column of its own width: a long one loses its middle, never its end -
  * "INV2026CZFCL00000062-001" is "INV2026…0062-001", so the document, the year and the sequence of the job's series stay
  * (the job is in the column beside it). The whole number is on hover, and the Filter panel matches the whole number.

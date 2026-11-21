@@ -46,6 +46,10 @@ interface UpdateBuyingRequest {
   supplierCustomerId?: string;
   /** position in the list (undo / re-insert keeps a line where it was) */
   sortOrder?: number;
+  /** the line's real cost as the page last loaded it ("" for none): a billed line's save is refused when it changed meanwhile (mock test run F1) */
+  realQtyWas?: string;
+  realAmountWas?: string;
+  realCurrencyWas?: string;
 }
 
 export const invoicingUpdateBuyingCost = api(

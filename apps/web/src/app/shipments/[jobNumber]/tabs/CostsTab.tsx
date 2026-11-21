@@ -13,6 +13,7 @@ import type { ShipmentItem } from "@/hooks/useShipments";
 import { businessDayOf, formatDate, formatDateTime } from "@/lib/date";
 import { amountInBox, normaliseAmount } from "@/lib/money";
 import { onAmountBlur } from "./amountBox";
+import { realCostQueue } from "./realCostQueue";
 import { billedRealCostOpen, closesRow, curBoxAfter, ownDirectionFirst } from "./costRowRules";
 import { asData, computeTotals, isSalesQuoteRef, quoteProfitIn } from "@/app/sales/_lib/salesQuote";
 import { useSalesQuoteByRef } from "@/hooks/useSalesQuote";
@@ -627,14 +628,18 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
   const afterNumber = (id: string) => numberSaves.current.get(id) ?? Promise.resolve();
   /* A row's real cost saves (Qty, Real Cost, Cur) go one after another, after its number's: an amount typed and its
      currency picked at once otherwise reach the server side by side, and on a billed shipment the second, read before
-     the first was written, is refused as changed meanwhile (mock council S1-06) though nobody else typed. */
-  const realSaves = useRef(new Map<string, Promise<unknown>>());
-  const afterRealCost = <T,>(id: string, save: () => Promise<T>): Promise<T> => {
-    const before = realSaves.current.get(id) ?? Promise.resolve();
-    const saving = Promise.all([before, afterNumber(id)]).then(save);
-    realSaves.current.set(id, saving.catch(() => undefined));
-    return saving;
-  };
+     the first was written, is refused as changed meanwhile (mock council S1-06) though nobody else typed. Each sends
+     all three was-values, read as the line's previous own save left it (realCostQueue, mock test run F1); once one is
+     refused as changed meanwhile, the row's saves still waiting are dropped and the costs loaded again. */
+  const [realCostSaves] = useState(realCostQueue);
+  const saveRealCost = (r: BuyingRow, change: Pick<controllers.UpdateBuyingRequest, "realQty" | "realAmount" | "realCurrency">) =>
+    realCostSaves(r.id, {
+      drawn: r,
+      after: afterNumber(r.id),
+      save: (was) => updateBuy.mutateAsync({ id: r.id, ...change, ...was }).then((res) => res.cost),
+      changedMeanwhile: (err) => isAPIError(err) && err.code === ErrCode.Aborted,
+      onChanged: () => void invalidateBuy(),
+    });
   /** Enter in an amount box goes on to its Cur box, and the row stays open (mock council R4; curBoxAfter). */
   const toCurOnEnter = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key !== "Enter" || e.currentTarget.readOnly) return;
@@ -974,7 +979,8 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
                       <CurrencyPicker locked={locked} value={r.estCurrency} onChange={(v) => changeEstCurrency(r, v)} />
                     )}
                   </td>
-                  {/* Real */}
+                  {/* Real. Each save sends the whole real cost it was typed on (saveRealCost): on a billed job one typed over
+                      someone else's newer real cost is refused instead of overwriting it (mock test run F1). */}
                   <td className={`${CELL} ${SPLIT}`}>
                     <input
                       className={`${FIELD} text-center${realCost}`}
@@ -982,7 +988,7 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
                       defaultValue={amountInBox(r.realQty)}
                       inputMode="decimal"
                       onKeyDown={onlyNumbers}
-                      onBlur={onAmountBlur(r.realQty, (realQty, refused) => afterRealCost(r.id, () => updateBuy.mutateAsync({ id: r.id, realQty })).catch(refused))}
+                      onBlur={onAmountBlur(r.realQty, (realQty, refused) => saveRealCost(r, { realQty }).catch(refused))}
                     />
                   </td>
                   <RealPair
@@ -1004,7 +1010,7 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
                           inputMode="decimal"
                           aria-label="Real Cost"
                           onKeyDown={(e) => { onlyNumbers(e); if (!billed) toCurOnEnter(e); }}
-                          onBlur={onAmountBlur(r.realAmount, (realAmount, refused) => afterRealCost(r.id, () => updateBuy.mutateAsync({ id: r.id, realAmount })).catch(refused))}
+                          onBlur={onAmountBlur(r.realAmount, (realAmount, refused) => saveRealCost(r, { realAmount }).catch(refused))}
                         />
                       </td>
                     }
@@ -1014,7 +1020,7 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
                           locked={realCostLocked}
                           value={r.realCurrency}
                           ariaLabel="Real cost currency"
-                          onChange={(v) => void afterRealCost(r.id, () => updateBuy.mutateAsync({ id: r.id, realCurrency: v })).catch(() => undefined)}
+                          onChange={(v) => void saveRealCost(r, { realCurrency: v }).catch(() => undefined)}
                         />
                       </td>
                     }

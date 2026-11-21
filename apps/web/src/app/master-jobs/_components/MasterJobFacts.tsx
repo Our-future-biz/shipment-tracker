@@ -4,6 +4,7 @@ import { CopyButton } from "@/components/CopyButton";
 import { formatDate } from "@/lib/date";
 import { loadTypeLabel } from "@/lib/enums";
 import { masterJobModeOf } from "../_lib/masterJobWords";
+import { modeLabel } from "@/app/shipments/[jobNumber]/freightModeFields";
 import { EMPTY, LABEL_TEXT, PAGE_TITLE, REF } from "@/styles/ui";
 import type { MasterJobItem, MasterJobShipmentItem } from "@/hooks/useMasterJobs";
 import { linkedCount } from "@/app/shipments/_components/MasterJobDialog";
@@ -50,6 +51,9 @@ const DATE_JUMP = "tabular-nums text-[14px] font-semibold text-slate-900 bg-tran
 const CHIP = `${REF} truncate text-[12px] font-bold px-2 py-0.5 rounded-md bg-indigo-50 text-indigo-600`;
 
 export function MasterJobFacts({ masterJob: mj, shipments, onJump = jumpTo }: MasterJobFactsProps) {
+  // In the words of the master job's mode, as MBL Details has them: an air master job's MAWB,
+  // airline and airports (mock test S21-044).
+  const label = (key: string, sea: string) => modeLabel(key, sea, masterJobModeOf(mj));
   return (
     // The shipment header's columns (ShipmentFacts), so Port of Loading, ETD, Port of Discharge and ETA stay where they are
     // when you go from a house to its master job.
@@ -63,7 +67,7 @@ export function MasterJobFacts({ masterJob: mj, shipments, onJump = jumpTo }: Ma
           <CopyButton text={mj.mczNumber} what="master job number" />
         </div>
       </Fact>
-      <Fact label="Master BoL Number">
+      <Fact label={label("masterBolNumber", "Master BoL Number")}>
         {mj.masterBolNumber ? (
           <span className={`${REF} truncate`} title={mj.masterBolNumber}>
             {mj.masterBolNumber}
@@ -75,15 +79,15 @@ export function MasterJobFacts({ masterJob: mj, shipments, onJump = jumpTo }: Ma
       <Fact label="Trade Direction">{text(mj.tradeDirection)}</Fact>
       <Fact label="Freight Mode">{text(mj.freightMode)}</Fact>
       <Fact label="Load Type">{text(mj.loadType ? loadTypeLabel(mj.loadType, masterJobModeOf(mj)) : "")}</Fact>
-      <Fact label="Shipping line / Coloader">{text(mj.shippingLine)}</Fact>
-      <Fact label="Port of Loading">{text(mj.pol)}</Fact>
+      <Fact label={label("shippingLine", "Shipping line / Coloader")}>{text(mj.shippingLine)}</Fact>
+      <Fact label={label("pol", "Port of Loading")}>{text(mj.pol)}</Fact>
       {/* The dates jump to their rows in MBL Details, as the old summary tiles did. */}
       <Fact label="ETD Estimated">
         <button type="button" onClick={() => onJump(MJ_ANCHORS.etd)} title="Go to ETD Estimated" className={DATE_JUMP}>
           {formatDate(mj.estimatedDeparture) || dash}
         </button>
       </Fact>
-      <Fact label="Port of Discharge">
+      <Fact label={label("pod", "Port of Discharge")}>
         <span className="min-w-0">
           {mj.pod ? <span className="block truncate" title={mj.pod}>{mj.pod}</span> : dash}
           {/* the final destination, as the shipment header's Port of Discharge fact shows it */}

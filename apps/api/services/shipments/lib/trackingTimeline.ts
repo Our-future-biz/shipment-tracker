@@ -7,6 +7,7 @@
 
 import { addDays, businessDay, businessTime } from "../../../lib/businessDate";
 import { isDeliveryDated } from "../../../lib/deliveryDated";
+import { seaPortText } from "../../../lib/geo/carrierPorts";
 import type {
   ShipmentTracking,
   TrackingAttention,
@@ -98,16 +99,20 @@ function rowsOf(s: ShipmentRecord): RowSpec[] {
   const atOrigin = isExport ? "origin" : "destination";
 
   const label = (kind: TrackingKind) => labelOfKind(kind, s);
+  // The ports as a sea job shows them: a carrier code saved before the pickers named it as its port
+  // reads by its port name, here and on the public tracking page (display only, mock test S21-041).
+  const polShown = seaPortText(s.pol, s.freightMode);
+  const podShown = seaPortText(s.pod, s.freightMode);
   const confirmed: RowSpec = { key: "confirmed", label: label("haulier_confirmed"), leg: "origin", event: "haulier_confirmed", optional: true };
   const booking: RowSpec = { key: "booking", label: "Booking confirmed", leg: "origin", event: "booking_confirmed", optional: true };
   const cargoReady: RowSpec = { key: "cargoReady", label: "Cargo ready", leg: "origin", planned: "cargoReadinessDate", event: "cargo_ready", optional: true };
   const pickup: RowSpec = { key: "pickup", label: "Picked up", leg: "origin", planned: "pickupDate", plannedTime: "pickupTime", event: "picked_up", optional: !trucking };
   const equipment: RowSpec = { key: "equipment", label: "Equipment delivery / pick-up", leg: atOrigin, planned: "equipmentDeliveryDate", plannedTime: "equipmentDeliveryTime", optional: true };
-  const loaded: RowSpec = { key: "loaded", label: label("loaded"), leg: "main", place: s.pol, event: "loaded", optional: true };
-  const departed: RowSpec = { key: "departed", label: label("departed"), basis: "ETD / ATD", leg: "main", place: s.pol, planned: "estimatedDeparture", actual: "actualDeparture", event: "departed", optional: trucking };
-  const arrived: RowSpec = { key: "arrived", label: label("arrived"), basis: "ETA / ATA", leg: "main", place: s.pod, planned: "estimatedArrival", actual: "actualArrival", event: "arrived", optional: trucking };
-  const discharged: RowSpec = { key: "discharged", label: label("discharged"), leg: "main", place: s.pod, event: "discharged", optional: true };
-  const terminalOut: RowSpec = { key: "terminalOut", label: label("terminal_out"), leg: "destination", place: s.pod, event: "terminal_out", optional: true };
+  const loaded: RowSpec = { key: "loaded", label: label("loaded"), leg: "main", place: polShown, event: "loaded", optional: true };
+  const departed: RowSpec = { key: "departed", label: label("departed"), basis: "ETD / ATD", leg: "main", place: polShown, planned: "estimatedDeparture", actual: "actualDeparture", event: "departed", optional: trucking };
+  const arrived: RowSpec = { key: "arrived", label: label("arrived"), basis: "ETA / ATA", leg: "main", place: podShown, planned: "estimatedArrival", actual: "actualArrival", event: "arrived", optional: trucking };
+  const discharged: RowSpec = { key: "discharged", label: label("discharged"), leg: "main", place: podShown, event: "discharged", optional: true };
+  const terminalOut: RowSpec = { key: "terminalOut", label: label("terminal_out"), leg: "destination", place: podShown, event: "terminal_out", optional: true };
   const hub: RowSpec = { key: "hub", label: "Arrived at HUB", leg: "destination", place: s.hub, event: "hub_arrived", optional: true };
   const customs: RowSpec = { key: CUSTOMS_KEY, label: "Customs cleared", leg: atOrigin, event: "customs_released", optional: trucking };
   const gateIn: RowSpec = { key: "gateIn", label: "Gate in", basis: "ETA warehouse", leg: atOrigin, place: s.hub, planned: "etaWarehouse", actual: "warehouseReceivedDate", event: "gate_in", optional: true };

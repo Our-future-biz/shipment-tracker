@@ -44,6 +44,7 @@ import { namesReferenceNumber } from "../../../lib/jobNumber";
 import type { Actor } from "../../../lib/rbac";
 import { sameSalesReference } from "../../../lib/salesReference";
 import {
+  agreedPriceChanged,
   cleanFields,
   cleanReason,
   consignmentStatus,
@@ -153,7 +154,7 @@ export interface ConsignmentCreateInput extends ConsignmentFields {
 
 export interface ConsignmentUpdateInput extends ConsignmentFields {
   version: number;
-  /** Price again from the price source; otherwise the stored price stays */
+  /** Price again from the price source; otherwise the stored price stays (a changed agreed price is taken as given) */
   reprice: boolean;
 }
 
@@ -750,7 +751,8 @@ class ConsignmentService {
 
   /**
    * Any user, with the version read. After the pick-up only notes and references may change.
-   * `reprice` prices again from the source; otherwise the stored price stays as it is.
+   * `reprice` prices again from the source; a changed agreed price is taken as it is given;
+   * otherwise the stored price stays as it is.
    */
   async update(actor: Actor, id: string, input: ConsignmentUpdateInput): Promise<ConsignmentDetail> {
     const companyId = actor.companyID;
@@ -761,15 +763,19 @@ class ConsignmentService {
     if (f.scope !== c.scope) throw APIError.failedPrecondition("FTL / LTL cannot change: cancel the consignment and book it again");
     const ltl = c.scope === "LTL" ? cleanLtlChoice(f) : null;
     const legPlan = ltl ? await this.ltlLegPlan(companyId, c, f, ltl) : null;
+    // A changed agreed price is the new price: taken as "Price again" takes one (mock test run F2).
+    // Its costs push goes the way a reprice's does, so a lower price after the customer invoice is
+    // still a credit owed through Invoicing's difference lines (Y1 / P1).
+    const repriced = input.reprice || agreedPriceChanged(f.price, c.sell);
     if (c.pickedUpAt || c.gateInAt) {
-      if (input.reprice) throw APIError.failedPrecondition("After the pick-up the price cannot change");
+      if (repriced) throw APIError.failedPrecondition("After the pick-up the price cannot change");
       if (lockedPart(f, f.price) !== lockedPart(storedFields(c), f.price)) throw APIError.failedPrecondition("After the pick-up only notes and references can change");
     }
     // An Express fixed date one booked before the agreed day was asked has none: its edits pass while
     // the day is still missing, and Needs attention asks for it (mock council R24, X-4). One moved to
     // Express fixed date gives the day.
     const fixedMissingAllowed = c.serviceLevel === FIXED_LEVEL && !c.promisedDate;
-    const priced = input.reprice ? await this.price(companyId, c.customerId, f, c.id, fixedMissingAllowed) : null;
+    const priced = repriced ? await this.price(companyId, c.customerId, f, c.id, fixedMissingAllowed) : null;
     const level = priced?.serviceLevel ?? f.serviceLevel;
     // Express fixed date: the agreed day is edited like the other fields; after the pick-up it stays
     // as stored (checked above with the rest), so an older one without a date keeps its notes editable.
@@ -778,7 +784,10 @@ class ConsignmentService {
     // Away from Express fixed date: the job holds the old agreed day, so it learns the new promise too.
     const leftFixed = c.serviceLevel === FIXED_LEVEL && level !== FIXED_LEVEL;
     const dateMoved = f.pickupDate !== c.pickupDate || f.pickupTime !== c.pickupTime || level !== c.serviceLevel || fixedMoved;
-    let promisedDate = priced ? priced.promisedDate : dateMoved ? await this.promiseFor(companyId, level, f.pickupDate, f.pickupTime, fixed) : c.promisedDate;
+    // A plain agreed-price change is priced again for its costs only: the promised day stays as it is, as no job is
+    // told of a new one (mock test run F2, m2). "Price again" or a moved date or level promises anew.
+    const promisedAgain = input.reprice || dateMoved;
+    let promisedDate = priced && promisedAgain ? priced.promisedDate : dateMoved ? await this.promiseFor(companyId, level, f.pickupDate, f.pickupTime, fixed) : c.promisedDate;
     // LTL after the gate-in: the date counts from the confirmed gate-in (the level may have changed).
     if (ltl && c.promisedFinal && c.gateInAt) promisedDate = level === c.serviceLevel ? c.promisedDate : await this.promiseFromGateIn(companyId, level, c.gateInAt, c.promisedDate);
     const { marginFloor, hub } = await settingsService.get(companyId);
@@ -848,7 +857,7 @@ class ConsignmentService {
         payload: {
           changes,
           summary: priced
-            ? `Repriced: ${money(priced.sell.total, priced.sell.currency)} (${priced.sell.source.toLowerCase()})`
+            ? `${input.reprice ? "Repriced" : "Agreed price changed"}: ${money(priced.sell.total, priced.sell.currency)} (${priced.sell.source.toLowerCase()})`
             : `Changed ${Object.keys(changes).join(", ")}${linkExpiresAt ? `; the haulier's link is valid until ${formatDay(addDays(f.pickupDate, LINK_DAYS_AFTER_PICKUP))}` : ""}`,
           ...(linkExpiresAt ? { facts: { linkExpiresAt: linkExpiresAt.toISOString() } } : {}),
         },

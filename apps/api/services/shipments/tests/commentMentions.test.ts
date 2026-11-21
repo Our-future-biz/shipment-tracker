@@ -8,8 +8,11 @@ vi.mock("../repositories/shipmentComment.repository", () => ({ shipmentCommentRe
 vi.mock("../repositories/shipmentAttachment.repository", () => ({
   shipmentAttachmentRepository: { linkToComment: vi.fn(), listChatFilesByShipmentId: vi.fn(async () => []) },
 }));
-// Who wrote a message is shown by e-mail, as every person is.
-vi.mock("../lib/userEmails", () => ({ userEmails: vi.fn(async () => new Map([["u-eva", "eva@firma.cz"], ["u-me", "me@firma.cz"]])) }));
+// Who wrote a message is shown by name, the e-mail for a user with none (mock test of 21 Nov).
+vi.mock("../../../lib/userNames", () => ({
+  userNames: vi.fn(async () => new Map([["u-eva", "Eva"], ["u-me", "me@firma.cz"]])),
+  nameOf: (u: { displayName: string; email: string }) => u.displayName || u.email,
+}));
 vi.mock("../services/attachment.service", () => ({ attachmentService: {} }));
 vi.mock("../services/shipment.service", () => ({ shipmentService: { requireLive: vi.fn(), get: vi.fn() } }));
 // The company's users, as the warehouse's notice resolves whom to tag.
@@ -41,8 +44,8 @@ describe("the bell's mentions", () => {
     expect(repo.unreadMentions).toHaveBeenCalledWith("c1", "u-me", READ_MENTION_KEEP_DAYS);
     expect(READ_MENTION_KEEP_DAYS).toBe(7);
     expect(mentions.map((m) => [m.id, m.unread, m.authorName, m.jobNumber])).toEqual([
-      ["m1", true, "eva@firma.cz", "CZ1"],
-      ["m2", false, "eva@firma.cz", "CZ2"],
+      ["m1", true, "Eva", "CZ1"],
+      ["m2", false, "Eva", "CZ2"],
       ["m3", true, "", ""],
     ]);
   });

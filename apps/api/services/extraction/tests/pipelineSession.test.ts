@@ -26,7 +26,7 @@ vi.mock("../services/places.service", () => ({ canonicalizeRecords: vi.fn() }));
 const readingMatches = vi.hoisted(() => vi.fn(async (_req: { houseBols: string[]; masterBol: string }) => ({ shipments: [] as unknown[], masterJob: null as unknown })));
 vi.mock("~encore/clients", () => ({ shipments: { _internalReadingMatches: readingMatches } }));
 
-import { extractHblBatch, extractMbl, MAX_PAGES, ownsSession, prepare } from "../services/pipeline.service";
+import { extractHblBatch, extractMbl, housesMasterBol, MAX_PAGES, ownsSession, prepare } from "../services/pipeline.service";
 import { classifyPages, extractFromPages } from "../services/extraction.service";
 import { APIError } from "../../../lib/tests/encoreApi.stub";
 import { splitPdfToPages } from "../lib/pdf";
@@ -171,6 +171,59 @@ describe("what a pre-alert made already", () => {
     const sessionId = await read();
     expect((await extractMbl(sessionId, gus)).existingMasterJob).toBeNull();
     expect((await extractHblBatch(sessionId, 0, gus)).existing).toEqual([null, null]);
+    readingMatches.mockReset();
+  });
+});
+
+// Mock test run F3: a manifest and House B/Ls with no Master B/L page made a master job without its
+// B/L, and a second read found none. With no Master B/L number read, the houses' common one is asked.
+describe("the master job of a pre-alert with no Master B/L page", () => {
+  const pdf = (pages: number) => ({ fileBase64: String(pages), fileName: `${pages}.pdf` });
+  const hal = { companyId: "c1", userId: "hal" };
+
+  it("takes the Master B/L the houses agree on, none when they name none or differ", () => {
+    expect(housesMasterBol([{ "Master BoL Number": " MEDU123 " }, { "Master BoL Number": "medu-123" }, {}])).toBe("MEDU123");
+    expect(housesMasterBol([{ "Master BoL Number": "MEDU123" }, { "Master BoL Number": "MEDU999" }])).toBe("");
+    expect(housesMasterBol([{ "Master BoL Number": " " }, {}])).toBe("");
+    expect(housesMasterBol([])).toBe("");
+  });
+
+  it("names the live master job of the houses' common Master B/L on the batch's answer, asked again on a repeat", async () => {
+    readingMatches.mockImplementation(async ({ masterBol }) => ({
+      shipments: [],
+      masterJob: masterBol === "MEDU123" ? { id: "mj9", mczNumber: "MCZCONSOL99990009" } : null,
+    }));
+    vi.mocked(classifyPages).mockResolvedValueOnce([
+      { page: 1, type: "MANIFEST", ref: "" },
+      { page: 2, type: "HBL", ref: "H1" },
+      { page: 3, type: "HBL", ref: "H2" },
+    ]);
+    const { sessionId } = await prepare([pdf(3)], hal);
+    vi.mocked(extractFromPages).mockReset();
+    vi.mocked(extractFromPages)
+      .mockResolvedValueOnce({ "House BoL Number": "H1", "Master BoL Number": "MEDU123" })
+      .mockResolvedValueOnce({ "House BoL Number": "H2", "Master BoL Number": "MEDU123" });
+    expect(await extractMbl(sessionId, hal)).toEqual({ mblInfo: null, message: "No MBL pages found" });
+    expect((await extractHblBatch(sessionId, 0, hal)).existingMasterJob).toEqual({ id: "mj9", number: "MCZCONSOL99990009" });
+    expect(readingMatches).toHaveBeenLastCalledWith({ houseBols: [], masterBol: "MEDU123" });
+    expect((await extractHblBatch(sessionId, 0, hal)).existingMasterJob).toEqual({ id: "mj9", number: "MCZCONSOL99990009" });
+    expect(extractFromPages).toHaveBeenCalledTimes(2);
+    readingMatches.mockReset();
+  });
+
+  it("leaves it to the Master B/L when one was read", async () => {
+    readingMatches.mockImplementation(async () => ({ shipments: [], masterJob: { id: "mj9", mczNumber: "MCZCONSOL99990009" } }));
+    vi.mocked(classifyPages).mockResolvedValueOnce([
+      { page: 1, type: "MBL", ref: "" },
+      { page: 2, type: "HBL", ref: "H1" },
+    ]);
+    const { sessionId } = await prepare([pdf(2)], hal);
+    vi.mocked(extractFromPages).mockReset();
+    vi.mocked(extractFromPages)
+      .mockResolvedValueOnce({ "Master BoL Number": "MEDU777" })
+      .mockResolvedValueOnce({ "House BoL Number": "H1", "Master BoL Number": "MEDU123" });
+    await extractMbl(sessionId, hal);
+    expect((await extractHblBatch(sessionId, 0, hal)).existingMasterJob).toBeNull();
     readingMatches.mockReset();
   });
 });

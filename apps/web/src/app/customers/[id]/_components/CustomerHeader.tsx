@@ -194,12 +194,13 @@ export function CustomerHeader({ customer }: CustomerHeaderProps) {
         <input ref={fileRef} type="file" accept="image/*" hidden onChange={handleLogoFile} />
       </div>
 
+      {/* What holds a delete, as the server says it (customers/lib/customerInUse): an unpaid invoice too (mock test run). */}
       <ConfirmModal
         open={deleteOpen}
         onClose={() => setDeleteOpen(false)}
         onConfirm={handleDelete}
         title={`Delete ${noun}`}
-        description={`Delete ${customer.companyName}? It is hidden from everyone together with its contacts, addresses, sites, invoices, documents and notes. It can't be deleted while it has shipments or open quotes. The record stays in the database: restore it under Customer Database → Deleted.`}
+        description={`Delete ${customer.companyName}? It is hidden from everyone together with its contacts, addresses, sites, invoices, documents and notes. It can't be deleted while it has shipments or open quotes, or still owes an invoice. The record stays in the database: restore it under Customer Database → Deleted.`}
         confirmLabel="Delete"
         danger
         loading={deleting}

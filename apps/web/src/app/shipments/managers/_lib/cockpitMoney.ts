@@ -23,9 +23,9 @@ import { cardWithSignal, familyOf, notKnownText, type ShownList, type SignalFami
 export const NOT_YET_INVOICED_HINT =
   "Selling lines still to bill - on no open invoice - on the jobs counted: the active ones, and charges added after invoicing on jobs that read Invoiced. A credit owed is not in it. One amount per currency: amounts of different currencies are never added; the CZK figure is all of them at the rate it names.";
 
-/** The same, in the people table: per person, over the jobs they handle. */
+/** The same, in the people table: per person, over the jobs they handle. A credit owed is said not in it, as above (mock test run). */
 export const PERSON_NOT_YET_INVOICED_HINT =
-  "Selling lines still to bill, on their active jobs and as charges added after invoicing on their jobs that read Invoiced: one amount per currency, never added across currencies";
+  "Selling lines still to bill, on their active jobs and as charges added after invoicing on their jobs that read Invoiced: one amount per currency, never added across currencies. A credit owed is not in it.";
 
 /** The Money tab's signal tiles, in the order they are drawn: one per family of the server's money tags (MONEY_SIGNAL_KINDS). */
 export const MONEY_FAMILIES: readonly SignalFamily[] = [

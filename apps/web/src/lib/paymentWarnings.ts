@@ -243,8 +243,12 @@ export const RELEASED_FIELD = "warehouseReleasedDate";
 /** The prepayment stop of an edit of Warehouse Released; null for any other field or any other refusal. */
 export const releasedEditStop = (fieldKey: string, err: unknown): ReleaseStop | null => (fieldKey === RELEASED_FIELD ? releaseStopOf(err) : null);
 
-/** Where a stopped release goes when the edit cannot ask for a reason (the grid's inline cell): a user asks a manager there (D16). */
-export const RELEASE_ELSEWHERE = "Release it from Stock → release to truck or the shipment's detail: there a manager gives a reason, and anyone else asks a manager to release it.";
+/**
+ * Where a stopped release goes when the edit cannot ask for a reason (the grid's inline cell): a user asks a manager
+ * there (D16). Stock → release to truck only: the shipment's detail has no Warehouse Released field to release it
+ * from (mock test S19-084 / S20-232; the owner parked adding one).
+ */
+export const RELEASE_ELSEWHERE = "Release it from Stock → release to truck: there a manager gives a reason, and anyone else asks a manager to release it.";
 
 /** The grid's error for a stopped Warehouse Released: the server's sentence, then where to release it. */
 export const releaseElsewhereText = (stop: ReleaseStop): string => `${stop.message.trim()} ${RELEASE_ELSEWHERE}`;

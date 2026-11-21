@@ -79,6 +79,11 @@ export interface ExtractHblResult {
    * since the batch was read shows too.
    */
   existing?: (ReadingMadeAlready | null)[];
+  /**
+   * When no Master B/L number was read (no Master B/L page): the company's live master job of the
+   * Master B/L the houses read so far agree on, or null. The pre-alert's houses go to it.
+   */
+  existingMasterJob?: ReadingMadeAlready | null;
   batchIndex: number;
   totalBatches: number;
   totalExtracted: number;

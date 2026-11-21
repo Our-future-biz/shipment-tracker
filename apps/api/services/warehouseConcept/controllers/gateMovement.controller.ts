@@ -46,8 +46,10 @@ interface GateMovementFollowRequest {
   force?: boolean;
 }
 
-// Linked records read their shipment's customs status (and move their stock / bonded entry with
-// it). The Gate Log calls this when it opens and the job's "Refresh" with `force`.
+// Linked records read their shipment's customs status and job number (and move their stock / bonded
+// entry with it). Opening a record calls this with its `id` before reading it, without `force` (the
+// 30 s max-age limits it), and the job's "Refresh" with `force` (mock test S21-117). The Gate Log list
+// does not call it: its records follow on the 5-minute run (crons/customsFollow).
 export const gateMovementFollow = api(
   { expose: true, auth: true, method: "POST", path: "/warehouse-concept/gate/follow" },
   async ({ id, force }: GateMovementFollowRequest): Promise<{ changed: number }> => {

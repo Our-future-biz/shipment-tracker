@@ -2,7 +2,7 @@ import { userEmailOf } from "../../../lib/companyUsers";
 import type { TrackingBellNotice } from "../interfaces/interfaces";
 import { BELL_DATE_FIELDS, datesMovedNotices, notToldNotices, proposedNotices } from "../lib/trackingBell";
 import { BELL_KEEP_DAYS, BELL_READ_KEEP_DAYS } from "../lib/trackingThresholds";
-import { userEmails } from "../lib/userEmails";
+import { userNames } from "../../../lib/userNames";
 import { trackingBellRepository } from "../repositories/trackingBell.repository";
 import { shipmentService } from "./shipment.service";
 
@@ -19,7 +19,9 @@ class TrackingBellService {
       trackingBellRepository.datesMoved(companyId, userId, email, BELL_DATE_FIELDS, new Date(now - BELL_KEEP_DAYS * DAY_MS), new Date(now - BELL_READ_KEEP_DAYS * DAY_MS), LIMIT),
       trackingBellRepository.proposed(companyId, userId, email, LIMIT),
       trackingBellRepository.latestToldOnOwnShipments(companyId, userId, email, LIMIT),
-      userEmails(),
+      // Who moved a date reads by name (the e-mail when a user has none; mock test of 21 Nov). The
+      // user's own e-mail above stays an e-mail: it finds their shipments.
+      userNames(),
     ]);
     const [toldShipments, lastChange] = await Promise.all([
       trackingBellRepository.toldShipments(companyId, [...new Set(moved.map((m) => m.shipmentId))]),

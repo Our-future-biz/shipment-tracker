@@ -279,7 +279,8 @@ describe("Warehouse Released set by hand (step 7): the same stop on the field's 
     const text = releaseElsewhereText({ kind: "unpaid", message: unpaid });
     expect(text.startsWith(unpaid)).toBe(true);
     expect(text.endsWith(RELEASE_ELSEWHERE)).toBe(true);
-    expect(RELEASE_ELSEWHERE).toBe("Release it from Stock → release to truck or the shipment's detail: there a manager gives a reason, and anyone else asks a manager to release it.");
+    // Not "or the shipment's detail": it has no Warehouse Released field (mock test S19-084 / S20-232).
+    expect(RELEASE_ELSEWHERE).toBe("Release it from Stock → release to truck: there a manager gives a reason, and anyone else asks a manager to release it.");
   });
 });
 

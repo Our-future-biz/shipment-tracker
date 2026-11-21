@@ -92,6 +92,14 @@ describe("requests", () => {
     expect("customerId" in req).toBe(false);
   });
 
+  // Mock test run F2: a changed agreed price is the new price, saved without "Price again".
+  it("sends an edited agreed price as it reads, never with reprice", () => {
+    const agreed = { ...valid(), priceSource: "MANUAL" as const, manualTotal: 13900, manualCurrency: "CZK" as const, manualReason: "Agreed by phone" };
+    const req = toUpdateRequest(agreed, 3, true);
+    expect(req).toMatchObject({ reprice: false, price: { source: "MANUAL", total: 13900, currency: "CZK", reason: "Agreed by phone" } });
+    expect(toUpdateRequest({ ...valid(), priceSource: "QUOTE" }, 3, true).reprice).toBe(true);
+  });
+
   it("sends FTL with the plain LTL defaults", () => {
     const req = toCreateRequest({ ...valid(), selfDelivered: true, lastMile: "PARTNER", partnerHaulierCustomerId: "p1" });
     expect(req).toMatchObject({ scope: "FTL", selfDelivered: false, lastMile: "OWN_RUN", partnerHaulierCustomerId: null });

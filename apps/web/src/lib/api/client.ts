@@ -4557,9 +4557,9 @@ export namespace shipments {
         /**
          * Costs Breakdown: its quantities were checked after the last accepted remeasurement (the warning is then put away).
          */
-        public async shipmentRemeasureCostsChecked(shipmentId: string): Promise<controllers.RemeasureAcceptanceResponse> {
+        public async shipmentRemeasureCostsChecked(shipmentId: string, params: controllers.RemeasureCostsCheckedRequest): Promise<controllers.RemeasureAcceptanceResponse> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("POST", `/shipments/${encodeURIComponent(shipmentId)}/remeasurement/costs-checked`)
+            const resp = await this.baseClient.callTypedAPI("POST", `/shipments/${encodeURIComponent(shipmentId)}/remeasurement/costs-checked`, JSON.stringify(params))
             return await resp.json() as controllers.RemeasureAcceptanceResponse
         }
 
@@ -6713,8 +6713,10 @@ export namespace warehouseConcept {
         }
 
         /**
-         * Linked records read their shipment's customs status (and move their stock / bonded entry with
-         * it). The Gate Log calls this when it opens and the job's "Refresh" with `force`.
+         * Linked records read their shipment's customs status and job number (and move their stock / bonded
+         * entry with it). Opening a record calls this with its `id` before reading it, without `force` (the
+         * 30 s max-age limits it), and the job's "Refresh" with `force` (mock test S21-117). The Gate Log list
+         * does not call it: its records follow on the 5-minute run (crons/customsFollow).
          */
         public async gateMovementFollow(params: controllers.GateMovementFollowRequest): Promise<{
     changed: number
@@ -10064,6 +10066,14 @@ export namespace controllers {
         toHolidayCover?: string
     }
 
+    /**
+     * A job's people as the hand-over dialog showed them: as stored, "" for nobody.
+     */
+    export interface HandOverShownPeople {
+        handledBy: string
+        holidayCover: string
+    }
+
     export interface HandledByCountRequest {
         /**
          * The person's e-mail, as Handled By stores it (any case).
@@ -11397,6 +11407,15 @@ export namespace controllers {
         acceptance: interfaces.RemeasureAcceptance | null
     }
 
+    export interface RemeasureCostsCheckedRequest {
+        /**
+         * The acceptedAt of the acceptance the page shows (mock test S20-079): when a newer remeasurement was
+         * accepted meanwhile, nothing is marked ("A newer remeasurement was accepted: reload to see it").
+         * Left out, the newest acceptance is taken.
+         */
+        acceptedAt?: string
+    }
+
     export interface ResolvePlacesRequest {
         items: services.GeoItem[]
     }
@@ -12210,6 +12229,13 @@ export namespace controllers {
          * Why (at least 3 characters): kept in each job's history.
          */
         reason: string
+
+        /**
+         * What the dialog's preview showed for each job, by shipment id (mock test S20-123). A job whose Handled By /
+         * Holiday Cover (whichever the hand-over writes) is no longer so is left as it is, in `skipped` with "Changed
+         * by somebody else meanwhile". Left out, or a job missing from it, that job is not checked.
+         */
+        shown?: { [key: string]: HandOverShownPeople }
     }
 
     export interface ShipmentHistoryRequest {
@@ -14036,6 +14062,14 @@ export namespace controllers {
          * position in the list (undo / re-insert keeps a line where it was)
          */
         sortOrder?: number
+
+        /**
+         * the line's real cost as the page last loaded it ("" for none): a billed line's save is refused when it changed meanwhile (mock test run F1)
+         */
+        realQtyWas?: string
+
+        realAmountWas?: string
+        realCurrencyWas?: string
     }
 
     export interface UpdateChargeRequest {
@@ -17396,6 +17430,12 @@ export namespace interfaces {
          * since the batch was read shows too.
          */
         existing?: (ReadingMadeAlready | null)[]
+
+        /**
+         * When no Master B/L number was read (no Master B/L page): the company's live master job of the
+         * Master B/L the houses read so far agree on, or null. The pre-alert's houses go to it.
+         */
+        existingMasterJob?: ReadingMadeAlready | null
 
         batchIndex: number
         totalBatches: number

@@ -402,7 +402,11 @@ function ltlFields(f: ConsignmentForm): Pick<ConsignmentCreate, "scope" | "selfD
   return { scope: "LTL", selfDelivered: f.selfDelivered, lastMile: f.lastMile, partnerHaulierCustomerId: f.lastMile === "PARTNER" ? f.partnerHaulierCustomerId : null };
 }
 
-/** The update request with the version read; `reprice` prices again from the tariff or quote. */
+/**
+ * The update request with the version read; `reprice` prices again from the tariff or quote. An
+ * agreed price is sent as it reads and the server takes it when it changed (mock test run F2): there
+ * is nothing to price it again from, so `reprice` is never sent with it.
+ */
 export function toUpdateRequest(f: ConsignmentForm, version: number, reprice: boolean): ConsignmentUpdate {
   const c = toCreateRequest(f);
   return {
@@ -415,7 +419,7 @@ export function toUpdateRequest(f: ConsignmentForm, version: number, reprice: bo
     load: c.load,
     price: c.price,
     version,
-    reprice,
+    reprice: reprice && f.priceSource !== "MANUAL",
     scope: c.scope,
     selfDelivered: c.selfDelivered,
     lastMile: c.lastMile,

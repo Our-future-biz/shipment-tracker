@@ -2,7 +2,7 @@ import { APIError } from "encore.dev/api";
 import { shipmentNoteRepository, type NoteChange } from "../repositories/shipmentNote.repository";
 import type { ShipmentNoteRecord } from "../schemas/shipmentNote.schema";
 import { iso } from "../../../lib/db/serialize";
-import { userEmails } from "../lib/userEmails";
+import { userNames } from "../../../lib/userNames";
 import type { ShipmentNoteChangeInput, ShipmentNoteItem } from "../interfaces/interfaces";
 import { shipmentService } from "./shipment.service";
 import { isRealYmd } from "../../../lib/businessDate";
@@ -42,17 +42,19 @@ export interface NewNote {
   dueDate?: string;
 }
 
-const item = (r: ShipmentNoteRecord, emails: Map<string, string>): ShipmentNoteItem => ({
+// Who wrote or ticked off a to-do reads by name, the e-mail for a user with none (user council x4,
+// mock test of 21 Nov): `names` are userNames(), by user id.
+const item = (r: ShipmentNoteRecord, names: Map<string, string>): ShipmentNoteItem => ({
   id: r.id,
   shipmentId: r.shipmentId,
   text: r.text,
   details: r.details,
   dueDate: r.dueDate,
-  authorName: r.authorId ? emails.get(r.authorId) ?? "" : "",
+  authorName: r.authorId ? names.get(r.authorId) ?? "" : "",
   createdAt: iso(r.createdAt),
   done: r.doneAt !== null,
   doneAt: r.doneAt ? iso(r.doneAt) : null,
-  doneByName: r.doneById ? emails.get(r.doneById) ?? "" : "",
+  doneByName: r.doneById ? names.get(r.doneById) ?? "" : "",
   pinned: r.pinned,
   pinnedAt: r.pinnedAt ? iso(r.pinnedAt) : null,
 });
@@ -62,15 +64,15 @@ const item = (r: ShipmentNoteRecord, emails: Map<string, string>): ShipmentNoteI
 class NoteService {
   async list(shipmentId: string, companyId: string): Promise<ShipmentNoteItem[]> {
     await shipmentService.requireLive(shipmentId, companyId);
-    const [rows, emails] = await Promise.all([shipmentNoteRepository.listByShipmentId(shipmentId, companyId), userEmails()]);
-    return rows.map((r) => item(r, emails));
+    const [rows, names] = await Promise.all([shipmentNoteRepository.listByShipmentId(shipmentId, companyId), userNames()]);
+    return rows.map((r) => item(r, names));
   }
 
   async create(shipmentId: string, companyId: string, userId: string, input: NewNote): Promise<ShipmentNoteItem> {
     const values = { text: noteText(input.text), details: noteDetails(input.details), dueDate: noteDueDate(input.dueDate) };
     await shipmentService.requireLive(shipmentId, companyId);
     const row = await shipmentNoteRepository.createForCompany(companyId, { shipmentId, ...values, authorId: userId });
-    return item(row, await userEmails());
+    return item(row, await userNames());
   }
 
   async update(shipmentId: string, id: string, companyId: string, userId: string, input: ShipmentNoteChangeInput): Promise<ShipmentNoteItem> {
@@ -91,7 +93,7 @@ class NoteService {
     await shipmentService.requireLive(shipmentId, companyId);
     const row = await shipmentNoteRepository.updateNote(id, shipmentId, companyId, change);
     if (!row) throw APIError.notFound("Note not found");
-    return item(row, await userEmails());
+    return item(row, await userNames());
   }
 
   async delete(shipmentId: string, id: string, companyId: string): Promise<void> {

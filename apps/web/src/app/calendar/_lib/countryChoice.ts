@@ -59,6 +59,22 @@ export function keptAfterPick(stored: readonly string[], offered: readonly strin
   return kept.length ? kept : [NO_OTHER_COUNTRY_MARK];
 }
 
+/**
+ * What to keep after a pick made on a picker last drawn with `shown`, applied to `latest` - the list
+ * as the picks before it left it, which the page may not have drawn yet. Quick picks each built on
+ * the drawn list, so a later one dropped the earlier ones (mock test S18-100): what this pick added
+ * and took out, against what it was made on, is applied to the latest list instead. Only what the
+ * picker offers (and "All countries") is read off it; keptAfterPick keeps the rest.
+ */
+export function keptAfterQuickPick(latest: readonly string[], fallback: readonly string[], offered: readonly string[], shown: readonly string[], next: readonly string[]): string[] {
+  const current = pickerValue(countryChoice(latest, fallback));
+  const inPicker = (c: string) => c === ALL_COUNTRIES_MARK || offered.includes(c);
+  const added = next.filter((c) => inPicker(c) && !shown.includes(c) && !current.includes(c));
+  const removed = shown.filter((c) => inPicker(c) && !next.includes(c));
+  const picked = [...current.filter((c) => inPicker(c) && !removed.includes(c)), ...added];
+  return keptAfterPick(latest, offered, current, picked);
+}
+
 /** What a picker says when it holds no country. */
 export function pickerPlaceholder(choice: CountryChoice): string {
   return choice.kind === "none" ? "No other country: Czech holidays only" : "My countries";

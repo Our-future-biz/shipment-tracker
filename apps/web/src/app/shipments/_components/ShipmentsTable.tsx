@@ -55,6 +55,8 @@ import { addressFiltersKey } from "@/app/shipments/_lib/addressFilters";
 import { keepsToItsAddress, rememberedAfter, type RememberedFilters } from "@/app/shipments/_lib/rememberedFilters";
 import { CustomerCell } from "./CustomerCell";
 import { PersonCell } from "./PersonCell";
+import { personText, type PeopleNames } from "@/app/shipments/_lib/personNames";
+import { usePeopleNames } from "@/app/shipments/_lib/usePeopleNames";
 import { CancelReasonDialog } from "./CancelReasonDialog";
 import { asksCancelReason, cancelOffered, cancelUpdate } from "./cancelReason";
 import { asksBillingRelease } from "./billingRelease";
@@ -133,9 +135,12 @@ const PAGE_SIZE_OPTIONS = [50, 100, 150, 200];
 const CONTAINER_LINK_COLUMNS = new Set(["containerNumber", "containerTypeSummary", "totalTeu"]);
 
 // A cell as text, for filtering and export: the Customs "received" ticks read Yes / No
-// (what the tick shows), an air Full Load Single Shipment, every other column its own value.
-function cellText(shipment: ShipmentItem, key: string): string {
+// (what the tick shows), an air Full Load Single Shipment, Handled By and Holiday Cover the person's
+// name with the e-mail kept in brackets, so a filter finds them by either (mock test S21-061), every
+// other column its own value.
+function cellText(shipment: ShipmentItem, key: string, names: PeopleNames): string {
   if (isReceivedTick(key)) return receivedValue(shipment, key) ? "Yes" : "No";
+  if (key === "personInCharge" || key === "holidayCover") return personText(getFieldValue(shipment, key), names);
   if (key === "commercialInvoiceValue" && shipment.civByCurrency) return shipment.civByCurrency;
   if (key === "status") return statusLabel(shipment.status);
   if (key === "loadType") return loadTypeLabel(shipment.loadType, shipment.freightMode);
@@ -144,12 +149,12 @@ function cellText(shipment: ShipmentItem, key: string): string {
 
 // Export the given shipments to a CSV of the currently visible columns (respects
 // the column view + order).
-function exportShipmentsCsv(rows: ShipmentItem[], visibleKeys: string[]): void {
+function exportShipmentsCsv(rows: ShipmentItem[], visibleKeys: string[], names: PeopleNames): void {
   const cols = visibleKeys
     .map((k) => COLUMN_MAP.get(k))
     .filter((c): c is NonNullable<typeof c> => !!c && c.type !== "popup");
   const headers = cols.map((c) => c.title);
-  const body = rows.map((s) => cols.map((c) => cellText(s, c.key)));
+  const body = rows.map((s) => cols.map((c) => cellText(s, c.key, names)));
   // The shared writer: same encoding, and cells that would run as a spreadsheet formula are escaped.
   downloadCsv(`shipments-${businessToday()}.csv`, [headers, ...body]);
 }
@@ -485,6 +490,8 @@ export const ShipmentsTable = ({
     }
   };
 
+  // The company's users' names: Handled By and Holiday Cover are filtered and exported by them (S21-061).
+  const peopleNames = usePeopleNames();
   // Search and the status bucket are applied server-side (see ShipmentsView), so only the
   // per-column filters are refined here, over the rows the server returned.
   const filtered = useMemo(() => {
@@ -497,9 +504,9 @@ export const ShipmentsTable = ({
         : shipments;
     if (activeFilters.length === 0) return quickRows;
     return quickRows.filter((s) =>
-      activeFilters.every((f) => foldIncludes(cellText(s, f.key), f.value)),
+      activeFilters.every((f) => foldIncludes(cellText(s, f.key, peopleNames), f.value)),
     );
-  }, [shipments, activeFilters, quickColumn, quick]);
+  }, [shipments, activeFilters, quickColumn, quick, peopleNames]);
 
   // Precompute per-row data + whole-row conditional tint once (used by every cell).
   const rowInfo = useMemo(() => {
@@ -1066,7 +1073,7 @@ export const ShipmentsTable = ({
             onResetColumns={resetColumns}
           />
           <button
-            onClick={() => exportShipmentsCsv(filtered, visible)}
+            onClick={() => exportShipmentsCsv(filtered, visible, peopleNames)}
             title="Export the filtered shipments (visible columns) to CSV"
             className={BTN}
           >
@@ -1085,7 +1092,7 @@ export const ShipmentsTable = ({
             icon={<DownloadOutlined />}
             onClick={() => {
               const set = new Set(selectedKeys.map(String));
-              exportShipmentsCsv(shipments.filter((s) => set.has(s.id)), visible);
+              exportShipmentsCsv(shipments.filter((s) => set.has(s.id)), visible, peopleNames);
             }}
           >
             Export CSV

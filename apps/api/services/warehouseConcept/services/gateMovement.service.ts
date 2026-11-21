@@ -59,6 +59,7 @@ import { needsReweigh, REWEIGH_FIRST, reweighOkSql } from "./reweigh";
 import { positionLifecycle } from "./lifecycle";
 import { RECEIPT_FIRST, RECEIPT_STAMP, receiptDateMoveRefusal, receiptMissing } from "./positionReceipt";
 import { correctionNeeded } from "./correction";
+import { checkEditEvents, customsEditEvents, legEditEvents } from "./gateEditEvents";
 import { syncStockForMovement, syncStockForMovements } from "./warehouseStockSync";
 import { houseBlocksRelease, houseContexts, houseReleaseOkSql, isExportContainer, lockHouse, looseReceivedOkSql, positionContainer, releaseHousesForArchive, tallyRequired, type HouseCtx } from "./houses";
 import {
@@ -915,10 +916,22 @@ class GateMovementService {
         detail: `was ${m.freeDays ?? "default"}`,
       });
     }
+    const editBy = patch.updatedBy ?? "";
     await db.transaction(async (tx) => {
-      // The customer as stored now, under the row lock (one taken from the shipment since the load
-      // counts): the dock slots that show it follow the new one.
-      const customerBefore = patch.customer !== undefined ? (await gateMovementRepository.lockLive(tx, [id], companyId))[0]?.customer : undefined;
+      // The row as stored now, under the row lock: a save landing since the load above is what this one changes.
+      const [locked] = await gateMovementRepository.lockLive(tx, [id], companyId);
+      // The customer as stored now (one taken from the shipment since the load counts): the dock slots
+      // that show it follow the new one.
+      const customerBefore = patch.customer !== undefined ? locked?.customer : undefined;
+      // The customs procedure, MRN and customs status, the transport legs and the checklist, as a save
+      // changes them, field by field with what they were (mock test: History logged none of them) - as
+      // stored under the lock, not as loaded before it (mock test run F3, m3).
+      const before = locked ?? m;
+      const editEvents: GateEvent[] = [
+        ...customsEditEvents(before, patch, clockAt, editBy),
+        ...(patch.transportLegs ? legEditEvents(normalizeLegs(before.transportLegs), patch.transportLegs, clockAt, editBy) : []),
+        ...(patch.checklist ? checkEditEvents(before.checklist ?? {}, DEFAULT_CHECKLIST, patch.checklist, clockAt, editBy) : []),
+      ];
       if (directionChanged) {
         // First, under the row lock: still no stamp (one taken meanwhile refuses the change).
         const rebuilt = await gateMovementRepository.conditionalUpdate(
@@ -955,7 +968,7 @@ class GateMovementService {
       }
       if (customerBefore !== undefined) await dockSlotRepository.followCustomer(tx, companyId, id, customerBefore, patch.customer!);
       if (customsChanged) await gateMovementRepository.conditionalUpdate(id, companyId, { releaseGates: setCustomsLineSql(customsLine(input.customsStatus!)) }, undefined, undefined, tx);
-      if (clockEvents.length || linkEvents.length) await gateMovementRepository.appendEvents(id, companyId, [...linkEvents, ...clockEvents], tx);
+      if (clockEvents.length || linkEvents.length || editEvents.length) await gateMovementRepository.appendEvents(id, companyId, [...linkEvents, ...clockEvents, ...editEvents], tx);
       // Figures, customs mode / status, the received date or the operation type may change the
       // stock line and the bonded entry (in this transaction, after the row is updated and locked).
       await syncStockForMovement(tx, companyId, id, { by: patch.updatedBy ?? "", why: "gate record changed" });
@@ -1003,13 +1016,17 @@ class GateMovementService {
     await db.transaction(async (tx) => {
       const [m] = await gateMovementRepository.lockLive(tx, [id], companyId);
       if (!m) throw APIError.notFound("Gate movement not found");
-      const transportLegs = mergeLegChange(normalizeLegs(m.transportLegs), change);
+      const stored = normalizeLegs(m.transportLegs);
+      const transportLegs = mergeLegChange(stored, change);
       if (!transportLegs) throw APIError.failedPrecondition(TRIP_LEG_READ_ONLY);
       const leg = transportLegs.find((l) => l.leg === cargoLeg(m))!;
       const patch: Partial<NewGateMovementRecord> = { transportLegs, carrier: leg.company, driver: leg.driver, plate: leg.plate, updatedBy: by };
       const plateAfter = releasePlate({ handling: m.handling, plate: leg.plate, transportLegs });
       plateLater = !!m.shipmentId && !!m.impRelease && !!plateAfter.trim() && plateAfter !== releasePlate(m);
       await gateMovementRepository.update(id, companyId, patch, tx);
+      // Each field that changed, with what it was as stored under this lock (mock test: History logged no leg edit).
+      const logged = legEditEvents(stored, transportLegs, new Date().toISOString(), by);
+      if (logged.length) await gateMovementRepository.appendEvents(id, companyId, logged, tx);
       await syncStockForMovement(tx, companyId, id, { by, why: "gate record changed" });
       if (plateLater) {
         await shipmentOutboxRepository.enqueue(tx, [outboxRow(m, "plate", m.impRelease ? "impRelease" : "gateOut", { plateNumber: plateAfter.trim() }, userId, role)]);
@@ -1026,11 +1043,25 @@ class GateMovementService {
     if (problem) throw APIError.invalidArgument(problem);
     await this.load(id, companyId);
     const by = await this.userName(userId);
-    const row = await gateMovementRepository.conditionalUpdate(id, companyId, {
-      checklist: sql`${json(DEFAULT_CHECKLIST)} || COALESCE(${t.checklist}, '{}'::jsonb) || ${json({ [change.key]: change.state })}`,
-      updatedBy: by,
+    await db.transaction(async (tx) => {
+      // The icon's state as stored, under the row lock, so its History line says what it really was
+      // (mock test: a checklist click left no trace); a click that changes nothing logs nothing.
+      const [m] = await gateMovementRepository.lockLive(tx, [id], companyId);
+      if (!m) throw APIError.notFound("Gate movement not found");
+      const logged = checkEditEvents(m.checklist ?? {}, DEFAULT_CHECKLIST, { [change.key]: change.state }, new Date().toISOString(), by);
+      const row = await gateMovementRepository.conditionalUpdate(
+        id,
+        companyId,
+        {
+          checklist: sql`${json(DEFAULT_CHECKLIST)} || COALESCE(${t.checklist}, '{}'::jsonb) || ${json({ [change.key]: change.state })}`,
+          updatedBy: by,
+        },
+        logged.length ? logged : undefined,
+        undefined,
+        tx,
+      );
+      if (!row) throw APIError.notFound("Gate movement not found");
     });
-    if (!row) throw APIError.notFound("Gate movement not found");
     return this.get(id, companyId);
   }
 

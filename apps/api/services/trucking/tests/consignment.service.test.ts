@@ -102,7 +102,7 @@ const input = (over: Partial<ConsignmentCreateInput> = {}): ConsignmentCreateInp
 });
 
 /** A consignment straight in the store: booked, or on a trip with the transport order sent. */
-async function seed(over: Partial<TruckingConsignmentRecord> = {}, opts: { trip?: boolean; sent?: boolean } = {}) {
+async function seedAny(over: Partial<TruckingConsignmentRecord> = {}, opts: { trip?: boolean; sent?: boolean } = {}) {
   const trip = opts.trip
     ? await tripRepository.insert(TX, {
         companyId: COMPANY,
@@ -139,6 +139,7 @@ async function seed(over: Partial<TruckingConsignmentRecord> = {}, opts: { trip?
   return { c, trip };
 }
 
+const seed = seedAny;
 const row = (id: string) => store.consignments.find((c) => c.id === id)!;
 
 beforeEach(() => {
@@ -618,6 +619,79 @@ describe("update", () => {
     expect(outboxOf("costs")).toHaveLength(1);
   });
 
+  // Mock test run F2: a new agreed total saved without "Price again" ticked kept the old price unsaid.
+  describe("an agreed price (mock test run F2)", () => {
+    const agreed = (over: Partial<{ total: number; currency: "CZK" | "EUR"; reason: string }> = {}) => ({
+      source: "MANUAL" as const,
+      total: 14500,
+      currency: "CZK" as const,
+      reason: "Agreed with the customer",
+      ...over,
+    });
+    const stored = { source: "MANUAL", total: 14500, totalCzk: 14500, currency: "CZK", lines: [], overrideReason: "Agreed with the customer" } as never;
+    const costsSold = () => outboxOf("costs").map((o) => (o.payload as { selling: { amount: number; currency: string }[] }).selling.map((l) => [l.amount, l.currency]));
+
+    it("a changed total, currency or reason is the new price: saved without Price again, and the job's selling costs follow", async () => {
+      const { c } = await seed({ sell: stored, sellCzk: 14500 });
+      // The same agreed price with another field changed: the price stays, nothing owed to the job's costs.
+      await consignmentService.update(user, c.id, fields({ price: agreed(), pickupDate: "2026-10-19" }));
+      expect(row(c.id)).toMatchObject({ pickupDate: "2026-10-19", sellCzk: 14500 });
+      expect(outboxOf("costs")).toHaveLength(0);
+
+      await consignmentService.update(user, c.id, fields({ version: 2, price: agreed({ total: 13900 }), pickupDate: "2026-10-19" }));
+      expect(row(c.id).sell).toMatchObject({ source: "MANUAL", total: 13900, totalCzk: 13900, currency: "CZK" });
+      expect(row(c.id).sellCzk).toBe(13900);
+      expect(costsSold()).toEqual([[[13900, "CZK"]]]);
+      expect(eventsOf("consignment_updated").at(-1)!.payload).toMatchObject({ summary: "Agreed price changed: 13,900 CZK (manual)" });
+
+      await consignmentService.update(user, c.id, fields({ version: 3, price: agreed({ total: 560, currency: "EUR" }), pickupDate: "2026-10-19" }));
+      expect(row(c.id).sell).toMatchObject({ total: 560, currency: "EUR", totalCzk: 14000 });
+      await consignmentService.update(user, c.id, fields({ version: 4, price: agreed({ total: 560, currency: "EUR", reason: "Price agreed again by phone" }), pickupDate: "2026-10-19" }));
+      expect(row(c.id).sell).toMatchObject({ overrideReason: "Price agreed again by phone" });
+      expect(outboxOf("costs")).toHaveLength(3);
+    });
+
+    it("a changed agreed price alone keeps the promised day: the job is told of no new one (mock test run F2, m2)", async () => {
+      // A day no promise of today's rules would give: re-running them would move it.
+      const { c } = await seed({ sell: stored, sellCzk: 14500, promisedDate: "2026-10-30" });
+      await consignmentService.update(user, c.id, fields({ price: agreed({ total: 13900 }) }));
+      expect(row(c.id)).toMatchObject({ sellCzk: 13900, promisedDate: "2026-10-30" });
+      expect(outboxOf("planned")).toHaveLength(0);
+      // With the pick-up moved it is promised anew, and the job told.
+      await consignmentService.update(user, c.id, fields({ version: 2, price: agreed({ total: 13500 }), pickupDate: "2026-10-19" }));
+      expect(row(c.id).promisedDate).not.toBe("2026-10-30");
+    });
+
+    it("an agreed price where the tariff priced it is taken too; it is still checked as an agreed price", async () => {
+      const { c } = await seed({ sell: { source: "TARIFF", total: 12000, totalCzk: 12000, currency: "CZK", lines: [] } as never });
+      await expect(consignmentService.update(user, c.id, fields({ price: agreed({ reason: "" }) }))).rejects.toMatchObject({ code: "invalid_argument" });
+      await consignmentService.update(user, c.id, fields({ price: agreed({ total: 11000 }) }));
+      expect(row(c.id).sell).toMatchObject({ source: "MANUAL", total: 11000 });
+    });
+
+    it("after the pick-up a changed agreed price is refused, the same one still takes notes", async () => {
+      const { c } = await seed({ sell: stored, sellCzk: 14500, pickedUpAt: new Date(), status: "PICKED_UP" });
+      const delivery = stop({ city: "Brno", postcode: "602 00", notes: "Gate 4" });
+      await expect(consignmentService.update(user, c.id, fields({ delivery, price: agreed({ total: 13000 }) }))).rejects.toMatchObject({
+        code: "failed_precondition",
+        message: "After the pick-up the price cannot change",
+      });
+      expect((await consignmentService.update(user, c.id, fields({ delivery, price: agreed() }))).delivery.notes).toBe("Gate 4");
+    });
+
+    // Y1 / P1 kept: a lower price after the customer invoice goes out as a reprice's does, the whole
+    // new selling set, and Invoicing answers it with a difference line that is a credit owed.
+    it("a lower agreed price after the invoice is pushed as the new selling set, and its credit owed is noticed", async () => {
+      const { c } = await seed({ sell: stored, sellCzk: 14500 });
+      await consignmentService.update(user, c.id, fields({ price: agreed({ total: 14000 }) }));
+      expect(costsSold()).toEqual([[[14000, "CZK"]]]);
+      await recordSellingDifferences({ companyId: COMPANY, consignmentId: c.id }, [{ sourceRef: `trucking:consignment:${c.id}:diff:1`, currency: "CZK", amount: -500 }]);
+      expect((await consignmentService.get(user, c.id)).needsAttention).toContain(
+        "Price change after invoice: −500 CZK on job CZ00000042 — a credit is owed: give it on a credit note of the invoice",
+      );
+    });
+  });
+
   // The link was set at the send to run 30 days past the planned pick-up and only a new send moved
   // it: a pick-up moved later left the haulier with a link that ran out before the POD was due.
   it("a pick-up moved later carries the haulier's link as far, by the send's rule; one moved earlier keeps it", async () => {
@@ -646,6 +720,9 @@ describe("Express fixed date: the day agreed at booking is the promised date", (
   const agreed = { source: "MANUAL" as const, total: 14500, currency: "CZK" as const, reason: "Agreed with the customer" };
   const fixed = (over: Partial<ConsignmentCreateInput> = {}) => input({ serviceLevel: "EXP_FIXED", fixedDeliveryDate: "2026-10-21", price: agreed, ...over });
   const fields = (over: Record<string, unknown> = {}) => ({ ...fixed(), version: 1, reprice: false, ...over });
+  // Stored with the agreed price the edits send, so an edit is not a new agreed price (mock test run F2).
+  const seed = (over: Partial<TruckingConsignmentRecord> = {}) =>
+    seedAny({ sell: { source: "MANUAL", total: 14500, totalCzk: 14500, currency: "CZK", lines: [], overrideReason: agreed.reason } as never, sellCzk: 14500, ...over });
 
   it("is required, a real date and not before the pick-up - refused before anything is priced or stored", async () => {
     await expect(consignmentService.create(user, fixed({ fixedDeliveryDate: null }))).rejects.toMatchObject({

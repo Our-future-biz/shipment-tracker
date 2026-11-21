@@ -78,6 +78,26 @@ export function stillAsDecided(
   return (Object.keys(change) as (keyof HandOverChange)[]).every((field) => current[field].trim() === job[field].trim());
 }
 
+/** The people a job had in the hand-over dialog's preview, as the page sent them (mock test S20-123). */
+export interface HandOverShown {
+  handledBy: string;
+  holidayCover: string;
+}
+
+/**
+ * Whether the job, as the hand-over reads it, still has the people the dialog showed for it in each
+ * field the hand-over writes (mock test S20-123). A Handled By or Holiday Cover changed after the
+ * manager looked - by hand, or by another hand-over - is somebody's newer decision the manager never
+ * saw, so it is left as they made it rather than overwritten. Nothing shown (an older page): not
+ * checked. Compared by e-mail, as handOverChange compares.
+ */
+export function asShown(job: { personInCharge: string; holidayCover: string }, shown: HandOverShown | undefined, target: HandOverTarget): boolean {
+  if (!shown) return true;
+  if (target.handledBy !== null && personEmail(job.personInCharge) !== personEmail(shown.handledBy)) return false;
+  if (target.holidayCover !== null && personEmail(job.holidayCover) !== personEmail(shown.holidayCover)) return false;
+  return true;
+}
+
 export const ALREADY_SO = "Already so: nothing to change";
 export const CHANGED_MEANWHILE = "Changed by somebody else meanwhile: left as they made it";
 export const JOB_NOT_FOUND = "Job not found";

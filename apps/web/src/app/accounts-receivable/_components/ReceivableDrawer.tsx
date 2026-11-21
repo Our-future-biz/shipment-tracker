@@ -16,6 +16,7 @@ import { apiErrorMessage, isNotFound, type interfaces } from "@/lib/api";
 import { formatDate, formatDateTime } from "@/lib/date";
 import { EMPTY, HINT, LINK, MODAL_TITLE, REF, TD, TH } from "@/styles/ui";
 import { ConfirmLine, ReceivableActions, TakeBackPayment, type Actions } from "./ReceivableActions";
+import { PersonName } from "./PersonName";
 import { StatementMenu } from "./StatementMenu";
 import {
   amountText,
@@ -142,7 +143,16 @@ function Facts({ detail, preview }: { detail: ReceivableDetail; preview: ReturnT
       </Fact>
       <Fact label="Document">
         <PdfLink id={r.id} number={r.number} preview={preview} />
-        <div className={HINT}>{r.issuedBy ? `issued by ${r.issuedBy}` : "who issued it is not known"}</div>
+        {/* People by name, the e-mail on hover (mock test run). */}
+        <div className={HINT}>
+          {r.issuedBy ? (
+            <>
+              issued by <PersonName email={r.issuedBy} />
+            </>
+          ) : (
+            "who issued it is not known"
+          )}
+        </div>
       </Fact>
       {showsPromise(r) && (
         <Fact label="Promised to pay by">
@@ -151,8 +161,12 @@ function Facts({ detail, preview }: { detail: ReceivableDetail; preview: ReturnT
         </Fact>
       )}
       <Fact label="People">
-        <div>Person in Charge: {r.personInCharge || "—"}</div>
-        {r.holidayCover && <div>Holiday Cover: {r.holidayCover}</div>}
+        <div>Person in Charge: {r.personInCharge ? <PersonName email={r.personInCharge} /> : "—"}</div>
+        {r.holidayCover && (
+          <div>
+            Holiday Cover: <PersonName email={r.holidayCover} />
+          </div>
+        )}
         <div>Sales Owner: {r.salesOwner || "—"}</div>
       </Fact>
     </div>

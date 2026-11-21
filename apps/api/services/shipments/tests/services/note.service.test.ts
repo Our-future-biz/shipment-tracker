@@ -1,8 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("encore.dev/api", () => import("../../../../lib/tests/encoreApi.stub"));
-vi.mock("../../lib/userEmails", () => ({
-  userEmails: vi.fn(async () => new Map([["u1", "jan@firm.cz"], ["u2", "eva@firm.cz"]])),
+// Who wrote or ticked off a to-do is named by userNames (the name, else the e-mail; mock test of 21 Nov).
+vi.mock("../../../../lib/userNames", () => ({
+  userNames: vi.fn(async () => new Map([["u1", "Jan Novák"], ["u2", "eva@firm.cz"]])),
 }));
 vi.mock("../../repositories/shipmentNote.repository", () => ({
   shipmentNoteRepository: { listByShipmentId: vi.fn(), createForCompany: vi.fn(), updateNote: vi.fn(), deleteNote: vi.fn() },
@@ -66,8 +67,8 @@ describe("noteService", () => {
     const notes = await noteService.list("s1", "c1");
     expect(shipmentService.requireLive).toHaveBeenCalledWith("s1", "c1");
     expect(notes.map((n) => [n.authorName, n.done, n.doneByName])).toEqual([
-      ["jan@firm.cz", false, ""],
-      ["jan@firm.cz", true, "eva@firm.cz"],
+      ["Jan Novák", false, ""],
+      ["Jan Novák", true, "eva@firm.cz"],
     ]);
   });
 
@@ -75,7 +76,7 @@ describe("noteService", () => {
     vi.mocked(repo.createForCompany).mockResolvedValue(row() as never);
     const note = await noteService.create("s1", "c1", "u1", { text: "  Call the depot " });
     expect(repo.createForCompany).toHaveBeenCalledWith("c1", { shipmentId: "s1", text: "Call the depot", details: "", dueDate: null, authorId: "u1" });
-    expect(note.authorName).toBe("jan@firm.cz");
+    expect(note.authorName).toBe("Jan Novák");
   });
 
   it("writes a to-do with its details and deadline", async () => {

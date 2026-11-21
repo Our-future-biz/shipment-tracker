@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-// Who wrote a chat message, uploaded a document or reviewed it for customs is shown by e-mail, as
-// every person is (owner decision, 26 Oct 2026). The services run for real against stand-ins.
+// Who wrote a chat message, uploaded a document or reviewed it for customs is shown by name, the e-mail
+// for a user with none (user council x4, mock test of 21 Nov). The services run for real against stand-ins.
 vi.mock("encore.dev/api", () => import("../../../lib/tests/encoreApi.stub"));
 vi.mock("encore.dev/log", () => ({ default: { warn: vi.fn() } }));
 vi.mock("~encore/clients", () => ({ auth: { usersList: vi.fn() } }));
@@ -43,7 +43,7 @@ describe("userEmails", () => {
 });
 
 describe("documents", () => {
-  it("name the uploader and the customs reviewer by e-mail", async () => {
+  it("name the uploader and the customs reviewer by name", async () => {
     const row = { id: "a1", shipmentId: "s1", companyId: "c1", fileName: "inv.pdf", fileSize: 1, fileType: "application/pdf", createdAt: AT, documentType: "", customsStatus: "approved", customsNote: "", customsReviewedAt: AT };
     vi.mocked(shipmentAttachmentRepository.listByShipmentId).mockResolvedValue([
       { ...row, uploadedById: "u-jan", customsReviewedById: "u-eva" },
@@ -51,19 +51,28 @@ describe("documents", () => {
     ] as never);
     const items = await attachmentService.list("s1", "c1");
     expect(items.map((i) => [i.uploadedByName, i.customsReviewedByName])).toEqual([
-      ["jan@firma.cz", "eva@firma.cz"],
+      ["Jan Novák", "Eva Malá"],
       ["Unknown", ""],
     ]);
   });
 });
 
 describe("chat messages", () => {
-  it("name their author by e-mail", async () => {
+  it("name their author by name", async () => {
     vi.mocked(shipmentCommentRepository.listByShipmentId).mockResolvedValue([
       { id: "m1", shipmentId: "s1", companyId: "c1", authorId: "u-jan", message: "hi", createdAt: AT },
       { id: "m2", shipmentId: "s1", companyId: "c1", authorId: "u-gone", message: "hello", createdAt: AT },
     ] as never);
     const items = await commentService.list("s1", "c1", "u-eva");
-    expect(items.map((i) => i.authorName)).toEqual(["jan@firma.cz", ""]);
+    expect(items.map((i) => i.authorName)).toEqual(["Jan Novák", ""]);
+  });
+
+  it("name an author with no name of their own by e-mail", async () => {
+    vi.mocked(auth.usersList).mockResolvedValue({ users: [{ ...JAN, displayName: "" }] } as never);
+    vi.mocked(shipmentCommentRepository.listByShipmentId).mockResolvedValue([
+      { id: "m1", shipmentId: "s1", companyId: "c1", authorId: "u-jan", message: "hi", createdAt: AT },
+    ] as never);
+    const items = await commentService.list("s1", "c1", "u-eva");
+    expect(items.map((i) => i.authorName)).toEqual(["Jan@Firma.cz"]);
   });
 });

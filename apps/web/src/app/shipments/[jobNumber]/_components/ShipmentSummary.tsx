@@ -9,7 +9,7 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { CopyButton } from "@/components/CopyButton";
 import { CUSTOMS_CLEARED, getActiveStage, getTasksForDirection } from "./taskDefinitions";
 import { EMPTY } from "./detailStyles";
-import { SEA_STAGES, currentStageOf, progressStagesFor, type ProgressStage } from "../freightModeFields";
+import { SEA_STAGES, currentStageOf, modeLabel, progressStagesFor, type ProgressStage } from "../freightModeFields";
 import { CARD, LABEL_TEXT, LINK, PAGE_TITLE, REF } from "@/styles/ui";
 
 interface FactProps {
@@ -44,6 +44,8 @@ export function ShipmentFacts({ shipment }: { shipment: ShipmentItem }) {
   const status = shipment.status ?? "";
   const job = shipment.jobNumber ?? shipment.id;
   const pod = getFieldValue(shipment, "pod");
+  // In the words of the job's mode, as Shipment Details has them: an air job's airports (mock test S21-044).
+  const label = (key: string, sea: string) => modeLabel(key, sea, shipment);
 
   return (
     // Two rows of six on a wide screen, lined up across both rows: Job, Trade Direction, Freight
@@ -86,11 +88,11 @@ export function ShipmentFacts({ shipment }: { shipment: ShipmentItem }) {
           dash
         )}
       </Fact>
-      <Fact label="Port of Loading">{text(getFieldValue(shipment, "pol"))}</Fact>
+      <Fact label={label("pol", "Port of Loading")}>{text(getFieldValue(shipment, "pol"))}</Fact>
       <Fact label="ETD Estimated">
         <span className="tabular-nums text-[14px] font-semibold">{formatDate(shipment.estimatedDeparture) || dash}</span>
       </Fact>
-      <Fact label="Port of Discharge">
+      <Fact label={label("pod", "Port of Discharge")}>
         <span className="min-w-0">
           {/* A block, so a long port is cut short rather than running into the ETA column. */}
           {pod ? <span className="block truncate" title={pod}>{pod}</span> : dash}

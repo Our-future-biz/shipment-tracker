@@ -32,7 +32,7 @@ const events = vi.hoisted(() => ({
 }));
 vi.mock("encore.dev/api", () => import("../../../../lib/tests/encoreApi.stub"));
 vi.mock("encore.dev/log", () => ({ default: { warn: vi.fn(), info: vi.fn() } }));
-vi.mock("../../lib/userEmails", () => ({ userEmails: async () => new Map([["u1", "jana@firma.cz"]]) }));
+vi.mock("../../../../lib/userNames", () => ({ userNames: async () => new Map([["u1", "Jana Nová"]]) }));
 vi.mock("../../repositories/shipment.repository", () => ({ shipmentRepository: shipments }));
 vi.mock("../../repositories/shipmentAudit.repository", () => ({ shipmentAuditRepository: auditRows }));
 vi.mock("../../repositories/shipmentTask.repository", () => ({ shipmentTaskRepository: taskRows }));
@@ -117,6 +117,8 @@ describe("the shipment's tracking", () => {
     const t = await trackingService.get("s1", ACTOR);
     expect(t.changes).toHaveLength(TRACKING_CHANGES_LIMIT);
     expect(t.changesCapped).toBe(true);
+    // Who changed it reads by name, not by e-mail (mock test of 21 Nov).
+    expect(t.changes[0]?.by).toBe("Jana Nová");
   });
 
   it("still answers when Invoicing can't be asked, without saying invoiced or not", async () => {

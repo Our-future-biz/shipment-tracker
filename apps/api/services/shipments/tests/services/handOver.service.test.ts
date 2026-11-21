@@ -100,6 +100,27 @@ describe("handing jobs over", () => {
     expect(result).toEqual({ changed: 2, skipped: [{ shipmentId: id(1), jobNumber: "CZFCL00000001", why: "Could not be changed just now: try this job again" }] });
   });
 
+  it("leaves a job somebody changed after the dialog showed it as they made it - an \"already so\" one too - and hands over the rest (mock test S20-123)", async () => {
+    // The preview showed Jan on all three; meanwhile job 2 went to Petr, and job 3 - shown as already Eva's cover - was given to Petr.
+    jobs.set(id(2), job(2, { personInCharge: "petr@firma.cz" }));
+    jobs.set(id(3), job(3, { holidayCover: "petr@firma.cz" }));
+    const shown = {
+      [id(1)]: { handledBy: "jan@firma.cz", holidayCover: "" },
+      [id(2)]: { handledBy: "jan@firma.cz", holidayCover: "" },
+      [id(3)]: { handledBy: "jan@firma.cz", holidayCover: "eva@firma.cz" },
+    };
+    const meanwhile = "Changed by somebody else meanwhile: left as they made it";
+    const handed = await handOverService.handOver(manager, { shipmentIds: [id(1), id(2)], handledBy: "eva@firma.cz", reason: "Jan is ill", shown });
+    expect(handed).toEqual({ changed: 1, skipped: [{ shipmentId: id(2), jobNumber: "CZFCL00000002", why: meanwhile }] });
+    expect(service.update).toHaveBeenCalledTimes(1);
+    expect(service.update.mock.lastCall![0]).toBe(id(1));
+
+    service.update.mockClear();
+    const covered = await handOverService.handOver(manager, { shipmentIds: [id(3)], holidayCover: "eva@firma.cz", reason: "Jan on holiday", shown });
+    expect(covered).toEqual({ changed: 0, skipped: [{ shipmentId: id(3), jobNumber: "CZFCL00000003", why: meanwhile }] });
+    expect(service.update).not.toHaveBeenCalled();
+  });
+
   it("takes a job named twice once", async () => {
     const result = await handOverService.handOver(manager, { shipmentIds: [id(1), id(1)], handledBy: "eva@firma.cz", reason: "Jan is ill" });
     expect(result.changed).toBe(1);

@@ -28,7 +28,7 @@ import { CLOCK_EVENT_KINDS, FREE_TIME_FROM, clockApplies, clockOf } from "../lib
 import { documentEffect, lastFreeDayChangeOf, readingExternalId, readingPreview } from "../lib/trackingReading";
 import type { ContainerRecord } from "../schemas/container.schema";
 import { DETAILS_REFUSAL } from "../lib/shipmentEditRule";
-import { userEmails } from "../lib/userEmails";
+import { userNames } from "../../../lib/userNames";
 import { containerRepository } from "../repositories/container.repository";
 import { masterJobRepository } from "../repositories/masterJob.repository";
 import { shipmentRepository } from "../repositories/shipment.repository";
@@ -141,7 +141,9 @@ class TrackingService {
       shipmentCustomerNoticeRepository.listByShipmentId(shipmentId, companyId, TRACKING_NOTICES_LIMIT),
       shipmentTaskRepository.listByShipmentId(shipmentId, companyId),
       shipmentService.customsStatusOf(shipment, companyId),
-      userEmails(),
+      // Who recorded or changed something reads by name (the e-mail when a user has none), as the
+      // job page shows people (user council x4, mock test of 21 Nov).
+      userNames(),
       this.invoiced(shipmentId),
       shipmentService.mayChangeDetails(shipment, actor.userID, actor.role),
       containerRepository.listByShipmentId(shipmentId, companyId),

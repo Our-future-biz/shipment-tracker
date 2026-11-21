@@ -94,7 +94,7 @@ import { documentNumber, numberedFileName, savedDocumentName, suggestedDocumentT
 import { mergeReads } from "../_lib/mergeReads";
 import { readEachFile, readFileProblem } from "../_lib/fileReads";
 import { createAndWrite, type ShipmentProgress } from "../_lib/resumeShipment";
-import { houseRefusedAsMade, housesMadeAlready, madeAlreadyNumbers, masterBolToFile, type MadeAlready } from "../_lib/preAlertMadeAlready";
+import { houseRefusedAsMade, housesMadeAlready, housesMasterBolShown, madeAlreadyNumbers, masterBolToFile, type MadeAlready } from "../_lib/preAlertMadeAlready";
 import { missingWm, splitLines, type SplitMethod } from "../_lib/masterInvoice";
 import { MasterInvoiceShipments, type MasterInvoiceShipment } from "./MasterInvoiceShipments";
 import { InvoiceLinesPreview, InvoiceLinesTable } from "./InvoiceLinesTable";
@@ -309,6 +309,8 @@ export function DocumentReadingWorkflow() {
   // with the batch's first shipment.
   const [mblTicked, setMblTicked] = useState<Record<string, boolean>>({});
   const [mblFiled, setMblFiled] = useState(false);
+  // No Master B/L number read: the one the houses agree on is shown ticked, and filed only while it stays so (mock test run F3, m1).
+  const [housesMblTicked, setHousesMblTicked] = useState(true);
   const [masterShipments, setMasterShipments] = useState<Record<string, string>[]>([]);
   const [masterIdx, setMasterIdx] = useState(0);
   const [masterFields, setMasterFields] = useState<ExtractedField[]>([]);
@@ -351,6 +353,17 @@ export function DocumentReadingWorkflow() {
   const activeMcz = masterMode === "existing" ? masterMczExisting : (currentMasterJob?.mczNumber ?? batchJob?.mczNumber ?? newMcz);
   // A new master job's number is only a preview until the server has created it.
   const mczShown = masterMode === "new" && !batchJob ? `${newMcz} (will be assigned)` : activeMcz;
+  // No Master B/L number read: the one the houses agree on, shown in the review like a read one before anything is
+  // created (mock test run F3, m1: it was filed, and its master job taken, unseen). Two houses naming two: none.
+  const housesMbl = masterMode === "new" ? housesMasterBolShown(mblInfo, masterShipments) : "";
+  // Its tick stays as it was once a master job is made with it, or a house is filed under the one found by it.
+  const housesMblLocked = masterCreatedJobs.length > 0 || (!!batchJob && batchJob.id !== mblMasterJob?.id);
+  // The master job found by it is taken only while it is ticked: unticked, a new one is made without the B/L.
+  const toggleHousesMbl = () => {
+    const ticked = !housesMblTicked;
+    setHousesMblTicked(ticked);
+    if (mblMasterJob) setBatchJob(ticked ? { id: mblMasterJob.id, mczNumber: mblMasterJob.number } : null);
+  };
   // Load Type is chosen once per master job; a different one on the MBL can't be filed.
   const mblLoadTypeLocked =
     !!currentMasterJob?.loadType && !!mblInfo?.["Load Type"] && currentMasterJob.loadType !== mblInfo["Load Type"];
@@ -575,12 +588,25 @@ export function DocumentReadingWorkflow() {
   // Where a post is booked on Finance → Accounts Payable (D6), and whether its PDF is kept there (D18).
   const payablesNote = (done: { supplierInvoiceId: string | null; docFiled: boolean }) =>
     done.supplierInvoiceId ? ` Booked on Accounts Payable as Received${done.docFiled ? ", with its PDF" : ""}.` : "";
+  // A master job is named only once it exists (picked, created or found): a new one's number is a
+  // preview until then (mock test run F3: "Master Job MCZ…" named one that was never made).
+  const masterJobNamed = masterMode === "existing" || !!batchJob;
+  // Its Master B/L taken from the houses (none read): said on the summary, as it was not on a Master B/L page.
+  const housesMblNote = housesMbl && housesMblTicked && batchJob ? `Master B/L ${housesMbl} taken from the House B/Ls` : "";
   const successSubtitle =
     destination === "masterjob"
-      ? (masterCreatedJobs.length > 0
-          ? `Under ${activeMcz}: ${masterCreatedJobs.join(", ")}` +
-            (masterDocsSaved > 0 ? ` · ${masterDocsSaved} House B/L${masterDocsSaved !== 1 ? "s" : ""} saved to their shipments' documents` : "")
-          : `Master Job ${activeMcz}`) + (madeBefore.length > 0 ? ` · Created before, not created again: ${madeBefore.join(", ")}` : "")
+      ? [
+          masterCreatedJobs.length > 0
+            ? `Under ${activeMcz}: ${masterCreatedJobs.join(", ")}` +
+              (masterDocsSaved > 0 ? ` · ${masterDocsSaved} House B/L${masterDocsSaved !== 1 ? "s" : ""} saved to their shipments' documents` : "")
+            : masterJobNamed
+              ? `Master Job ${activeMcz}`
+              : "",
+          housesMblNote,
+          madeBefore.length > 0 ? `Created before, not created again: ${madeBefore.join(", ")}` : "",
+        ]
+          .filter(Boolean)
+          .join(" · ")
       : creditNote && splitDone
         ? `${splitDone.written.length > 1 ? "Each has a new buying row" : "It has a new buying row"} with the minus amount.${splitDone.docs > 0 ? ` The credit note is in the documents of ${splitDone.docs} shipment${splitDone.docs !== 1 ? "s" : ""}.` : ""}${payablesNote(splitDone)}`
       : destination === "invoicing" && splitDone
@@ -671,6 +697,7 @@ export function DocumentReadingWorkflow() {
     houseShipments.current.clear();
     setMblInfo(null);
     setMblTicked({});
+    setHousesMblTicked(true);
     setMblFiled(false);
     setMblReadError(null);
     setMasterShipments([]);
@@ -1213,10 +1240,14 @@ export function DocumentReadingWorkflow() {
       pipelineRun.current.batchIndex = 1;
       setMblInfo(info);
       setMblTicked(info ? mblDefaultTicks(info) : {});
+      setHousesMblTicked(true);
       setMblFiled(false);
       setMasterShipments(extracted);
       setMasterDocs(batchDocs(hbl));
       setMasterExisting(housesMadeAlready(hbl));
+      // No Master B/L number read: the server looked for the master job of the houses' common one
+      // (mock test run F3), so a pre-alert read again goes under it too.
+      mblJob = mblJob ?? hbl.existingMasterJob ?? null;
       setMblMasterJob(mblJob);
       // The Master B/L has its master job already (read before): a new batch goes under it, not a new one.
       if (mblJob && masterMode === "new") setBatchJob({ id: mblJob.id, mczNumber: mblJob.number });
@@ -1370,7 +1401,7 @@ export function DocumentReadingWorkflow() {
       let id = masterMode === "existing" ? currentMasterJob!.id : batchJob?.id;
       if (!id) {
         // By its Master B/L: the master job that has it already is the one filed to.
-        const { masterJob } = await createMasterJob.mutateAsync({ masterBolNumber: masterBolToFile(mblInfo, mblTicked) || undefined });
+        const { masterJob } = await createMasterJob.mutateAsync({ masterBolNumber: masterBolToFile(mblInfo, mblTicked, masterShipments, housesMblTicked) || undefined });
         id = masterJob.id;
         setBatchJob({ id: masterJob.id, mczNumber: masterJob.mczNumber });
       }
@@ -1395,7 +1426,7 @@ export function DocumentReadingWorkflow() {
       let job: { mczNumber: string } | null = masterMode === "existing" ? { mczNumber: masterMczExisting } : batchJob;
       if (!job) {
         // By its Master B/L: a pre-alert read again goes under the master job that has it already.
-        const { masterJob } = await createMasterJob.mutateAsync({ masterBolNumber: masterBolToFile(mblInfo, mblTicked) || undefined });
+        const { masterJob } = await createMasterJob.mutateAsync({ masterBolNumber: masterBolToFile(mblInfo, mblTicked, masterShipments, housesMblTicked) || undefined });
         job = { mczNumber: masterJob.mczNumber };
         setBatchJob({ id: masterJob.id, mczNumber: masterJob.mczNumber });
       }
@@ -2306,6 +2337,30 @@ export function DocumentReadingWorkflow() {
                   />
                 )}
 
+                {housesMbl && (
+                  <div className={`mb-3 ${CARD} overflow-hidden`}>
+                    <div className="flex items-start gap-2 px-3 py-2 text-[13px]">
+                      <span className="w-5 shrink-0 pt-0.5">
+                        <Checkbox
+                          checked={housesMblTicked}
+                          disabled={housesMblLocked}
+                          onChange={toggleHousesMbl}
+                          aria-label="File the Master B/L from the houses to the master job"
+                        />
+                      </span>
+                      <span className={`w-[150px] shrink-0 pt-0.5 ${LABEL_TEXT}`}>Master B/L from the houses</span>
+                      <span className="flex-1 min-w-0">
+                        <span className="text-slate-900 font-medium break-words">{housesMbl}</span>
+                        <span className={`block ${HINT}`}>
+                          {housesMblTicked
+                            ? "No Master B/L page was read: every House B/L names this one, and it is filed to the master job"
+                            : "Not filed: the master job is made without a Master B/L"}
+                        </span>
+                      </span>
+                    </div>
+                  </div>
+                )}
+
                 {mblMasterJob && batchJob?.id === mblMasterJob.id && (
                   <p className={`mt-0 mb-3 ${HINT}`}>
                     This Master B/L is on {mblMasterJob.number} already (read before): its shipments are added to it, not to a new master job.
@@ -2328,7 +2383,8 @@ export function DocumentReadingWorkflow() {
                       description={
                         <>
                           It is shipment{" "}
-                          <Link href={`/shipments/${encodeURIComponent(existingHouse.number)}`} className={`${LINK} ${REF}`}>
+                          {/* By its id: the shipment page is found by id, not by job number (mock test S18-141). */}
+                          <Link href={`/shipments/${encodeURIComponent(existingHouse.id)}`} className={`${LINK} ${REF}`}>
                             {existingHouse.number}
                           </Link>
                           , so it is not created again.

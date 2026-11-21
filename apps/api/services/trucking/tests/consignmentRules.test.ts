@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 vi.mock("encore.dev/api", () => import("../../../lib/tests/encoreApi.stub"));
 
 import {
+  agreedPriceChanged,
   attentionReasons,
   cleanFields,
   cleanPin,
@@ -190,5 +191,25 @@ describe("haulier link token", () => {
 
   it("expires 30 days after the planned pick-up", () => {
     expect(linkExpiry("2026-10-16").toISOString()).toBe("2026-11-15T22:59:59.000Z");
+  });
+});
+
+// Mock test run F2: an agreed price that is not the stored one is the new price.
+describe("agreedPriceChanged", () => {
+  const stored = { source: "MANUAL" as const, total: 14500, currency: "CZK" as const, overrideReason: "Agreed by phone" };
+  const agreed = { source: "MANUAL" as const, total: 14500, currency: "CZK" as const, reason: "Agreed by phone" };
+
+  it("is false for the stored agreed price and for the other sources", () => {
+    expect(agreedPriceChanged(agreed, stored)).toBe(false);
+    expect(agreedPriceChanged({ source: "TARIFF" }, stored)).toBe(false);
+    expect(agreedPriceChanged({ source: "QUOTE" }, null)).toBe(false);
+  });
+
+  it("is true for another total, currency or reason, and where no agreed price is stored", () => {
+    expect(agreedPriceChanged({ ...agreed, total: 14000 }, stored)).toBe(true);
+    expect(agreedPriceChanged({ ...agreed, currency: "EUR" }, stored)).toBe(true);
+    expect(agreedPriceChanged({ ...agreed, reason: "Agreed again" }, stored)).toBe(true);
+    expect(agreedPriceChanged(agreed, { ...stored, source: "TARIFF", overrideReason: null })).toBe(true);
+    expect(agreedPriceChanged(agreed, null)).toBe(true);
   });
 });

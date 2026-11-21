@@ -383,6 +383,21 @@ describe("releaseWarning (D20)", () => {
     expect(answer.unpaid).toEqual([{ invoiceId: INV, number: "INV2026CZ00000031-001", leftToPay: 100, currency: "CZK", daysOverdue: 0 }]);
     expect(releaseWarning([row({ status: "credited", leftToPay: -5, paymentTerms: "PREPAYMENT" })], new Map([["c1", 3]]))).toMatchObject({ warn: false, unpaid: [] });
   });
+
+  it("lists only the invoices it warns about, not another payer's on terms with nothing overdue (mock test run)", () => {
+    const answer = releaseWarning(
+      [row({ paymentTerms: "PREPAYMENT" }), row({ invoiceId: "other", number: "INV-OTHER", customerId: "c2", customer: "Other payer s.r.o.", leftToPay: 50 })],
+      new Map(),
+    );
+    expect(answer).toMatchObject({ warn: true, prepayment: true, customer: "Gama Elektro a.s." });
+    expect(answer.unpaid.map((u) => u.invoiceId)).toEqual([INV]);
+    // The other payer with an overdue invoice: theirs is in the warning too.
+    const both = releaseWarning(
+      [row({ paymentTerms: "PREPAYMENT" }), row({ invoiceId: "other", customerId: "c2", customer: "Other payer s.r.o." })],
+      new Map([["c2", 1]]),
+    );
+    expect(both.unpaid.map((u) => u.invoiceId)).toEqual([INV, "other"]);
+  });
 });
 
 describe("the bell (D18)", () => {

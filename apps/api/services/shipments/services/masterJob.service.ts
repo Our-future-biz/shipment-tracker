@@ -195,18 +195,24 @@ class MasterJobService {
   /** The main search (the top bar): the newest live master jobs these words find, with their house counts, and how many in all. */
   async searchMain(companyId: string, search: string, limit: number): Promise<SearchMasterJobsResponse> {
     const { rows, total } = await masterJobRepository.searchMain(companyId, search, limit);
-    const counts = await masterJobRepository.shipmentCounts(rows.map((r) => r.id), companyId);
+    const ids = rows.map((r) => r.id);
+    const [counts, kinds] = await Promise.all([masterJobRepository.shipmentCounts(ids, companyId), masterJobHouseKindsRepository.ofMasterJobs(ids, companyId)]);
     return {
-      items: rows.map((r) => ({
-        id: r.id,
-        mczNumber: r.mczNumber,
-        masterBolNumber: r.masterBolNumber,
-        vessel: r.vessel,
-        voyage: r.voyage,
-        pol: r.pol,
-        pod: r.pod,
-        shipmentCount: counts.get(r.id) ?? 0,
-      })),
+      items: rows.map((r) => {
+        // An old carrier code's place text, as a sea job shows it (mock test S21-041), by the master
+        // job's mode or else its houses' (as toItem); stored as it is.
+        const mode = r.freightMode || masterJobMode("", kinds.get(r.id) ?? []);
+        return {
+          id: r.id,
+          mczNumber: r.mczNumber,
+          masterBolNumber: r.masterBolNumber,
+          vessel: r.vessel,
+          voyage: r.voyage,
+          pol: seaPortText(r.pol, mode),
+          pod: seaPortText(r.pod, mode),
+          shipmentCount: counts.get(r.id) ?? 0,
+        };
+      }),
       total,
     };
   }

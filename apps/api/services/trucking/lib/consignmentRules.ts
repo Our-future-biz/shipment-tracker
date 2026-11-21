@@ -9,6 +9,7 @@ import type {
   ConsignmentPriceInput,
   ConsignmentStatus,
   LoadInput,
+  PriceSnapshot,
   StampKind,
   StopInput,
   TripPriceInput,
@@ -155,6 +156,18 @@ export function cleanPrice(p: ConsignmentPriceInput | TripPriceInput, allowQuote
     return { source, total: roundToStep(total, 0.01), currency, reason: cleanReason((p as { reason?: unknown }).reason, "the reason for the agreed price") };
   }
   throw bad(allowQuote ? "The price source must be TARIFF, QUOTE or MANUAL" : "The price source must be TARIFF or MANUAL");
+}
+
+/**
+ * An edit's agreed price that is not the one stored: another total, currency or reason, or an agreed
+ * price where the stored one came from elsewhere. An agreed price has no source to price it again
+ * from, so a changed one is the new price itself - it was kept silently unless "Price again" was
+ * ticked (mock test run F2). `price` is cleaned (cleanPrice): the total rounded, the reason trimmed.
+ */
+export function agreedPriceChanged(price: ConsignmentPriceInput, stored: Pick<PriceSnapshot, "source" | "total" | "currency" | "overrideReason"> | null): boolean {
+  if (price.source !== "MANUAL") return false;
+  if (!stored || stored.source !== "MANUAL") return true;
+  return price.total !== stored.total || price.currency !== stored.currency || price.reason !== (stored.overrideReason ?? "");
 }
 
 /** The consignment fields of a create or an update, checked and normalised; throws invalid_argument. */

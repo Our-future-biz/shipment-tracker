@@ -10,7 +10,7 @@ vi.mock("encore.dev/api", () => import("../../../../lib/tests/encoreApi.stub"));
 vi.mock("encore.dev/log", () => ({ default: { warn: vi.fn(), error: vi.fn() } }));
 vi.mock("../../repositories/shipmentAttachment.repository", () => ({ shipmentAttachmentRepository: repo }));
 vi.mock("../../storage/attachmentBucket", () => ({ attachmentBucket: bucket }));
-vi.mock("../../lib/userEmails", () => ({ userEmails: async () => new Map() }));
+vi.mock("../../../../lib/userNames", () => ({ userNames: async () => new Map() }));
 vi.mock("../../lib/contentToken", () => ({ attachmentContentUrl: () => "/file", companyOfContentToken: () => "c1" }));
 vi.mock("../../services/shipment.service", () => ({ shipmentService: shipments }));
 

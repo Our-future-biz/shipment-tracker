@@ -774,6 +774,46 @@ describe("gate movement flow", () => {
     await expect(gateMovementService.setCheck(m.id, c, user, { key: "nope" as never, state: "g" })).rejects.toThrow(/Checklist item/);
   });
 
+  it("logs each customs, transport-leg and checklist edit in History with what it was (mock test)", async () => {
+    const c = company();
+    const m = await gateMovementService.create(c, user, { gateRef: "WCZ2026112101", visit: "výdej", customsMode: "SCP" });
+    const logged = async (kind: string) => (await gateMovementService.get(m.id, c)).events.filter((e) => e.kind === kind).map((e) => [e.label, e.detail]);
+
+    await gateMovementService.update(m.id, c, user, { customsMode: "T1", mrn: "26CZ5100008888A1" });
+    // Sent again unchanged: nothing more is logged.
+    await gateMovementService.update(m.id, c, user, { customsMode: "T1", mrn: "26CZ5100008888A1" });
+    expect(await logged("customsEdited")).toEqual([
+      ["Customs procedure: T1", "was SCP"],
+      ["MRN: 26CZ5100008888A1", "was —"],
+    ]);
+
+    await gateMovementService.updateLeg(m.id, c, user, { leg: "OUT", company: "Haulier s.r.o." });
+    await gateMovementService.updateLeg(m.id, c, user, { leg: "OUT", company: "Other s.r.o.", plate: "1AB 2345" });
+    expect(await logged("transportLegEdited")).toEqual([
+      ["OUT leg transport company: Haulier s.r.o.", "was —"],
+      ["OUT leg transport company: Other s.r.o.", "was Haulier s.r.o."],
+      ["OUT leg plate: 1AB 2345", "was —"],
+    ]);
+
+    await gateMovementService.setCheck(m.id, c, user, { key: "ht", state: "g" });
+    await gateMovementService.setCheck(m.id, c, user, { key: "ht", state: "g" });
+    expect(await logged("checklistEdited")).toEqual([["Checklist HT: done", "was pending"]]);
+  });
+
+  it("logs a customs edit with what it was under the lock, not as loaded before a save landing meanwhile (mock test run F3, m3)", async () => {
+    const c = company();
+    const m = await gateMovementService.create(c, user, { gateRef: "WCZ2026112102", visit: "výdej", customsMode: "SCP" });
+    // Another save of the MRN lands between this save's load and its transaction.
+    const transaction = db.transaction.bind(db);
+    const spy = vi.spyOn(db, "transaction").mockImplementationOnce(async (run) => {
+      await gateMovementRepository.update(m.id, c, { mrn: "26CZ5100001111B2" });
+      return transaction(run as never);
+    });
+    await gateMovementService.update(m.id, c, user, { mrn: "26CZ5100002222C3" }).finally(() => spy.mockRestore());
+    const events = (await gateMovementService.get(m.id, c)).events.filter((e) => e.kind === "customsEdited").map((e) => [e.label, e.detail]);
+    expect(events).toEqual([["MRN: 26CZ5100002222C3", "was 26CZ5100001111B2"]]);
+  });
+
   it("verifies the PIN without revealing it and locks after three misses", async () => {
     const c = company();
     const m = await gateMovementService.create(c, user, { gateRef: "WCZ2026091604", visit: "výdej", pin: "4471" });

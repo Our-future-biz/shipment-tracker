@@ -55,9 +55,12 @@ export function useRemeasureAcceptance(shipmentId: string) {
     },
   });
 
+  // `acceptedAt`: the acceptance the warning shows (mock test S20-079). A newer one accepted meanwhile is
+  // refused, and the acceptance is read again, so the warning shows the one still to check.
   const costsChecked = useMutation({
-    mutationFn: () => api.shipments.shipmentRemeasureCostsChecked(shipmentId),
+    mutationFn: (acceptedAt: string) => api.shipments.shipmentRemeasureCostsChecked(shipmentId, { acceptedAt }),
     onSuccess: settle,
+    onError: () => queryClient.invalidateQueries({ queryKey: key }),
   });
 
   return {

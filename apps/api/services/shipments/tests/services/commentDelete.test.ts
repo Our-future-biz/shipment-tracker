@@ -7,7 +7,7 @@ const shipmentService = vi.hoisted(() => ({ requireLive: vi.fn() }));
 vi.mock("encore.dev/api", () => import("../../../../lib/tests/encoreApi.stub"));
 vi.mock("encore.dev/log", () => ({ default: { warn: vi.fn(), error: vi.fn() } }));
 vi.mock("../../../../lib/companyUsers", () => ({ companyUsers: vi.fn(), companyUsersWithRoles: vi.fn() }));
-vi.mock("../../lib/userEmails", () => ({ userEmails: vi.fn() }));
+vi.mock("../../../../lib/userNames", () => ({ userNames: vi.fn(), nameOf: (u: { displayName: string; email: string }) => u.displayName || u.email }));
 vi.mock("../../lib/contentToken", () => ({ attachmentContentUrl: vi.fn() }));
 vi.mock("../../repositories/shipmentComment.repository", () => ({ shipmentCommentRepository: comments }));
 vi.mock("../../repositories/shipmentAttachment.repository", () => ({ shipmentAttachmentRepository: files }));
