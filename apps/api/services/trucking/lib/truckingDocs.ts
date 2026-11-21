@@ -1,7 +1,7 @@
 import { showPostcode, fmt } from "./rateEngine";
 import { formatDay } from "./format";
 import type { CmrDoc, DocLanguage, DocLoad, DocParty, DocStop, TransportOrderDoc } from "./documentTypes";
-import type { LoadInput, PriceSnapshot, StopInput } from "../interfaces/interfaces";
+import type { LoadInput, PriceSnapshot, ServiceLevelCode, StopInput } from "../interfaces/interfaces";
 
 // The transport order and the CMR as plain data (lib/documentTypes.ts), built from a trip, its
 // consignment and the parties. Pure, so every printed line has its test; the PDF builders
@@ -30,19 +30,36 @@ export function windowText(from: string | null, to: string | null): string {
   return from ? `${formatDay(pragueDay(from))}, from ${pragueTime(from)}` : `${formatDay(pragueDay(to!))}, by ${pragueTime(to!)}`;
 }
 
+/**
+ * The day agreed with the customer of an Express fixed date consignment (its promised date), else
+ * null: the haulier is told it on the delivery stop (User Council Q13). Another level's promised
+ * date is our promise to the customer, not a slot for the haulier.
+ */
+export const fixedDeliveryDay = (c: { serviceLevel?: ServiceLevelCode | null; promisedDate?: string | null }): string | null =>
+  c.serviceLevel === "EXP_FIXED" ? (c.promisedDate ?? null) : null;
+
+/**
+ * A stop's window as printed; with none, an Express fixed date's agreed day ("21 Oct 2026"). Its
+ * "by" time is the window's end, so that reads "21 Oct 2026, by 14:00": the window's day first, the
+ * promised date else, as the avizace says it (avizaceRules avizaceTemplate).
+ */
+export const stopWindowText = (s: Pick<StopInput, "windowFrom" | "windowTo">, fixedDay: string | null = null): string =>
+  windowText(s.windowFrom, s.windowTo) || (fixedDay ? formatDay(fixedDay) : "");
+
 const joinNonEmpty = (parts: (string | null | undefined)[], sep = ", ") => parts.map((p) => (p ?? "").trim()).filter(Boolean).join(sep);
 
 /** A CZ postcode as printed ("110 00"); others as stored. */
 const printedPostcode = (postcode: string, country: string) => (country === "CZ" ? showPostcode(postcode) : postcode);
 
-export function docStop(s: StopInput): DocStop {
+/** A stop as printed; `fixedDay` (fixedDeliveryDay) is said on a delivery stop with no window. */
+export function docStop(s: StopInput, fixedDay: string | null = null): DocStop {
   return {
     name: s.name,
     street: s.street,
     postcode: printedPostcode(s.postcode, s.country),
     city: s.city,
     country: s.country,
-    windowText: windowText(s.windowFrom, s.windowTo),
+    windowText: stopWindowText(s, fixedDay),
     contact: joinNonEmpty([s.contactName, s.contactPhone]),
     reference: s.reference,
     notes: s.notes,
@@ -161,7 +178,8 @@ export interface TransportOrderInput {
     buy: PriceSnapshot | null;
   };
   vehicle: { label: string; tailLift: boolean } | null;
-  consignment: { ref: string; jobNumber: string; pickup: StopInput; delivery: StopInput; load: LoadInput };
+  /** With the level and promised date: an Express fixed date's agreed day is printed on the delivery stop */
+  consignment: { ref: string; jobNumber: string; pickup: StopInput; delivery: StopInput; load: LoadInput; serviceLevel?: ServiceLevelCode | null; promisedDate?: string | null };
   /** Typed by the user for this print; printed only */
   pickupPin: string | null;
   /** No PIN: the order says the dispatcher gives it (the haulier portal's copy) */
@@ -181,7 +199,7 @@ export function transportOrderDoc(i: TransportOrderInput): TransportOrderDoc {
     jobNumber: i.consignment.jobNumber,
     plannedPickupDate: i.trip.plannedPickupDate,
     pickup: docStop(i.consignment.pickup),
-    delivery: docStop(i.consignment.delivery),
+    delivery: docStop(i.consignment.delivery, fixedDeliveryDay(i.consignment)),
     load,
     vehicleText: vehicleText(i.vehicle?.label ?? null, i.vehicle?.tailLift ?? false, i.language),
     plates: platesText(i.trip.tractorPlate, i.trip.trailerPlate),

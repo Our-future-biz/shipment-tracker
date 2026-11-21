@@ -1,8 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { CustomerSiteItem } from "@/hooks/useCustomerSites";
 import type { ShipmentItem } from "@/hooks/useShipments";
 import type { SalesQuoteData } from "@/app/sales/_lib/types";
-import dayjs from "dayjs";
+import { businessMoment } from "@/lib/date";
 import type { ConsignmentDetail } from "@/hooks/useTruckingConsignments";
 import {
   consignmentFormProblems,
@@ -113,7 +113,8 @@ describe("requests", () => {
 // Express fixed date had no field for the agreed day, so nothing was promised (User Council T4, Q13).
 describe("Express fixed date", () => {
   const fixed = (over: Partial<ConsignmentForm> = {}): ConsignmentForm => ({ ...valid(), serviceLevel: "EXP_FIXED", pickupDate: "2026-10-16", ...over });
-  const at = (day: string, time: string) => dayjs(`${day}T${time}`).toISOString();
+  // A Prague wall time, as the form keeps the windows.
+  const at = (day: string, time: string) => businessMoment(day, time)!;
 
   it("asks for the fixed delivery date, not before the pick-up; the other levels don't", () => {
     expect(consignmentFormProblems(fixed())).toEqual(["Express fixed date: the fixed delivery date agreed with the customer"]);
@@ -178,6 +179,41 @@ describe("Express fixed date", () => {
     const detail = { ...toCreateRequest(valid()), scope: "FTL", serviceLevel: "EXP_FIXED", promisedDate: "2026-10-21", sell: null, load: valid().load } as unknown as ConsignmentDetail;
     expect(formFromDetail(detail).fixedDeliveryDate).toBe("2026-10-21");
     expect(formFromDetail({ ...detail, serviceLevel: "D1" }).fixedDeliveryDate).toBeNull();
+  });
+});
+
+// The server prints the windows in Prague time: a browser in another zone typed "by 14:00" and the
+// order printed "by 15:00" (London) or "by 16:00" (UTC). The times are Prague wall times wherever the viewer sits.
+describe("time windows in a browser outside Prague", () => {
+  let zone: string | undefined;
+  beforeAll(() => {
+    zone = process.env.TZ;
+    process.env.TZ = "UTC";
+  });
+  afterAll(() => {
+    if (zone === undefined) delete process.env.TZ;
+    else process.env.TZ = zone;
+  });
+  const fixed = (over: Partial<ConsignmentForm> = {}): ConsignmentForm => ({ ...valid(), serviceLevel: "EXP_FIXED", pickupDate: "2026-10-16", ...over });
+
+  it("builds and reads the times as Prague's", () => {
+    expect(new Date("2026-10-21T12:00:00Z").getHours()).toBe(12);
+    const s = valid().delivery;
+    expect(withWindowTimes(s, "2026-10-21", null, "14:00").windowTo).toBe("2026-10-21T12:00:00.000Z");
+    expect(withWindowTimes(s, "2026-01-21", "08:00", null).windowFrom).toBe("2026-01-21T07:00:00.000Z");
+    expect(windowTime("2026-10-21T12:00:00.000Z")).toBe("14:00");
+    // 00:30 on 21 Oct in Prague is still 20 Oct in UTC.
+    const late = { ...s, windowFrom: "2026-10-20T22:30:00.000Z", windowTo: null };
+    expect(windowDay(late)).toBe("2026-10-21");
+    expect(withWindowDay(late, "2026-10-22").windowFrom).toBe("2026-10-21T22:30:00.000Z");
+  });
+
+  it("keeps the fixed date's 'by' time on that Prague day", () => {
+    const f = withFixedDelivery(fixed(), "2026-10-21", "14:00");
+    expect(f.delivery.windowTo).toBe("2026-10-21T12:00:00.000Z");
+    expect(fixedDeliveryTime(f)).toBe("14:00");
+    expect(fixedDeliveryTime({ ...f, delivery: { ...f.delivery, windowTo: "2026-10-20T22:30:00.000Z" } })).toBe("00:30");
+    expect(consignmentFormProblems(fixed({ fixedDeliveryDate: "2026-10-21", delivery: { ...valid().delivery, windowFrom: "2026-10-20T22:30:00.000Z" } }))).toEqual([]);
   });
 });
 

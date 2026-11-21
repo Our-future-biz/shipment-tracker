@@ -29,12 +29,14 @@ vi.mock("../services/rate.service", () => ({ rateService: { rate: vi.fn() }, eur
 vi.mock("../services/settings.service", async () => ({ settingsService: { get: vi.fn(async () => (await import("./truckingFakes")).settings()) } }));
 vi.mock("../services/truckingOutbox.service", () => ({ deliverDue: vi.fn(async () => ({ sent: 0, retry: 0, failed: 0 })) }));
 vi.mock("../lib/users", () => ({ userName: vi.fn(async () => "Jana Nováková") }));
+vi.mock("../storage/documentBucket", () => ({ truckingDocumentBucket: { upload: vi.fn(async () => undefined), remove: vi.fn(async () => undefined), download: vi.fn() } }));
 vi.mock("../lib/transportOrderPdf", () => ({ buildTransportOrderPdf: vi.fn(async () => new Uint8Array([37, 80, 68, 70])) }));
 vi.mock("../lib/cmrPdf", () => ({ buildCmrPdf: vi.fn(async () => new Uint8Array([37, 80, 68, 70])) }));
 vi.mock("../../../lib/email", () => ({ emailConfigured: vi.fn(() => false), sendMail: vi.fn(async () => ({ sent: false, error: "E-mail sending is disabled", providerId: "" })) }));
 
 import { customers, invoicing, sales } from "~encore/clients";
 import { transportOrderService } from "../services/transportOrder.service";
+import { publicOrder } from "../services/publicOrder.service";
 import { haulierService } from "../services/haulier.service";
 import { consignmentRepository } from "../repositories/consignment.repository";
 import { tripRepository } from "../repositories/trip.repository";
@@ -162,6 +164,25 @@ describe("transport order: the document", () => {
     expect(eventsOf("transport_order_printed")[0]!.payload).toMatchObject({ facts: { pinPrinted: true } });
     expect(eventsOf("transport_order_sent")[0]!.payload).toMatchObject({ facts: { pinPrinted: true } });
     expect(store.trips[0]!.pinPrinted).toBe(true);
+  });
+
+  it("Express fixed date: the delivery stop says the agreed day, on the order and the haulier's link, with its 'by' time when one is agreed", async () => {
+    const { trip } = await planned({ serviceLevel: "EXP_FIXED", promisedDate: "2026-10-21" });
+    await transportOrderService.send(user, trip.id, { pickupPin: null, language: "en", to: [], note: "" });
+    expect(lastDoc().delivery.windowText).toBe("21 Oct 2026");
+    const opened = () => ({ link: store.links.find((l) => !l.revokedAt)!, trip: store.trips[0]!, c: store.consignments[0]! });
+    expect(publicOrder(opened(), false).windowText).toEqual({ pickup: "16 Oct 2026, 08:00–12:00", delivery: "21 Oct 2026" });
+    // A "by" time is the delivery window's end, said as the avizace says it.
+    store.consignments[0]!.delivery = { ...store.consignments[0]!.delivery, windowTo: "2026-10-21T12:00:00Z" };
+    await transportOrderService.pdf(user, trip.id, { pickupPin: null, language: "en" });
+    expect(lastDoc().delivery.windowText).toBe("21 Oct 2026, by 14:00");
+    expect(publicOrder(opened(), false).windowText.delivery).toBe("21 Oct 2026, by 14:00");
+    // Another level with no window prints none: its promised date is a promise to the customer, not a slot for the haulier.
+    store.consignments[0]!.delivery = { ...store.consignments[0]!.delivery, windowTo: null };
+    store.consignments[0]!.serviceLevel = "D2";
+    await transportOrderService.pdf(user, trip.id, { pickupPin: null, language: "en" });
+    expect(lastDoc().delivery.windowText).toBe("");
+    expect(publicOrder(opened(), false).windowText.delivery).toBe("");
   });
 
   it("refuses a malformed PIN and an unknown language", async () => {

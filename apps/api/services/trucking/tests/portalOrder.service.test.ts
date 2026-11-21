@@ -264,6 +264,18 @@ describe("order views", () => {
     expect(order.stops[0]!.load).toEqual({ pieces: 10, palletPlaces: 10, ldm: 4, weightKg: 5000, adr: "UN 1203 3 II", tailLift: false });
   });
 
+  it("Express fixed date: the delivery stop says the day agreed with the customer, on an FTL order and a delivery run", async () => {
+    const t = await trip("FTL");
+    await consignment({ tripId: t.id, serviceLevel: "EXP_FIXED", promisedDate: "2026-10-21" });
+    expect((await portalOrderService.get(eva, t.id)).stops.map((s) => [s.kind, s.windowText])).toEqual([
+      ["PICKUP", "15 Oct 2026, 08:00–12:00"],
+      ["DELIVERY", "21 Oct 2026"],
+    ]);
+    const a = await ltl({ serviceLevel: "EXP_FIXED", promisedDate: "2026-10-22" });
+    const { trip: r } = await run("DELIVERY_RUN", [a]);
+    expect((await portalOrderService.get(eva, r.id)).stops[0]!.windowText).toBe("22 Oct 2026");
+  });
+
   it("a pick-up run: one pick-up stop per consignment in stop order, to our warehouse", async () => {
     const a = await ltl();
     const b = await ltl({ pickup: { ...cOfStop("Gama s.r.o.") } });

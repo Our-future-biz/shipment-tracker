@@ -32,14 +32,14 @@ vi.mock("../services/truckingOutbox.service", () => ({
 vi.mock("../lib/users", () => ({ userName: vi.fn(async () => "Jana Nováková") }));
 
 import { customers, quotes, shipments } from "~encore/clients";
-import { consignmentService, tariffRefusal, type ConsignmentCreateInput } from "../services/consignment.service";
+import { consignmentService, countsOf, tariffRefusal, type ConsignmentCreateInput } from "../services/consignment.service";
 import { shipmentChangesService } from "../services/shipmentChanges.service";
 import { tripService } from "../services/trip.service";
 import { APIError } from "../../../lib/tests/encoreApi.stub";
 import { eurRate, rateService } from "../services/rate.service";
 import { consignmentRepository } from "../repositories/consignment.repository";
 import { recordSellingDifferences } from "../services/sellingDifference.service";
-import type { PricedSide, RateLevelResult, RateResponse } from "../interfaces/interfaces";
+import type { ConsignmentListItem, PricedSide, RateLevelResult, RateResponse } from "../interfaces/interfaces";
 import type { TruckingConsignmentRecord } from "../schemas/truckingConsignment.schema";
 import { COMPANY, CUSTOMER, HAULIER, SERVICE_USER, SHIPMENT, eventsOf, load, manager, outboxOf, resetStore, stop, store, tripRepository, user, TX } from "./truckingFakes";
 
@@ -255,6 +255,21 @@ describe("create and price sources", () => {
     expect(d.sell!.lines).toEqual([{ code: "road_freight", label: "Freight", qty: 1, unit: "trip", unitPrice: 15000, amount: 15000 }]);
     expect(d).toMatchObject({ serviceLevel: "D2", buyCzk: 11000, marginCzk: 4000 });
     expect(rateService.rate).not.toHaveBeenCalled();
+  });
+
+  it("an Express fixed date quote booked with no level of its own keeps the agreed day given: the level is the quote's", async () => {
+    const data = quote().quote.data;
+    const fixedQuote = quote({ data: { ...data, roadPricing: { ...data.roadPricing, serviceLevel: "EXP_FIXED" } } });
+    vi.mocked(quotes.salesQuoteGet).mockResolvedValue(fixedQuote as never);
+    const asQuote = { quoteNumber: "QCZ20261010001", serviceLevel: null, price: { source: "QUOTE" as const } };
+    // The day is still asked, once the quote says the level.
+    await expect(consignmentService.create(user, input(asQuote))).rejects.toMatchObject({ message: "Express fixed date needs the fixed delivery date agreed with the customer" });
+    const d = await consignmentService.create(user, input({ ...asQuote, fixedDeliveryDate: "2026-10-21" }));
+    expect(d).toMatchObject({ serviceLevel: "EXP_FIXED", promisedDate: "2026-10-21", promisedFinal: true });
+    // A quote of another level counts its own day: the one given is ignored.
+    store.consignments = [];
+    vi.mocked(quotes.salesQuoteGet).mockResolvedValue(quote() as never);
+    expect((await consignmentService.create(user, input({ ...asQuote, fixedDeliveryDate: "2026-12-24" }))).promisedDate).toBe("2026-10-20");
   });
 
   it("refuses a quote of another customer, a lost one and one not priced from the tariffs", async () => {
@@ -894,9 +909,20 @@ describe("list", () => {
     await seed({ pickupDate: "2026-10-14" }, { trip: true, sent: true });
     await seed({ pickupDate: "2026-10-15" });
     await seed({ pickupDate: "2026-10-12", status: "CANCELLED", cancelledAt: new Date("2026-10-12T08:00:00Z") });
+    // Groupage the customer brings to our warehouse gets no pick-up truck: ordering one cannot clear it.
+    // One we collect does.
+    await seed({ scope: "LTL", selfDelivered: true, lastMile: "OWN_RUN", pickupDate: "2026-10-13" });
+    const collected = await seed({ scope: "LTL", selfDelivered: false, lastMile: "OWN_RUN", pickupDate: "2026-10-13" });
     const { consignments, counts } = await consignmentService.list(user, { view: "pickupPassed" });
-    expect(consignments.map((c) => c.id).sort()).toEqual([booked.c.id, planned.c.id].sort());
-    expect(counts.pickupPassed).toBe(2);
+    expect(consignments.map((c) => c.id).sort()).toEqual([booked.c.id, planned.c.id, collected.c.id].sort());
+    expect(counts.pickupPassed).toBe(3);
+  });
+
+  it("the 'Pick-up date passed' count leaves out a self-delivered groupage consignment", () => {
+    const item = { id: "c1", scope: "LTL", status: "BOOKED", pickupDate: "2026-10-14", needsAttention: [] } as unknown as ConsignmentListItem;
+    const flags = { podMissing: new Set<string>(), avizacePending: new Set<string>(), selfDelivered: new Set(["c1"]) };
+    expect(countsOf([item], "2026-10-15", flags).pickupPassed).toBe(0);
+    expect(countsOf([item], "2026-10-15", { ...flags, selfDelivered: new Set<string>() }).pickupPassed).toBe(1);
   });
   it("gives each row its stamp times and the trip's truck and driver, so the job's Trucking tab needs no call per card", async () => {
     const { c, trip } = await seed({ status: "PICKED_UP", pickedUpAt: new Date("2026-10-15T06:00:00Z") }, { trip: true, sent: true });

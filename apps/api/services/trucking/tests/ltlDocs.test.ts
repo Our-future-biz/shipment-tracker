@@ -113,6 +113,12 @@ describe("LTL documents", () => {
     expect(doc.terms.some((t) => t.includes("dangerous goods"))).toBe(true);
     expect(doc.consignmentRef).toBe("TCZ2026000001, TCZ2026000002");
   });
+
+  it("a delivery run's stop of an Express fixed date says the day agreed with the customer when it has no window", () => {
+    const fixed: DocLeg[] = [{ ...legs[0]!, consignment: consignment("TCZ2026000001", { serviceLevel: "EXP_FIXED", promisedDate: "2026-10-21" }) }, legs[1]!];
+    const doc = ltlTransportOrderDoc({ language: "en", issuedAt: new Date("2026-10-15T08:00:00Z"), ourCompany: EMPTY_PARTY, haulier: EMPTY_PARTY, paymentDays: 30, trip, vehicle: null, hub, legs: fixed, pickupPin: null, podLink: null });
+    expect(doc.stops.map((s) => s.windowText)).toEqual(["21 Oct 2026", ""]);
+  });
 });
 
 describe("costs of LTL trips and partner deliveries", () => {

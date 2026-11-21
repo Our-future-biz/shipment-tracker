@@ -14,7 +14,7 @@ import { stampRefusal, stampTime } from "../lib/consignmentRules";
 import { factsOf } from "../lib/consignmentView";
 import { ltlStampRefusal } from "../lib/ltlRules";
 import { inStopOrder } from "../lib/ltlView";
-import { docStop, platesText } from "../lib/truckingDocs";
+import { docStop, fixedDeliveryDay, platesText } from "../lib/truckingDocs";
 import { depotStop } from "../lib/ltlDocs";
 import { checkUpload } from "../lib/truckingFiles";
 import { cleanText } from "../lib/portalRules";
@@ -279,8 +279,9 @@ class PortalOrderService {
     return {
       ...base,
       stops: o.stops.map((s): PortalStop => {
-        const place = docStop(s.place);
         const lineHaul = o.kind === "LINEHAUL";
+        // The consignee's stop of an Express fixed date says its agreed day, as the transport order prints it.
+        const place = docStop(s.place, s.kind === "DELIVERY" && !lineHaul ? fixedDeliveryDay(s.c) : null);
         return {
           consignmentRef: s.c.ref,
           consignmentId: s.c.id,

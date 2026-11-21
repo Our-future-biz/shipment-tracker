@@ -131,10 +131,16 @@ export function tariffRefusal(reason: string): string {
   return reason;
 }
 
-/** The fields of a create or an update, checked; the fixed delivery date is kept only for Express fixed date. */
+/**
+ * The fields of a create or an update, checked; the fixed delivery date is kept only for Express
+ * fixed date - and while the level is not known yet: priced from a quote with no level of its own,
+ * the consignment takes the quote's, which may be Express fixed date. The level the price gives
+ * then decides (price): the day is checked for Express fixed date and ignored for the others.
+ */
 function fieldsOf(input: ConsignmentFields): ConsignmentFields {
   const f = cleanFields(input);
-  return { ...f, fixedDeliveryDate: f.serviceLevel === FIXED_LEVEL ? (input.fixedDeliveryDate ?? null) : null };
+  const levelFromQuote = !f.serviceLevel && f.price.source === "QUOTE";
+  return { ...f, fixedDeliveryDate: f.serviceLevel === FIXED_LEVEL || levelFromQuote ? (input.fixedDeliveryDate ?? null) : null };
 }
 
 // One live consignment per quote, however it is priced (decision 10): from the quote, or at an
@@ -429,6 +435,7 @@ class ConsignmentService {
     const flags: ViewFlags = {
       podMissing: new Set(rows.filter((c) => podMissing(c, day, extraHolidays)).map((c) => c.id)),
       avizacePending: new Set(rows.filter(avizacePending).map((c) => c.id)),
+      selfDelivered: new Set(rows.filter((c) => c.scope === "LTL" && c.selfDelivered).map((c) => c.id)),
     };
     const listed = rows
       .map((c) => listItem(c, tripFor(c), settings.marginFloor, day, now, ltl.legs, openExceptions.get(c.id) ?? 0, real))
@@ -1549,9 +1556,11 @@ export interface ViewFlags {
   podMissing: ReadonlySet<string>;
   /** Needs an avizace, none recorded, not delivered */
   avizacePending: ReadonlySet<string>;
+  /** Groupage the customer brings to our warehouse: no pick-up leg, so no pick-up truck (ltlRules legKindsFor) */
+  selfDelivered: ReadonlySet<string>;
 }
 
-const NO_FLAGS: ViewFlags = { podMissing: new Set(), avizacePending: new Set() };
+const NO_FLAGS: ViewFlags = { podMissing: new Set(), avizacePending: new Set(), selfDelivered: new Set() };
 
 /** Whether a consignment is in a worklist view. */
 export function inView(i: ConsignmentListItem, view: ConsignmentView, day: string, flags: ViewFlags = NO_FLAGS): boolean {
@@ -1576,8 +1585,9 @@ export function inView(i: ConsignmentListItem, view: ConsignmentView, day: strin
       return i.scope === "FTL" && i.status === "BOOKED" && !i.tripId;
     case "pickupPassed":
       // The dispatcher's most urgent case (User Council T6's other half, mock council R23): the day
-      // has gone and no truck is ordered - no trip yet, or its transport order not sent.
-      return i.pickupDate < day && (i.status === "BOOKED" || i.status === "PLANNED");
+      // has gone and no truck is ordered - no trip yet, or its transport order not sent. Groupage the
+      // customer brings in gets no pick-up truck, so ordering one cannot clear it: it is not counted.
+      return i.pickupDate < day && (i.status === "BOOKED" || i.status === "PLANNED") && !flags.selfDelivered.has(i.id);
   }
 }
 

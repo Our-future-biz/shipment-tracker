@@ -1,10 +1,10 @@
 import { showPostcode } from "./rateEngine";
 import { formatNumber } from "./docFormat";
-import { docLoad, docStop, platesText, say, transportOrderDoc, transportOrderTerms, vehicleText } from "./truckingDocs";
+import { docLoad, docStop, fixedDeliveryDay, platesText, say, transportOrderDoc, transportOrderTerms, vehicleText } from "./truckingDocs";
 import { TRIP_KIND_LABEL } from "./ltlRules";
 import type { DocLanguage, DocLoad, DocParty } from "./documentTypes";
 import type { LabelDoc, LtlTransportOrderDoc, ManifestDoc, ManifestRow, TransportOrderStop } from "./ltlDocumentTypes";
-import type { HubAddress, LegKind, LoadInput, LtlTripKind, PriceSnapshot, StopInput, TripCapacity, TripFill } from "../interfaces/interfaces";
+import type { HubAddress, LegKind, LoadInput, LtlTripKind, PriceSnapshot, ServiceLevelCode, StopInput, TripCapacity, TripFill } from "../interfaces/interfaces";
 
 // What the LTL documents print (lib/ltlDocumentTypes.ts): the manifest of a run or line haul,
 // the piece labels and the transport order with every stop. Built from the trip, its legs in
@@ -18,6 +18,9 @@ export interface DocConsignment {
   pickup: StopInput;
   delivery: StopInput;
   load: LoadInput;
+  /** An Express fixed date's agreed day is printed on its delivery stop (truckingDocs fixedDeliveryDay) */
+  serviceLevel?: ServiceLevelCode | null;
+  promisedDate?: string | null;
 }
 
 /** A leg on the trip with its consignment, in stop order. */
@@ -240,7 +243,8 @@ export function ltlTransportOrderDoc(i: LtlTransportOrderInput): LtlTransportOrd
   const stops: TransportOrderStop[] = i.legs.map((l) => {
     const c = l.consignment;
     const at = l.kind === "PICKUP" ? c.pickup : l.kind === "LINEHAUL" ? depotStop(l.toText, l.toPostcode) : c.delivery;
-    return { ...docStop(at), kind: l.kind === "PICKUP" ? "PICKUP" : "DELIVERY", consignmentRef: c.ref, load: docLoad(c.load) };
+    // A delivery run's stop at the consignee says an Express fixed date's agreed day, as the FTL order does.
+    return { ...docStop(at, l.kind === "DELIVERY" ? fixedDeliveryDay(c) : null), kind: l.kind === "PICKUP" ? "PICKUP" : "DELIVERY", consignmentRef: c.ref, load: docLoad(c.load) };
   });
   return {
     ...base,

@@ -56,6 +56,7 @@ export interface PortalStop {
   street: string;
   postcode: string;
   city: string;
+  /** In Prague time, as the transport order prints it; an Express fixed date's delivery with no window says the agreed day ("21 Oct 2026") */
   windowText: string;
   contact: string;
   reference: string;

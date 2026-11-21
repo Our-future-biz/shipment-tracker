@@ -1,4 +1,4 @@
-import dayjs from "dayjs";
+import { businessDayOf, businessMoment, businessTime } from "@/lib/date";
 import type { ConsignmentCreate, ConsignmentDetail, ConsignmentScope, ConsignmentUpdate, LastMile, LoadInput, StopInput } from "@/hooks/useTruckingConsignments";
 import type { CustomerSiteItem } from "@/hooks/useCustomerSites";
 import type { ShipmentItem } from "@/hooks/useShipments";
@@ -254,15 +254,14 @@ export function formFromDetail(c: ConsignmentDetail): ConsignmentForm {
 export function fixedDeliveryTime(f: Pick<ConsignmentForm, "fixedDeliveryDate" | "delivery">): string | null {
   const to = f.delivery.windowTo;
   if (!to || !f.fixedDeliveryDate) return null;
-  const end = dayjs(to);
-  return end.format("YYYY-MM-DD") === f.fixedDeliveryDate ? end.format("HH:mm") : null;
+  return businessDayOf(to) === f.fixedDeliveryDate ? windowTime(to) : null;
 }
 
 /** The form with the fixed delivery date and its optional time: the time is the delivery window's end and moves with the day. */
 export function withFixedDelivery(f: ConsignmentForm, date: string | null, time: string | null): ConsignmentForm {
   const ours = fixedDeliveryTime(f) !== null;
   let windowTo = f.delivery.windowTo;
-  if (date && time) windowTo = dayjs(`${date}T${time}`).toISOString();
+  if (date && time) windowTo = atDay(date, time);
   else if (date && ours) windowTo = null;
   // The delivery's time window is on the fixed date: a start typed for another day moves with it.
   return { ...f, fixedDeliveryDate: date, delivery: withWindowDay({ ...f.delivery, windowTo }, date) };
@@ -271,17 +270,17 @@ export function withFixedDelivery(f: ConsignmentForm, date: string | null, time:
 // A stop's time window is a from–to time on the stop's day (user council T17: a date-range picker
 // offered days, not hours, and dropped a clicked day until OK was pressed). The pick-up's day is the
 // planned pick-up, an Express fixed date's delivery day is that date; any other delivery day is picked.
+// The days and times are Prague's, wherever the browser sits: the server prints them in Prague time.
 
-/** The day (YYYY-MM-DD) the stop's window is on, or null when it has none. */
+/** The day (YYYY-MM-DD, Prague) the stop's window is on, or null when it has none. */
 export function windowDay(s: Pick<StopInput, "windowFrom" | "windowTo">): string | null {
-  const at = s.windowFrom ?? s.windowTo;
-  return at ? dayjs(at).format("YYYY-MM-DD") : null;
+  return businessDayOf(s.windowFrom ?? s.windowTo) || null;
 }
 
-/** "HH:mm" of a window end, or null. */
-export const windowTime = (at: string | null): string | null => (at ? dayjs(at).format("HH:mm") : null);
+/** "HH:mm" (Prague) of a window end, or null. */
+export const windowTime = (at: string | null): string | null => businessTime(at) || null;
 
-const atDay = (day: string, time: string | null) => (time ? dayjs(`${day}T${time}`).toISOString() : null);
+const atDay = (day: string, time: string | null) => (time ? businessMoment(day, time) : null);
 
 /** The stop with its window set to these times on `day` (a missing time leaves that end open). */
 export function withWindowTimes<S extends StopInput>(s: S, day: string, from: string | null, to: string | null): S {
@@ -302,7 +301,7 @@ function fixedDateProblems(f: ConsignmentForm, missingAllowed: boolean): string[
   if (!day || !/^\d{4}-\d{2}-\d{2}$/.test(day)) return ["Express fixed date: the fixed delivery date agreed with the customer"];
   if (day < f.pickupDate) return ["The fixed delivery date cannot be before the pick-up"];
   const { windowFrom, windowTo } = f.delivery;
-  const off = (windowFrom && dayjs(windowFrom).format("YYYY-MM-DD") > day) || (windowTo && dayjs(windowTo).format("YYYY-MM-DD") < day);
+  const off = (windowFrom && businessDayOf(windowFrom) > day) || (windowTo && businessDayOf(windowTo) < day);
   return off ? ["Delivery: the time window is not on the fixed delivery date"] : [];
 }
 

@@ -13,7 +13,7 @@ import { ltlTripStatus } from "../lib/ltlRules";
 import { factsOf } from "../lib/consignmentView";
 import { hashToken, looksLikeToken, tokenMatches } from "../lib/haulierToken";
 import { checkUpload } from "../lib/truckingFiles";
-import { windowText } from "../lib/truckingDocs";
+import { fixedDeliveryDay, stopWindowText } from "../lib/truckingDocs";
 import { serviceActor } from "../../../lib/outbox/serviceIdentity";
 import { truckingOutboxRepository } from "../repositories/truckingOutbox.repository";
 import { consignmentService, owed } from "./consignment.service";
@@ -49,8 +49,9 @@ export function publicOrder(o: Opened, podUploaded: boolean): PublicTransportOrd
     plannedPickupDate: trip.plannedPickupDate,
     pickup: publicStop(c.pickup),
     delivery: publicStop(c.delivery),
-    // Worded here, in Prague time: a haulier's phone may be set to another time zone.
-    windowText: { pickup: windowText(c.pickup.windowFrom, c.pickup.windowTo), delivery: windowText(c.delivery.windowFrom, c.delivery.windowTo) },
+    // Worded here, in Prague time: a haulier's phone may be set to another time zone. An Express
+    // fixed date's agreed day is said on the delivery, as the transport order prints it.
+    windowText: { pickup: stopWindowText(c.pickup), delivery: stopWindowText(c.delivery, fixedDeliveryDay(c)) },
     load: c.load,
     agreedPrice: trip.buy ? { total: trip.buy.total, currency: trip.buy.currency } : null,
     status,

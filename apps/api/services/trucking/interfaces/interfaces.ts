@@ -902,7 +902,11 @@ export interface PublicTransportOrder {
   plannedPickupDate: string;
   pickup: Omit<Stop, "id" | "siteId">;
   delivery: Omit<Stop, "id" | "siteId">;
-  /** The stops' windows in our words and in Prague time, as the transport order prints them ("16 Oct 2026, 08:00–12:00"; "" for none) */
+  /**
+   * The stops' windows in our words and in Prague time, as the transport order prints them ("16 Oct
+   * 2026, 08:00–12:00"; "" for none). An Express fixed date's delivery with no window says the day
+   * agreed with the customer ("21 Oct 2026"; with its "by" time "21 Oct 2026, by 14:00").
+   */
   windowText: { pickup: string; delivery: string };
   load: LoadInput;
   /** The BUY price only */
@@ -914,7 +918,8 @@ export interface PublicTransportOrder {
 
 /**
  * podMissing = delivered more than 2 working days ago without POD; openFtl = booked FTL not yet on a trip;
- * pickupPassed = the pick-up day gone and the truck not ordered yet (BOOKED / PLANNED; mock council R23)
+ * pickupPassed = the pick-up day gone and the truck not ordered yet (BOOKED / PLANNED; mock council R23),
+ * not groupage the customer brings to our warehouse (it gets no pick-up truck)
  */
 export type ConsignmentView = "attention" | "pickupToday" | "deliveryToday" | "podMissing" | "readyToBill" | "avizacePending" | "openExceptions" | "openFtl" | "pickupPassed";
 

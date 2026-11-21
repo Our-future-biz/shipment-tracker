@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addDays, businessDateTime, businessDay, businessDayOf, businessTime } from "./date";
+import { addDays, businessDateTime, businessDay, businessDayOf, businessMoment, businessTime } from "./date";
 
 describe("company-calendar dates and times (Prague)", () => {
   it("gives the Prague day of a moment, also just after midnight there", () => {
@@ -15,6 +15,13 @@ describe("company-calendar dates and times (Prague)", () => {
     expect(businessTime("2026-01-14T12:05:00Z")).toBe("13:05");
     expect(businessDateTime("2026-10-14T23:30:00Z")).toBe("15.10.2026 01:30");
     expect(businessTime(null)).toBe("");
+  });
+
+  it("gives the moment of a Prague wall time, in summer and winter time", () => {
+    expect(businessMoment("2026-10-21", "14:00")).toBe("2026-10-21T12:00:00.000Z");
+    expect(businessMoment("2026-01-21", "14:00")).toBe("2026-01-21T13:00:00.000Z");
+    expect(businessMoment("2026-10-15", "01:30")).toBe("2026-10-14T23:30:00.000Z");
+    expect(businessMoment("", "14:00")).toBeNull();
   });
 
   it("moves a day across month and year ends", () => {

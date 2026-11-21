@@ -1,4 +1,9 @@
 import dayjs from "dayjs";
+import utc from "dayjs/plugin/utc";
+import timezone from "dayjs/plugin/timezone";
+
+dayjs.extend(utc);
+dayjs.extend(timezone);
 
 // Unified date display for the app. Values are STORED as ISO ("YYYY-MM-DD" or a
 // full ISO timestamp); these helpers turn them into the Czech display format.
@@ -79,6 +84,17 @@ export function businessTime(at: string | Date | null | undefined): string {
   if (!at) return "";
   const d = at instanceof Date ? at : new Date(at);
   return Number.isNaN(d.getTime()) ? "" : pragueTime.format(d);
+}
+
+/**
+ * The moment (ISO) of a time on a day of the company's calendar and clock: "14:00" on 2026-10-21
+ * is 14:00 in Prague wherever the viewer sits, as the server prints it back. null for an unreadable one.
+ */
+export function businessMoment(day: string, time: string): string | null {
+  // dayjs.tz throws on an unreadable one rather than giving an invalid date.
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day) || !/^\d{2}:\d{2}$/.test(time)) return null;
+  const at = dayjs.tz(`${day} ${time}`, "YYYY-MM-DD HH:mm", "Europe/Prague");
+  return at.isValid() ? at.toISOString() : null;
 }
 
 /** "05.03.2026 14:05" — a moment on the company's calendar and clock; "" for none or an invalid one. */
