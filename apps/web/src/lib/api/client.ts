@@ -11082,7 +11082,34 @@ export namespace controllers {
          */
         confirmed: boolean
 
-        answers: interfaces.ImportInstructionAnswers
+        /**
+         * Partial: a page opened before a question was added (who pays the duty and VAT, the delivery notes) sends
+         * no key for it, and its form is still taken as it was (lib/importInstructions normalizeAnswers,
+         * answersProblem) rather than refused before it is read.
+         */
+        answers: {
+            procedure?: "" | "free_circulation" | "t1" | "other" | "own_broker"
+            dutyPaidBy?: "" | "us" | "own_account"
+            bank?: string
+            accountNumber?: string
+            t1Office?: string
+            otherProcedure?: string
+            tariffCode?: string
+            description?: string
+            whatIsIt?: string
+            madeOf?: string
+            usedFor?: string
+            deliveryAddress?: string
+            deliveryContact?: string
+            deliveryPhone?: string
+            deliveryNotes?: string
+            billingAddress?: string
+            eori?: string
+            companyId?: string
+            vatId?: string
+            name?: string
+            telephone?: string
+        }
     }
 
     export interface PublicRegistrationSearchRequest {

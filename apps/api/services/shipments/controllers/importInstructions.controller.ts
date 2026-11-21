@@ -64,7 +64,12 @@ interface PublicImportInstructionsSubmitRequest {
   token: string;
   /** Must be true: the form's tick box. */
   confirmed: boolean;
-  answers: ImportInstructionAnswers;
+  /**
+   * Partial: a page opened before a question was added (who pays the duty and VAT, the delivery notes) sends
+   * no key for it, and its form is still taken as it was (lib/importInstructions normalizeAnswers,
+   * answersProblem) rather than refused before it is read.
+   */
+  answers: Partial<ImportInstructionAnswers>;
 }
 
 export const publicImportInstructionsSubmit = api(

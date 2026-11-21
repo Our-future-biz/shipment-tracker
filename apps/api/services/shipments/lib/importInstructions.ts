@@ -1,4 +1,5 @@
 import type { ImportInstructionAnswers, ImportInstructionChange, ImportInstructionShipmentValues } from "../interfaces/importInstructions";
+import { normaliseBankAccount } from "../../../lib/bankAccount";
 
 // The Import Instructions a customer fills in through a link. Pure, so it is unit-tested.
 
@@ -83,23 +84,16 @@ export function normalizeAnswers(raw: Partial<ImportInstructionAnswers>): Import
   };
 }
 
-export const ACCOUNT_FORMAT_PROBLEM = "Enter the account number as 19-2000145399/0800 or as an IBAN";
+export const ACCOUNT_FORMAT_PROBLEM = "Check the account number: write it as 19-2000145399/0800 or as an IBAN";
 
 /**
  * Whether an account number reads as one: a Czech account (prefix-number/bank code, the prefix optional, as
- * 19-2000145399/0800) or an IBAN whose own check digits add up (ISO 13616: the number mod 97 is 1). The form
- * is public, so anything else is refused rather than kept.
+ * 19-2000145399/0800, spaces anywhere) whose prefix and number pass the Czech National Bank's mod-11 check,
+ * the number not all zeros, or an IBAN whose own check digits add up (ISO 13616: mod 97 is 1) - the check
+ * the VAT register's accounts get (lib/bankAccount). So one digit mistyped is refused on either form: it is
+ * the account the duty and VAT are paid from. The form is public, so anything else is refused rather than kept.
  */
-export function isAccountNumber(value: string): boolean {
-  const v = value.trim();
-  if (/^(\d{1,6}-)?\d{2,10}\/\d{4}$/.test(v)) return true;
-  const iban = v.replace(/\s+/g, "").toUpperCase();
-  if (!/^[A-Z]{2}\d{2}[A-Z0-9]{11,30}$/.test(iban)) return false;
-  const digits = (iban.slice(4) + iban.slice(0, 4)).replace(/[A-Z]/g, (c) => String(c.charCodeAt(0) - 55));
-  let rest = 0;
-  for (const d of digits) rest = (rest * 10 + Number(d)) % 97;
-  return rest === 1;
-}
+export const isAccountNumber = (value: string): boolean => normaliseBankAccount(value) !== null;
 
 /** We classify the goods from the three questions: when no tariff code is given and we clear them. */
 export const needsClassification = (a: Pick<ImportInstructionAnswers, "procedure" | "tariffCode">): boolean => !a.tariffCode && a.procedure !== "own_broker";
@@ -194,7 +188,9 @@ export function shipmentProcedureOf(procedure: ImportInstructionAnswers["procedu
 
 /**
  * What approved answers write to the shipment: only fields still empty, nothing already filled in is
- * replaced - but for the consignee's Contact, which follows the delivery telephone written, also cleared when the form names no contact (M5). A T1 office is written only under a T1. The delivery contact, telephone and notes go beside the
+ * replaced - but for the consignee's Contact, which goes with the delivery telephone: replaced by the form's
+ * contact when the form's phone is written, cleared when the form names no contact with it (M5), and left as
+ * it is when the job keeps another phone. A T1 office is written only under a T1. The delivery contact, telephone and notes go beside the
  * Delivery Address (the consignee's Contact, Delivery Phone, Delivery Notes), so they reach whoever plans
  * the delivery and the Trucking order made from the job (User Council E5).
  */
@@ -213,11 +209,17 @@ export function fieldsToFill(shipment: ImportInstructionShipmentValues, a: Impor
   // with it and replaces a different one - and with no contact on the form, the one there is cleared, so
   // no other name stands beside the warehouse phone (system-21 mock council review); otherwise the Contact
   // is filled only when empty, as before.
+  // The form's contact named beside a telephone the job has already (another one, not written) is that
+  // other phone's no more than the brought Contact is the form's: it is left out, so the pair on the job stays
+  // one (system-21 review). A contact the form gives with no phone, or with the job's own phone, fills an
+  // empty Contact as before.
   const writesPhone = !shipment.deliveryPhone.trim() && !!a.deliveryPhone;
+  const phoneOf = (v: string) => v.replace(/\s+/g, "");
+  const otherPhoneKept = !writesPhone && !!a.deliveryPhone && phoneOf(a.deliveryPhone) !== phoneOf(shipment.deliveryPhone);
   if (writesPhone) out.deliveryPhone = a.deliveryPhone;
   if (writesPhone && !a.deliveryContact.trim()) {
     if (shipment.consigneeContact.trim()) out.consigneeContact = "";
-  } else if (a.deliveryContact && (writesPhone ? shipment.consigneeContact.trim() !== a.deliveryContact : !shipment.consigneeContact.trim())) out.consigneeContact = a.deliveryContact;
+  } else if (a.deliveryContact && !otherPhoneKept && (writesPhone ? shipment.consigneeContact.trim() !== a.deliveryContact : !shipment.consigneeContact.trim())) out.consigneeContact = a.deliveryContact;
   if (!shipment.deliveryNotes.trim() && a.deliveryNotes) out.deliveryNotes = a.deliveryNotes;
   return out;
 }

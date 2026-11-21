@@ -16,7 +16,7 @@ describe("who pays the duty and VAT, and the bank (Q16)", () => {
 
 describe("the Import Instructions' account number", () => {
   it("is a Czech account, the prefix optional", () => {
-    for (const v of ["19-2000145399/0800", "2000145399/0800", " 123456789/0300 "]) expect(isAccountNumber(v)).toBe(true);
+    for (const v of ["19-2000145399/0800", "2000145399/0800", " 19-2000145399 / 0800 "]) expect(isAccountNumber(v)).toBe(true);
   });
 
   it("is an IBAN whose check digits add up, spaces and case aside", () => {
@@ -27,5 +27,7 @@ describe("the Import Instructions' account number", () => {
 
   it("is nothing else", () => {
     for (const v of ["", "TEST-0000000000/0000", "2000145399", "2000145399/08", "CZ65"]) expect(isAccountNumber(v)).toBe(false);
+    // One digit mistyped, or all zeros: refused as the server refuses it (the Czech mod-11 check).
+    for (const v of ["19-2000145398/0800", "18-2000145399/0800", "2000145398/0800", "0000000000/0000", "00-00/0000"]) expect(isAccountNumber(v)).toBe(false);
   });
 });

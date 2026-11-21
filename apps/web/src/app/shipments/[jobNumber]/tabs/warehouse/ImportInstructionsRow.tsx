@@ -198,7 +198,7 @@ function ReviewModal({ state, readOnly, busy, onClose, onApprove, onReject }: Re
       {!readOnly && (
         <div className="border-t border-slate-200 pt-3 mt-2">
           <div className={`${LABEL_TEXT} mb-1`}>On the shipment now</div>
-          <p className={`${HINT} mt-0 mb-2`}>Approving fills only the empty ones. What is filled in already stays.</p>
+          <p className={`${HINT} mt-0 mb-2`}>Approving fills only the empty ones. What is filled in already stays, but for the consignee&apos;s Contact: it goes with the delivery telephone, so when the form&apos;s telephone is written, the form&apos;s contact replaces it (or clears it, when the form names none).</p>
           <dl className="m-0 grid grid-cols-[150px_1fr] gap-y-1 text-[13px]">
             {COMPARED.map((c) => (
               <div key={c.key} className="contents">

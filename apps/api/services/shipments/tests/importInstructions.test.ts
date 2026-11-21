@@ -65,7 +65,11 @@ describe("the form", () => {
 
 describe("an account number", () => {
   it("is a Czech account, the prefix optional", () => {
-    for (const v of ["19-2000145399/0800", "2000145399/0800", " 123456789/0300 ", "000019-2000145399/0800"]) expect(isAccountNumber(v)).toBe(true);
+    for (const v of ["19-2000145399/0800", "2000145399/0800", " 19-2000145399 / 0800 ", "000019-2000145399/0800"]) expect(isAccountNumber(v)).toBe(true);
+  });
+
+  it("is refused with one digit mistyped or all zeros: the Czech mod-11 check, as an IBAN's mod 97", () => {
+    for (const v of ["19-2000145398/0800", "18-2000145399/0800", "2000145398/0800", "0000000000/0000", "00-00/0000"]) expect(isAccountNumber(v)).toBe(false);
   });
 
   it("is an IBAN whose check digits add up, spaces and case aside", () => {
@@ -148,6 +152,10 @@ describe("what an approved form writes to the shipment", () => {
     expect(fieldsToFill({ ...empty, consigneeContact: "Petr Skladník" }, answers({ deliveryContact: "Petr Skladník", deliveryPhone: "+420 602" })).consigneeContact).toBeUndefined();
     // The job already has a phone, so none is written and the Contact stays as it is.
     expect(fieldsToFill({ ...picked, deliveryPhone: "+420 1" }, answers({ deliveryContact: "Petr Skladník", deliveryPhone: "+420 602" }))).not.toHaveProperty("consigneeContact");
+    // The job keeps another phone and has no Contact: the form's contact is that phone's no more - left out;
+    // with the job's own phone (spaces aside) it fills the empty Contact.
+    expect(fieldsToFill({ ...empty, deliveryPhone: "+420 777" }, answers({ deliveryContact: "Petr Skladník", deliveryPhone: "+420 602" }))).not.toHaveProperty("consigneeContact");
+    expect(fieldsToFill({ ...empty, deliveryPhone: "+420 602" }, answers({ deliveryContact: "Petr Skladník", deliveryPhone: "+420602" })).consigneeContact).toBe("Petr Skladník");
     // No phone on the form: the Contact is filled only when empty.
     expect(fieldsToFill(picked, answers({ deliveryContact: "Petr Skladník" })).consigneeContact).toBeUndefined();
     expect(fieldsToFill(empty, answers({ deliveryContact: "Petr Skladník" })).consigneeContact).toBe("Petr Skladník");

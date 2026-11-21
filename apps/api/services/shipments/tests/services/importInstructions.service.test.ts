@@ -173,7 +173,7 @@ describe("the customer's page", () => {
   });
 
   it("takes the answer of a page opened before the duty question, but refuses its account when it reads as none", async () => {
-    await expect(service.submit(token, { confirmed: true, answers }, NOW)).rejects.toMatchObject({ code: "invalid_argument", message: "Enter the account number as 19-2000145399/0800 or as an IBAN" });
+    await expect(service.submit(token, { confirmed: true, answers }, NOW)).rejects.toMatchObject({ code: "invalid_argument", message: "Check the account number: write it as 19-2000145399/0800 or as an IBAN" });
     expect(repository.submit).not.toHaveBeenCalled();
     await service.submit(token, { confirmed: true, answers: { ...(answers as object), accountNumber: "19-2000145399/0800" } as never }, NOW);
     expect(repository.submit).toHaveBeenCalledOnce();
@@ -230,15 +230,21 @@ describe("answering", () => {
   });
 
   it("gives the job the delivery contact, telephone and notes, where it has none (E5)", async () => {
+    vi.mocked(shipmentRepository.getByIdForCompany).mockResolvedValue(shipment({ hsCode: "9999" }));
+    await service.approve(ID, pic, { ...(answers as object), deliveryContact: "Petr", deliveryPhone: "+420 602", deliveryNotes: "Mon-Fri 8-14" } as never, NOW);
+    expect(shipmentService.update).toHaveBeenCalledWith(ID, COMPANY, { customsProcedure: "JSD", consigneeContact: "Petr", deliveryPhone: "+420 602", deliveryNotes: "Mon-Fri 8-14" }, PIC, "user");
+  });
+
+  it("never names the form's contact beside another phone the job keeps: the pair on the job stays one (M5, system-21 review)", async () => {
     vi.mocked(shipmentRepository.getByIdForCompany).mockResolvedValue(shipment({ hsCode: "9999", deliveryPhone: "+420 111" }));
     await service.approve(ID, pic, { ...(answers as object), deliveryContact: "Petr", deliveryPhone: "+420 602", deliveryNotes: "Mon-Fri 8-14" } as never, NOW);
-    expect(shipmentService.update).toHaveBeenCalledWith(ID, COMPANY, { customsProcedure: "JSD", consigneeContact: "Petr", deliveryNotes: "Mon-Fri 8-14" }, PIC, "user");
+    expect(shipmentService.update).toHaveBeenCalledWith(ID, COMPANY, { customsProcedure: "JSD", deliveryNotes: "Mon-Fri 8-14" }, PIC, "user");
   });
 
   it("refuses an account that reads as none when the duty is paid from it", async () => {
     await expect(service.approve(ID, pic, { ...(answers as object), dutyPaidBy: "own_account", accountNumber: "TEST-0000000000/0000" } as never)).rejects.toMatchObject({
       code: "invalid_argument",
-      message: "Enter the account number as 19-2000145399/0800 or as an IBAN",
+      message: "Check the account number: write it as 19-2000145399/0800 or as an IBAN",
     });
     expect(repository.decide).not.toHaveBeenCalled();
   });
