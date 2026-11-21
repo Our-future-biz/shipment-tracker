@@ -40,7 +40,7 @@ import { conditionAndLocation, conditionNotGood } from "@/app/warehouse-concept/
 import { CONTAINER_STATUS_TONE, KIND_LABEL, TALLY_LABEL, TALLY_TONE, containerKind } from "@/app/warehouse-concept/_lib/containerPlan";
 import { positionRemeasurementHref } from "@/app/warehouse-concept/_components/remeasurementLinks";
 import { ReweighSection, kgText } from "./ReweighSection";
-import { isLooseImport, reweighMissing, type PinCheckResult } from "../../_lib/steps";
+import { CUSTOMS_FROM_SHIPMENT, customsFromShipment, isLooseImport, MIN_REASON, reweighMissing, type PinCheckResult } from "../../_lib/steps";
 import { shipmentOwnerHint, shipmentOwnerOf } from "../../_lib/owner";
 import { legStamp, nextCheck, settledChecks, type GateFieldChange, type GateLegChange } from "../../_lib/transportLegs";
 import {
@@ -59,8 +59,9 @@ import {
 } from "./fields";
 
 // A field save; `legChange` / `checkChange` carry one leg field or one checklist icon only (W2).
-// It answers when that save is done (the checklist keeps a click shown until then).
-type Save = (data: Omit<controllers.GateMovementUpdateRequest, "id"> & GateFieldChange) => void | Promise<unknown>;
+// It answers when that save is done (the checklist keeps a click shown until then); with
+// `rethrow` (a dialog's save) it rejects when the server refused.
+type Save = (data: Omit<controllers.GateMovementUpdateRequest, "id"> & GateFieldChange, opts?: { rethrow?: boolean }) => void | Promise<unknown>;
 type CheckKey = keyof GateMovement["checklist"];
 
 // Gate checklist items shown on the overview (seal lives on the container interchange).
@@ -274,13 +275,20 @@ export function OverviewTab({
                   <Badge tone={STATUS_TONE[m.status] ?? ""}>{m.status || "—"}</Badge>
                 </FieldRow>
                 <FieldRow label="Customs status">
-                  <InlineSelect
-                    value={m.customsStatus}
-                    options={CUSTOMS_STATUSES}
-                    width={250}
-                    clearable={false}
-                    onSave={(v) => v && save({ customsStatus: v })}
-                  />
+                  {/* A linked record's status follows its shipment: only customs clears the Customs line (Q18 (b)). */}
+                  {customsFromShipment(m) ? (
+                    <Tooltip title={CUSTOMS_FROM_SHIPMENT}>
+                      <span className="font-medium text-slate-900">{m.customsStatus || "Not set"}</span>
+                    </Tooltip>
+                  ) : (
+                    <InlineSelect
+                      value={m.customsStatus}
+                      options={CUSTOMS_STATUSES}
+                      width={250}
+                      clearable={false}
+                      onSave={(v) => v && save({ customsStatus: v })}
+                    />
+                  )}
                 </FieldRow>
                 <FieldRow label={TERMS.releaseGates}>
                   <div className="flex flex-col gap-0.5 min-w-0">
@@ -798,8 +806,10 @@ function MoveReceiptDayEarlier({ m, save }: { m: GateMovement; save: Save }) {
         title="Move the receipt's day earlier"
         hint="The cargo came earlier than its receipt says. The counted pieces, condition and location stay; the storage clock starts on the new day and the shipment gets it. To move it later, void the receipt. The reason is logged."
         okText="Move earlier"
+        minLength={MIN_REASON}
         onClose={() => setOpen(false)}
-        onSubmit={(reason) => Promise.resolve(save({ loadInDate: day.format("YYYY-MM-DD"), receivedDateReason: reason }))}
+        // A refusal is rethrown, so the dialog stays open with the reason typed (ReasonModal).
+        onSubmit={(reason) => Promise.resolve(save({ loadInDate: day.format("YYYY-MM-DD"), receivedDateReason: reason }, { rethrow: true }))}
       >
         <div className="mb-3">
           <DatePicker

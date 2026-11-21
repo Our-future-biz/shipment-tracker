@@ -19,7 +19,7 @@ import { DEFAULT_FREE_DAYS, isIsoDate, movementStorage, pragueDate, pragueDaySta
 import { reopenStorageLine } from "./storageSettled.service";
 import { remeasureTotals, type RemeasureTotals } from "./remeasure";
 import { warehouseSectionTable } from "../schemas/warehouseSection.schema";
-import { CUSTOMS_CLEARED, CUSTOMS_STATUSES, customsLine, setCustomsLineSql } from "./customs";
+import { CUSTOMS_CLEARED, CUSTOMS_FROM_SHIPMENT, CUSTOMS_STATUSES, customsLine, setCustomsLineSql } from "./customs";
 import { deliverDue, shipmentUpdateState } from "./shipmentOutbox.service";
 import { dueForListFollow, FOLLOW_LIST_LIMIT, FOLLOW_ON_GET_MS, FOLLOW_ON_LIST_MS, followCustoms } from "./shipmentFollow.service";
 import { userName } from "./users";
@@ -847,6 +847,12 @@ class GateMovementService {
           : null;
     const linkedAfter = isLinkedOutbound({ shipmentId: shipmentAfter, visit: patch.visit ?? m.visit });
     if (input.pin && linkedAfter) throw APIError.invalidArgument(PICKUP_PIN_FROM_SHIPMENTS);
+    // Customs clears the Customs line, no one else (Q18 (b)): a supervisor's override never does,
+    // and neither does a status typed here. A linked record's status follows its shipment
+    // (shipmentFollow: Shipments works it out from its documents); typed here it would clear the
+    // line before customs did, until the next read put it back. So it is typed only on a record of
+    // its own (no shipment, as it will be after this save); a Domestic record has no Customs line.
+    if (customsChanged && shipmentAfter && !isDomestic(patch.handling ?? m.handling)) throw APIError.failedPrecondition(CUSTOMS_FROM_SHIPMENT);
     patch.updatedBy = await this.userName(userId);
     // Unlinking the position, linking it elsewhere or flipping its direction would take a
     // shipment's cargo out of the pick-up PIN check (and out of the shipment's updates). Before the
@@ -881,6 +887,10 @@ class GateMovementService {
     const clockAt = new Date().toISOString();
     // The receipt's day moved earlier by a manager (R28): what the shipment is told, else null.
     let receiptDayMoved: string | null = null;
+    // The typed day of a record not received yet changes (the desk's way to receive it).
+    let typedDayChanged = false;
+    // Sent back unchanged, the day is not written: a receipt or a tally tick landing meanwhile set its own.
+    if (patch.loadInDate !== undefined && patch.loadInDate === m.loadInDate) delete patch.loadInDate;
     if (patch.loadInDate !== undefined && patch.loadInDate !== m.loadInDate && m.receivedAt && !house) {
       // Loose import cargo (no container) received by its receipt: the receipt set the date (Q19).
       // A manager may move it earlier with a reason (owner's answer R28, mock council 20 Nov 2026);
@@ -903,6 +913,7 @@ class GateMovementService {
         );
       }
       assertReceivedDateAllowed(m.loadInDate, patch.loadInDate, !!m.impRelease, role, pragueDate(new Date()));
+      typedDayChanged = true;
       clockEvents.push({ kind: "storageClockChanged", label: `Received in warehouse: ${patch.loadInDate || "cleared"}`, at: clockAt, by: patch.updatedBy, detail: `was ${m.loadInDate || "—"}` });
     }
     if (patch.freeDays !== undefined && patch.freeDays !== m.freeDays) {
@@ -931,10 +942,14 @@ class GateMovementService {
         );
         if (!rebuilt) throw APIError.failedPrecondition(DIRECTION_LOCKED);
       }
-      if (receiptDayMoved) {
-        // Still the receipt read (a void or another move meanwhile refuses this one), under the row lock.
+      if (receiptDayMoved || typedDayChanged) {
+        // Still the record read, under the row lock: for a move of the receipt's day, the receipt (a
+        // void or another move meanwhile refuses this one); for a typed day, not received yet - a
+        // phone receipt or a tally tick at the same moment set the day itself, and the clock it
+        // started and what the shipment was told are not written over.
         const [cur] = await gateMovementRepository.lockLive(tx, [id], companyId);
-        if (!cur?.receivedAt || cur.loadInDate !== m.loadInDate) throw APIError.aborted("The position changed meanwhile — reload and try again");
+        const asRead = !!cur && (receiptDayMoved ? !!cur.receivedAt : !cur.receivedAt) && cur.loadInDate === m.loadInDate;
+        if (!asRead) throw APIError.aborted("The position changed meanwhile — reload and try again");
       }
       await gateMovementRepository.update(id, companyId, patch, tx);
       if (receiptDayMoved && m.shipmentId) {

@@ -22,7 +22,7 @@ import { movementCustomsClock } from "@/app/warehouse-concept/_lib/customsClock"
 import { dockSlotText } from "@/app/warehouse-concept/_lib/worklist";
 import { missingRecordText } from "@/app/warehouse-concept/_lib/loadFailure";
 import { errorMessage, hasAnyStamp, hasSurvey, isManager, nf, requiredSurveyPhase, surveyTargets } from "../../_lib/gate";
-import { cargoLeg, gateSteps, isOutbound, stampConfirmText, stampPrecheck, voidBlocked, voidsGateOutToo, type GateStep } from "../../_lib/steps";
+import { cargoLeg, gateSteps, isOutbound, MIN_REASON, stampConfirmText, stampPrecheck, voidBlocked, voidsGateOutToo, type GateStep } from "../../_lib/steps";
 import { PrintLabelsModal } from "../PrintLabelsModal";
 import { btnDefault, btnPrimary } from "./fields";
 import { OverviewTab, RECEIVED_DATE_ID } from "./OverviewTab";
@@ -280,7 +280,9 @@ export function GateJobView({ id }: { id: string }) {
       (data.handling !== undefined && data.handling !== m.handling) ||
       (data.warehouseTaskId !== undefined && data.warehouseTaskId !== m.warehouseTaskId));
   // `legChange` / `checkChange`: one transport leg field or checklist icon, merged on the server (W2).
-  const save = (data: controllers.GateMovementUpdateRequest & GateFieldChange) => {
+  // `rethrow`: a dialog's save (ReasonModal) - the refusal is rethrown after its toast, so the
+  // dialog stays open with the reason typed; a field's save answers either way.
+  const save = (data: controllers.GateMovementUpdateRequest & GateFieldChange, opts: { rethrow?: boolean } = {}) => {
     if (changesLink(data)) {
       if (!manager) {
         toast.error("This record is linked to a shipment — only a manager can change its direction or position, with a reason.");
@@ -289,7 +291,10 @@ export function GateJobView({ id }: { id: string }) {
       setLinkChange(data);
       return Promise.resolve();
     }
-    return inTurn(() => update.mutateAsync(data)).catch((e) => toast.error(errorMessage(e, "Failed to save")));
+    return inTurn(() => update.mutateAsync(data)).catch((e) => {
+      toast.error(errorMessage(e, "Failed to save"));
+      if (opts.rethrow) throw e;
+    });
   };
 
   // Stamps are final, so each one is confirmed first (as in the Gate Log bulk bar).
@@ -726,6 +731,7 @@ export function GateJobView({ id }: { id: string }) {
         hint={`${paymentStop?.message ?? ""}. The reason is recorded with the release, with your name.`}
         okText="Release with a reason"
         danger
+        minLength={MIN_REASON}
         onClose={() => setPaymentStop(null)}
         onSubmit={(reason) => releaseWithReason(paymentStop?.label ?? "WH release", reason).then(() => setPaymentStop(null))}
       />
@@ -809,6 +815,7 @@ export function GateJobView({ id }: { id: string }) {
         hint={`${m.gateRef} is not received any more: the stock line is voided and the “Received in warehouse” date typed before the receipt comes back. Who, when, the receipt and the reason are logged.`}
         okText="Void receipt"
         danger
+        minLength={MIN_REASON}
         onClose={() => setDialog(null)}
         onSubmit={doVoidReceipt}
       >

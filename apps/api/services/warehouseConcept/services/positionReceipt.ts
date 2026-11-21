@@ -27,8 +27,8 @@ export interface ReceiptFacts {
 
 /**
  * The receipt's gate event: a gate event with the counted facts, and the id of the shipment update
- * it owes (`outboxId`), so its void tells only about that update — not one of an earlier receipt
- * voided before.
+ * it owes (`outboxId`), so its void tells only about that update and those written since (a
+ * manager's move of its day earlier, R28) — not one of an earlier receipt voided before.
  */
 export type ReceiptEvent = GateEvent & { receipt?: ReceiptFacts; outboxId?: string };
 

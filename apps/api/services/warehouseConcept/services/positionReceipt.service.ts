@@ -180,11 +180,14 @@ class PositionReceiptService {
       const events: GateEvent[] = [
         { kind: RECEIPT_VOIDED_EVENT, label: "Receipt voided", at, by, detail: `${why} · was ${pragueHhmm(m.receivedAt)}${prev.by ? ` by ${prev.by}` : ""}` },
       ];
-      // Only the update THIS receipt owed: an earlier receipt voided before has rows of its own
-      // (sent, or cancelled by its void) that must not make this void warn. A receipt made before
+      // Only the updates THIS receipt owed: its own, and those written since by a manager moving its
+      // day earlier (R28; rows of their own, the shipment got the day from this receipt all the
+      // same). An earlier receipt voided before has rows of its own (sent, or cancelled by its void),
+      // all written before this receipt, that must not make this void warn. A receipt made before
       // the id was kept falls back to every receipt row.
       const cancelled = m.shipmentId ? await shipmentOutboxRepository.cancelForStamps(tx, m.id, companyId, [RECEIPT_STAMP]) : [];
-      const owed = prev.outboxId ? cancelled.filter((r) => r.id === prev.outboxId) : cancelled;
+      const since = Date.parse(prev.at);
+      const owed = prev.outboxId ? cancelled.filter((r) => r.id === prev.outboxId || r.createdAt.getTime() >= since) : cancelled;
       const inFlight = (r: (typeof owed)[number]) => r.status === "pending" && !!r.lockedUntil && r.lockedUntil.getTime() > Date.now();
       if (owed.some((r) => (r.status === "pending" && !inFlight(r)) || r.status === "failed")) {
         events.push({ kind: "shipmentUpdateCancelled", label: "Shipment update cancelled — the receipt was voided", at, by, detail: "warehouse received date" });

@@ -134,6 +134,25 @@ export const isOutbound = (m: Pick<interfaces.GateMovementItem, "visit">) => m.v
 /** Domestic cargo (Trucking's LTL through our hub): in at the gate-in (its receipt), out through the WH release. Must match the API's DOMESTIC. */
 export const isDomestic = (m: { handling?: string }) => m.handling === "Domestic";
 
+/**
+ * The fewest characters of the reason the server takes to void a receipt, move its day earlier
+ * (positionReceipt) or let a job on prepayment out (releasePayment).
+ */
+export const MIN_REASON = 3;
+
+/** A reason dialog may be sent: `min` characters typed at least, blanks around not counted. */
+export const reasonReady = (reason: string, min = 1) => reason.trim().length >= Math.max(1, min);
+
+/** Why a linked record's customs status is not typed here. Must match the API's CUSTOMS_FROM_SHIPMENT (services/customs.ts). */
+export const CUSTOMS_FROM_SHIPMENT = "The customs status of a record linked to a shipment follows the shipment — it is set in Shipments (Refresh from shipment reads it now)";
+
+/**
+ * The customs status follows the shipment, so it is not typed here: a record linked to a shipment
+ * (only customs clears the Customs line, Q18 (b)); a Domestic one has no Customs line. The same
+ * rule as the server's update (gateMovement.service).
+ */
+export const customsFromShipment = (m: { shipmentId?: string | null; handling?: string }) => !!m.shipmentId && !isDomestic(m);
+
 /** The cargo leaves through the WH release, which stamps the gate-out too: outbound and Domestic cargo. */
 export const leavesByRelease = (m: Pick<interfaces.GateMovementItem, "visit"> & { handling?: string }) => isOutbound(m) || isDomestic(m);
 

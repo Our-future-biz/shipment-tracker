@@ -291,8 +291,8 @@ class ContainerService {
   // ---------- the plan: which positions are in the container ----------
 
   // Adds positions as houses. Export: inbound (příjem) positions in the warehouse (received, not
-  // left, not on hold); import: outbound (výdej) positions not received yet. A position is in at
-  // most one container: one in another container is refused, naming it.
+  // left, not on hold); import: outbound (výdej) positions not received yet - the register form's
+  // position too. A position is in at most one container: one in another container is refused, naming it.
   async addPositions(id: string, companyId: string, userId: string, movementIds: string[], opts: { fromRegister?: boolean } = {}) {
     const ids = housesToAdd(movementIds);
     const by = await userName(userId);
@@ -346,16 +346,19 @@ class ContainerService {
             : `${ref(m)} is inbound cargo (příjem) — an import container holds outgoing (výdej) cargo`,
         );
       }
-      if (!opts.fromRegister) {
-        if (kind === "export") {
-          if (!m.expReceipt) throw APIError.failedPrecondition(`${ref(m)} is not received in the warehouse yet (no WH receipt)`);
-          if (m.impRelease || m.leftAt) throw APIError.failedPrecondition(`${ref(m)} has already left the warehouse`);
-          if (m.status === "Refused") throw APIError.failedPrecondition(`${ref(m)} is refused`);
-          const open = await gateExceptionRepository.openForMovement(tx, m.id, companyId);
-          if (open.length && !m.overridden) throw APIError.failedPrecondition(`${ref(m)} is on hold — an open damage / short / over exception must be resolved first`);
-        } else if (m.receivedAt || m.impRelease) {
+      if (kind === "import") {
+        // Checked on the register form too: an import house is received by its tick-off at the
+        // tally, so a position already received (its receipt) or released would wait for a tick
+        // that can never come - its WH release and the container's gate-out held for good.
+        if (m.receivedAt || m.impRelease) {
           throw APIError.failedPrecondition(`${ref(m)} is already received — it cannot be added to a stripping tally`);
         }
+      } else if (!opts.fromRegister) {
+        if (!m.expReceipt) throw APIError.failedPrecondition(`${ref(m)} is not received in the warehouse yet (no WH receipt)`);
+        if (m.impRelease || m.leftAt) throw APIError.failedPrecondition(`${ref(m)} has already left the warehouse`);
+        if (m.status === "Refused") throw APIError.failedPrecondition(`${ref(m)} is refused`);
+        const open = await gateExceptionRepository.openForMovement(tx, m.id, companyId);
+        if (open.length && !m.overridden) throw APIError.failedPrecondition(`${ref(m)} is on hold — an open damage / short / over exception must be resolved first`);
       }
       rows.push({ companyId, containerId: id, movementId: m.id, taskId: m.warehouseTaskId, sequence: ++seq, addedBy: by || "—" });
       movementEvents.set(m.id, [

@@ -1,17 +1,21 @@
 import { describe, expect, it } from "vitest";
 import { TERMS } from "../../_lib/glossary";
 import {
+  CUSTOMS_FROM_SHIPMENT,
   HELD_BY_CUSTOMS_STEP,
+  MIN_REASON,
   QUEUEABLE_STAMPS,
   RECEIPT_FIRST,
   REWEIGH_FIRST,
   cargoLeg,
   containerHoldsRelease,
+  customsFromShipment,
   gateSteps,
   isLooseImport,
   leavesByRelease,
   isQueueableStamp,
   pinCheckMessage,
+  reasonReady,
   receiptMissing,
   releaseTruckWarning,
   stampConfirmText,
@@ -358,5 +362,27 @@ describe("gateSteps by handling", () => {
     expect(cargoLeg({ visit: "příjem", handling: "Domestic", gateIn: T })).toBe("OUT");
     expect(cargoLeg({ visit: "příjem", handling: "Export", gateIn: T })).toBe("IN");
     expect(cargoLeg({ visit: "výdej", gateIn: null })).toBe("OUT");
+  });
+});
+
+// Review of the step 7 fixes.
+describe("what the job's screens let a person type", () => {
+  it("a linked record's customs status follows its shipment (Q18 (b)); a record of its own or a Domestic one is typed", () => {
+    expect(customsFromShipment({ shipmentId: "s-1", handling: "Import" })).toBe(true);
+    expect(customsFromShipment({ shipmentId: "s-1", handling: "Export" })).toBe(true);
+    expect(customsFromShipment({ shipmentId: "s-1", handling: "Domestic" })).toBe(false);
+    expect(customsFromShipment({ shipmentId: null, handling: "Import" })).toBe(false);
+    expect(CUSTOMS_FROM_SHIPMENT).toMatch(/follows the shipment/);
+  });
+
+  it("a reason the server refuses (under 3 characters, blanks not counted) cannot be sent", () => {
+    expect(MIN_REASON).toBe(3);
+    expect(reasonReady("ok", MIN_REASON)).toBe(false);
+    expect(reasonReady("  ok  ", MIN_REASON)).toBe(false);
+    expect(reasonReady("typo", MIN_REASON)).toBe(true);
+    // Without a minimum, anything but blanks.
+    expect(reasonReady("x")).toBe(true);
+    expect(reasonReady("   ")).toBe(false);
+    expect(reasonReady("", 0)).toBe(false);
   });
 });

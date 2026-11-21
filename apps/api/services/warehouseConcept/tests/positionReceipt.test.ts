@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { APIError } from "encore.dev/api";
 import { and, eq } from "drizzle-orm";
 import { db } from "../db/db";
 import { gateMovementService } from "../services/gateMovement.service";
@@ -141,6 +142,44 @@ describe("receipt of loose import cargo (Q19)", () => {
     await expect(positionReceiptService.record(id, c, user, "user", {})).rejects.toThrow(/house of container MSKU 611 902-7/);
   });
 
+  // Review of the step 7 fixes: received by its receipt, it is no house a tally would receive again.
+  it("refuses to register an import container for cargo its receipt already received", async () => {
+    const { c, id } = await loosePosition();
+    await reweighService.record(id, c, user, { weighedKg: 1000 });
+    await positionReceiptService.record(id, c, user, "user", { pieces: 10 });
+    await expect(records.createContainer(c, { number: "MSKU 611 902-7", direction: "Unloading", movementId: id }, user)).rejects.toMatchObject({
+      code: "failed_precondition",
+      message: expect.stringMatching(/already received/),
+    });
+    // No container left behind; the cargo waits for no tally.
+    expect(await records.listContainers(c)).toEqual([]);
+    expect((await gateMovementService.get(id, c)).container).toBeNull();
+    // Nor relinked onto a container registered before.
+    const box = await records.createContainer(c, { number: "MSKU 611 902-7", direction: "Unloading" }, user);
+    await expect(records.updateContainer(box.id, c, { movementId: id }, user)).rejects.toMatchObject({ code: "failed_precondition" });
+    expect((await containerService.detail(box.id, c)).positions).toEqual([]);
+  });
+
+  // Review of the step 7 fixes: the desk's typed day and the phone's receipt at the same moment.
+  it("refuses a typed Received in warehouse day when a receipt landed since it was read", async () => {
+    const { c, id } = await loosePosition();
+    await reweighService.record(id, c, user, { weighedKg: 1000 });
+    const load = gateMovementRepository.findById.bind(gateMovementRepository);
+    const spy = vi.spyOn(gateMovementRepository, "findById").mockImplementationOnce(async (...args) => {
+      const row = await load(...args);
+      // The receipt is committed between the desk's read and its write.
+      await positionReceiptService.record(id, c, user, "user", { pieces: 10 });
+      return row;
+    });
+    await expect(gateMovementService.update(id, c, user, { loadInDate: "2026-01-02" })).rejects.toMatchObject({ code: "aborted" });
+    spy.mockRestore();
+    // The receipt's day stands, as the shipment was told it.
+    const m = await gateMovementService.get(id, c);
+    expect(m.receivedAt).not.toBeNull();
+    expect(m.loadInDate).toBe(pragueDate(new Date(m.receivedAt!)));
+    expect(m.storage.startSource).toBe("receipt");
+  });
+
   it("voids the receipt (manager): the typed date it replaced comes back", async () => {
     const { c, id } = await loosePosition();
     await gateMovementRepository.update(id, c, { loadInDate: "2026-01-02" });
@@ -215,5 +254,22 @@ describe("receipt of loose import cargo (Q19)", () => {
     const second = await positionReceiptService.voidReceipt(id, c, user, "manager", "wrong count again");
     expect(second.movement.events.slice(-2).map((e) => e.kind)).toEqual(["positionReceiptVoided", "shipmentUpdateCancelled"]);
     expect(second.notice).toBe("");
+  });
+
+  // Review of the step 7 fixes: the day a manager moved earlier (R28) reached the shipment from this receipt too.
+  it("a void warns when only the manager's move of the receipt's day reached the shipment", async () => {
+    const { c, id } = await loosePosition();
+    await reweighService.record(id, c, user, { weighedKg: 1000 });
+    // The receipt's own update is refused for good ...
+    shipmentUpdate.mockRejectedValueOnce(APIError.notFound("Shipment not found"));
+    const received = (await positionReceiptService.record(id, c, user, "user", { pieces: 10 })).movement;
+    expect(await outboxOf(id)).toEqual([expect.objectContaining({ status: "failed" })]);
+    // ... the move of its day earlier goes through.
+    const earlier = pragueDate(new Date(Date.parse(`${received.loadInDate}T12:00:00Z`) - 2 * 86_400_000));
+    await gateMovementService.update(id, c, user, { loadInDate: earlier }, "manager", "", "came on Monday");
+    expect((await outboxOf(id)).map((r) => r.status).sort()).toEqual(["failed", "sent"]);
+    const res = await positionReceiptService.voidReceipt(id, c, user, "manager", "wrong position");
+    expect(res.movement.events.slice(-3).map((e) => e.kind)).toEqual(["positionReceiptVoided", "shipmentUpdateCancelled", "shipmentMayNeedCorrecting"]);
+    expect(res.notice).toMatch(/not changed back/);
   });
 });

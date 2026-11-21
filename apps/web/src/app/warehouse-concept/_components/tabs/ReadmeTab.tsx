@@ -210,7 +210,8 @@ export function ReadmeTab() {
         <p>
           The <b>customs status</b> of a linked record follows its shipment until the cargo is released: it is read again when the job is opened (at most every 30
           seconds), when the Gate Log loads (every 5 minutes), or straight away with the refresh button on the Customs status card. A change updates the Customs line
-          of the release gates and is logged. A status set by hand on a linked record is overwritten the next time it is read.
+          of the release gates and is logged. It is not set by hand on a linked record — only customs clears the Customs line: set it in Shipments. A record
+          of its own (no shipment) takes its customs status by hand.
         </p>
       </Part>
 

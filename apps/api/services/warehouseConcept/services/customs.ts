@@ -14,6 +14,13 @@ export const CUSTOMS_CLEARED: GateCustomsStatus = "Customs Cleared/Released";
 // Customs modes of the gate (the web's CUSTOMS_MODES has the same list).
 export const CUSTOMS_MODES: readonly GateCustomsMode[] = ["SCP", "JSD", "T1", "T2L", "ATA Carnet", "RDT", "C-Goods"];
 
+/**
+ * Why a customs status is not typed on a record linked to a shipment: it follows the shipment
+ * (shipmentFollow), and only customs clears the Customs line (Q18 (b)). Must match
+ * CUSTOMS_FROM_SHIPMENT on the web (gate-log/_lib/steps.ts).
+ */
+export const CUSTOMS_FROM_SHIPMENT = "The customs status of a record linked to a shipment follows the shipment — it is set in Shipments (Refresh from shipment reads it now)";
+
 /** A customs status the gate knows (Shipments sends free text). */
 export const isCustomsStatus = (v: unknown): v is GateCustomsStatus => (CUSTOMS_STATUSES as readonly unknown[]).includes(v);
 

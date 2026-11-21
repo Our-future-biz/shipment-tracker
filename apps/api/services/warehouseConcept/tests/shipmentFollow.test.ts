@@ -114,6 +114,23 @@ describe("customs status follows the shipment", () => {
     expect(m.events.at(-1)).toMatchObject({ kind: "jobNumberFromShipment", detail: `was ${before.jobNumber}` });
   });
 
+  // Review of the step 7 fixes: only customs clears the Customs line (Q18 (b)), not a status typed at the gate.
+  it("refuses a customs status typed on a linked record: it follows the shipment", async () => {
+    const { c, id } = await linked();
+    await expect(gateMovementService.update(id, c, user, { customsStatus: "Customs Cleared/Released" })).rejects.toMatchObject({
+      code: "failed_precondition",
+      message: expect.stringMatching(/follows the shipment/),
+    });
+    await expect(gateMovementService.update(id, c, user, { customsStatus: "Customs Cleared/Released" }, "manager")).rejects.toMatchObject({ code: "failed_precondition" });
+    const m = await gateMovementService.get(id, c);
+    expect(m.customsStatus).toBe("Paperwork Verified");
+    expect(customsOf(m)).toMatchObject({ s: "Pending" });
+    // Sent back as it is (a whole form), it is no change; a record of its own still takes a typed one.
+    expect((await gateMovementService.update(id, c, user, { customsStatus: "Paperwork Verified", note: "two pallets" })).note).toBe("two pallets");
+    const own = await gateMovementService.create(c, user, { gateRef: "WCZ2026112101", visit: "výdej" });
+    expect(customsOf(await gateMovementService.update(own.id, c, user, { customsStatus: "Customs Cleared/Released" }))).toMatchObject({ s: "OK" });
+  });
+
   it("leaves the record unchanged when the shipment cannot be read", async () => {
     const { c, s, id } = await linked();
     failingShipments.set(s, new Error("shipments unavailable"));

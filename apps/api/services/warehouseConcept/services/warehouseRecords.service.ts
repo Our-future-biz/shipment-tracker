@@ -157,8 +157,9 @@ class WarehouseRecordsService {
   }
 
   // The register form's position becomes a house of the container: only the direction and the
-  // one-container rule apply (the plan and tally screens check the rest). Names the other
-  // container; addPositionsInTx checks the same again under the position's lock.
+  // one-container rule apply (the plan and tally screens check the rest) - and, for an import
+  // container, that the position is not received yet (addPositionsInTx: its tally receives it).
+  // Names the other container; addPositionsInTx checks the same again under the position's lock.
   private async checkRegisterLink(tx: Tx, companyId: string, direction: string, movement: GateMovementRow, exceptContainer?: string) {
     if (!directionFits(direction, movement.visit)) {
       throw APIError.invalidArgument(

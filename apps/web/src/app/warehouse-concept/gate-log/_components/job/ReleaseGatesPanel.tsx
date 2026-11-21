@@ -8,7 +8,7 @@ import { useAuth } from "@/lib/auth/AuthContext";
 import { formatDateTime } from "@/lib/date";
 import { TERMS } from "@/app/warehouse-concept/_lib/glossary";
 import { Badge, isManager, type Tone } from "../../_lib/gate";
-import { PICKUP_PIN_GATE, waitingGates } from "../../_lib/steps";
+import { PICKUP_PIN_GATE, reasonReady, waitingGates } from "../../_lib/steps";
 import { btnDanger, btnDefault, Section } from "./fields";
 import { EXCEPTION_GATE } from "./ExceptionsPanel";
 import { customsDue, movementCustomsClock } from "@/app/warehouse-concept/_lib/customsClock";
@@ -199,6 +199,7 @@ export function ReasonModal({
   hint,
   okText,
   danger,
+  minLength = 1,
   onClose,
   onSubmit,
   children,
@@ -208,7 +209,10 @@ export function ReasonModal({
   hint: string;
   okText: string;
   danger?: boolean;
+  /** The fewest characters the server takes for this reason (MIN_REASON); 1 = not empty. */
+  minLength?: number;
   onClose: () => void;
+  /** Rejects when the server refused: the dialog stays open with the reason typed. */
   onSubmit: (reason: string) => Promise<unknown>;
   /** Extra lines under the hint (e.g. a warning). */
   children?: ReactNode;
@@ -224,7 +228,7 @@ export function ReasonModal({
       open={open}
       title={title}
       okText={okText}
-      okButtonProps={{ danger, disabled: !reason.trim() }}
+      okButtonProps={{ danger, disabled: !reasonReady(reason, minLength) }}
       confirmLoading={busy}
       onCancel={close}
       onOk={async () => {
@@ -242,7 +246,13 @@ export function ReasonModal({
     >
       <p className={`${HINT} mt-0`}>{hint}</p>
       {children}
-      <Input.TextArea autoFocus autoSize={{ minRows: 3, maxRows: 6 }} placeholder="Reason (required)" value={reason} onChange={(e) => setReason(e.target.value)} />
+      <Input.TextArea
+        autoFocus
+        autoSize={{ minRows: 3, maxRows: 6 }}
+        placeholder={minLength > 1 ? `Reason (required, at least ${minLength} characters)` : "Reason (required)"}
+        value={reason}
+        onChange={(e) => setReason(e.target.value)}
+      />
     </Modal>
   );
 }
