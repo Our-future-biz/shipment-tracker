@@ -109,6 +109,7 @@ import {
 } from "../../_lib/tariffRecheck";
 import {
   approvalLineOf,
+  approvedOceanRate,
   isOfferOfUpdate,
   linesWaitingForRate,
   roadForToday,
@@ -1028,9 +1029,15 @@ export function QuoteWorkflow() {
     if (at < 0) return toast.error(`No buying line is priced from the old ${update.supplierName} rate any more`);
     const old = buyingLines.filter((l) => l.tariffRef === update.oldRef);
     const settled = { tariffUpdates: withoutTariffUpdate(draft, update) };
-    if (found.kind === "ocean") putPick(withApprovedRate(withOceanOffer(buyingLines, at, found.offer, found.route, draft), old), settled);
-    else if (found.kind === "rail") putPick(withApprovedRate(withRailOffer(buyingLines, at, found.offer, found.port, found.direction, draft), old), settled);
-    else set({ ...settled, buyingLines: stampPricedFor(withCollectionOffer(buyingLines, at, found.offer, found.route), [at], draft) });
+    if (found.kind === "ocean") {
+      // Its selling line drops the shipping line's name with the old text, as on a pick (mock council S2-4).
+      const { pick, sellingLines: selling } = approvedOceanRate(draft, at, found.offer, found.route, old);
+      putPick(pick, selling ? { ...settled, sellingLines: selling } : settled);
+    } else if (found.kind === "rail") {
+      putPick(withApprovedRate(withRailOffer(buyingLines, at, found.offer, found.port, found.direction, draft), old), settled);
+    } else {
+      set({ ...settled, buyingLines: stampPricedFor(withCollectionOffer(buyingLines, at, found.offer, found.route), [at], draft) });
+    }
     toast.success(`New ${update.supplierName} rate approved`);
   };
   putApprovedRateNow.current = putApprovedRate;

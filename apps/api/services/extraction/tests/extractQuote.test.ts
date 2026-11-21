@@ -95,6 +95,18 @@ describe("reading a customer's request for a quote", () => {
     expect(result.fieldCount).toBe(8);
     expect(result.method).toBe("text");
     expect(result.fileName).toBe("(text input)");
+    // An LCL request is by sea: a carrier code is named as its port (mock council S4-2).
+    expect(placeLookup.mock.calls[0]![0].sea).toBe(true);
+  });
+
+  it("looks an air request's places up as the release names them: CNSHA is the airport (mock council S4-2)", async () => {
+    create.mockResolvedValueOnce(reply({ "Freight Mode": "Air", Origin: "CNSHA" }));
+    placeLookup.mockResolvedValue({ byCode: [{ code: "CNSHA", countryCode: "CN", name: "Shanghai Hongqiao International Apt", subdivisionName: null }], candidates: [[]] });
+
+    const result = await extractFromTextByDestination(TEXT, "quote");
+
+    expect(placeLookup.mock.calls[0]![0].sea).toBe(false);
+    expect(result.extracted.Origin).toBe("Shanghai Hongqiao International Apt (CNSHA)");
   });
 
   // A quote's origin and destination become the shipment's POL and POD, so the place matcher is

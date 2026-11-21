@@ -255,6 +255,12 @@ function picker() {
 interface PlaceLookupRequest {
   codes: string[];
   names: PlaceCandidateQuery[];
+  /**
+   * The places are a sea job's or an ocean tariff's: a carrier code is named as its port ("Shanghai"
+   * for CNSHA). Otherwise, the default, as the release lists it - by air or road CNSHA is the
+   * Hongqiao airport (mock council S4-2).
+   */
+  sea?: boolean;
 }
 interface PlaceLookupResponse {
   // The known ones among `codes`.
@@ -268,7 +274,7 @@ export const placeLookup = api(
   { expose: false, method: "POST", path: "/auth/places/lookup" },
   async (req: PlaceLookupRequest): Promise<PlaceLookupResponse> => {
     const [byCode, candidates] = await Promise.all([
-      orgUnitService.placesByCodes(req.codes),
+      orgUnitService.placesByCodes(req.codes, req.sea ?? false),
       orgUnitService.placeCandidates(req.names),
     ]);
     return { byCode, candidates };

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { CostLine } from "@/app/sales/_lib/types";
 import { withBasis } from "@/app/sales/_lib/salesQuote";
-import { amountOf, basisNotes, basisOptions, newCostLine, noteFor, serviceChange } from "./CostLinesEditor";
+import { amountOf, basisNotes, basisOptions, newCostLine, noteFor, notesUpdate, serviceChange } from "./CostLinesEditor";
 
 const line = (over: Partial<CostLine> = {}): CostLine => ({ type: "Ocean freight", chargeCode: "ocean_freight", description: "Ocean freight", supplier: "", currency: "USD", amount: 0, ...over });
 
@@ -80,6 +80,15 @@ describe("basisNotes", () => {
   it("notes nothing on the first render or for a line whose basis stayed", () => {
     expect(basisNotes({}, ["row-0"], [perKg], {})).toEqual({});
     expect(basisNotes({ "row-0": lump }, ["row-0"], [{ ...lump, amount: 1500 }], {})).toEqual({});
+  });
+
+  // System-21 review: React may run a state update after the effect that asked for it has moved the
+  // seen lines on - it must still compare the lines with those from before.
+  it("compares with the lines seen before, also when the update runs after they moved on", () => {
+    const seen = { current: { "row-0": lump } as Record<string, CostLine> };
+    const update = notesUpdate(seen, ["row-0"], [perKg]);
+    expect(seen.current).toEqual({ "row-0": perKg });
+    expect(noteFor(update({})["row-0"], perKg)).toBe("Rate set from the lump sum: 1,344.00 ÷ 640 kg = 2.10");
   });
 });
 

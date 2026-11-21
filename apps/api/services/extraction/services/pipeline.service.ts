@@ -241,7 +241,8 @@ export async function extractMbl(sessionId: string, who: SessionOwner): Promise<
     2048,
   );
   if (mblInfo) {
-    await canonicalizeRecords([mblInfo]);
+    // A bill of lading is by sea: a carrier code is its port (mock council S4-2).
+    await canonicalizeRecords([mblInfo], { sea: true });
     applyTradeDirection(mblInfo);
   }
   session.mblInfo = mblInfo;
@@ -300,7 +301,7 @@ export async function extractHblBatch(sessionId: string, batchIndex: number, who
   const found = read.filter((r): r is { shipment: Record<string, string>; document: HblDocument | null } => r.shipment !== null);
   const shipments = found.map((r) => r.shipment);
 
-  await canonicalizeRecords(shipments);
+  await canonicalizeRecords(shipments, { sea: true });
 
   // Enrich with MBL shared info (already in the database's form)
   if (session.mblInfo) {

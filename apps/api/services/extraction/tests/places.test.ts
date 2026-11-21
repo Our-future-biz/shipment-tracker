@@ -20,7 +20,7 @@ vi.mock("../lib/anthropic", () => ({
   getClient: () => ({ messages: { create: vi.fn().mockRejectedValue(new Error("no AI in tests")) } }),
 }));
 
-import { resolveGeo, sameName, splitPlace } from "../services/places.service";
+import { canonicalizeRecords, resolveGeo, sameName, splitPlace } from "../services/places.service";
 
 const place = (code: string, name: string) => ({ code, countryCode: code.slice(0, 2), name, subdivisionName: null });
 
@@ -130,5 +130,33 @@ describe("resolveGeo", () => {
   it("keeps the values as read when the lookup fails", async () => {
     lookup.fails = true;
     expect(await resolveGeo([{ text: "Hamburg, Germany", kind: "place" }, { text: "Germany", kind: "countryCode" }])).toEqual([null, "DE"]);
+  });
+});
+
+// Mock council S4-2, system-21 review: by air or road CNSHA is the Hongqiao airport and keeps the release's
+// name; only a sea reading has a carrier code named as its port ("Shanghai (CNSHA)").
+describe("carrier codes by mode", () => {
+  const AIRPORT = "Shanghai Hongqiao International Apt (CNSHA)";
+  beforeEach(() => {
+    placeLookup.mockImplementation(async ({ codes, names, sea }) => ({
+      byCode: codes.map((c: string) => place(c, sea ? "Shanghai" : "Shanghai Hongqiao International Apt")),
+      candidates: names.map(() => []),
+    }));
+  });
+
+  it("asks for the release's names unless the reading is by sea", async () => {
+    expect(await resolveGeo([{ text: AIRPORT, kind: "place" }])).toEqual([AIRPORT]);
+    expect(placeLookup.mock.calls[0]![0].sea).toBe(false);
+    expect(await resolveGeo([{ text: AIRPORT, kind: "place" }], { sea: true })).toEqual(["Shanghai (CNSHA)"]);
+  });
+
+  it("reads a record by sea when its Freight Mode is, or the caller says it is (a B/L)", async () => {
+    const air = { POL: AIRPORT, "Freight Mode": "Air" };
+    const sea = { POL: AIRPORT, "Freight Mode": "Sea FCL" };
+    const bl = { POL: AIRPORT };
+    await canonicalizeRecords([air]);
+    await canonicalizeRecords([sea]);
+    await canonicalizeRecords([bl], { sea: true });
+    expect([air.POL, sea.POL, bl.POL]).toEqual([AIRPORT, "Shanghai (CNSHA)", "Shanghai (CNSHA)"]);
   });
 });

@@ -133,6 +133,8 @@ describe("upload", () => {
       ["pod", "Fuzhou", null, "pending", 2],
     ]);
     expect(fields).toMatchObject({ rowCount: 3, currency: "USD", findings: [expect.objectContaining({ code: "ports_pending", count: 1 })] });
+    // Ports: a carrier code is named as its port, as the sea pickers name it (mock council S4-2).
+    expect(placeLookup.mock.calls.every(([req]) => req.sea === true)).toBe(true);
   });
 
   it("takes over the ports a user picked on the tariff's earlier versions", async () => {

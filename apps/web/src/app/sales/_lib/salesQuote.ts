@@ -410,8 +410,10 @@ function asLumpsum(line: CostLine): CostLine {
  * The line given another basis, at the same total. To a per-unit basis its rate is the total ÷ the
  * new quantity, to the cent (Costs Breakdown takes a rate to 2 decimals, and copies a line per unit
  * only while quantity × rate gives its amount), so the total can move by that rounding; with no
- * quantity yet (no chargeable weight, W/M or containers in Cargo details) the rate is 0, never the
- * lump sum. To a lump sum, the rate × quantity becomes it. A lump sum of 1,344.00 set to per
+ * quantity yet (no chargeable weight, W/M or containers in Cargo details) it keeps its total and has
+ * no rate (0, never the lump sum) until Cargo details has the figure: withLineBasis then makes the
+ * rate of the total (awaitsRate) - a typed total is not wiped by a basis picked first (system-21
+ * review). To a lump sum, the rate × quantity becomes it. A lump sum of 1,344.00 set to per
  * chargeable kg at 640 kg is 2.10 per kg, not 1,344.00 per kg (User Council, chair's finding,
  * 20 Nov 2026). basisChangeNote says on the line what was done.
  */
@@ -420,7 +422,17 @@ export function withBasis(line: CostLine, basis: ChargeBasis, data: SalesQuoteDa
   if (!perUnitBasis(basis)) return asLumpsum({ ...line, basis });
   const units = basisUnits(data, basis, line.containerType);
   const total = Number(line.amount) || 0;
-  return withRate({ ...line, basis }, units > 0 ? roundCents(total / units) : 0, units);
+  if (units > 0) return withRate({ ...line, basis }, roundCents(total / units), units);
+  return { ...withRate({ ...line, basis }, 0, 0), amount: total };
+}
+
+/**
+ * A per-unit line given its basis while Cargo details had no figure for it (withBasis): no rate, no
+ * quantity, and the total it had. A rate typed or priced on a line makes its amount rate × quantity,
+ * so no other line looks so.
+ */
+function awaitsRate(line: CostLine): boolean {
+  return perUnitBasis(line.basis) && line.unitPrice === 0 && !(Number(line.qty) > 0) && (Number(line.amount) || 0) !== 0;
 }
 
 const twoDecimals = (n: number) => n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -455,8 +467,8 @@ export function basisChangeNote(before: CostLine, after: CostLine): string | nul
   const rate = Number(after.unitPrice) || 0;
   const was = from === "lumpsum" ? "the lump sum" : "the line's total";
   if (!(units > 0)) {
-    if (rate !== 0) return null;
-    return `Cargo details has no ${basisWords(to)} yet, so ${was} of ${twoDecimals(total)} could not be made a rate: type the rate${perBasisText(to)}`;
+    if (rate !== 0 || Number(after.amount) !== total) return null;
+    return `Cargo details has no ${basisWords(to)} yet, so the line keeps ${was} of ${twoDecimals(total)} and its rate is made from it once it has; or type the rate${perBasisText(to)}`;
   }
   if (rate !== roundCents(total / units)) return null;
   const moved = roundCents(rate * units) !== roundCents(total) ? `; the line now comes to ${twoDecimals(Number(after.amount) || 0)}` : "";
@@ -503,7 +515,8 @@ export function basisMismatches(data: SalesQuoteData): string[] {
  * and as a lump sum has its buying line's quantity;
  * a line charged per W/M has the cargo's weight / measure as its quantity, one charged per
  * chargeable kg the chargeable weight, one charged per container the quote's number of containers (quoteContainerCount), and costs its rate times that - taken as it is set
- * to the basis, and followed while the cargo changes; a line set back to a lump sum keeps its total.
+ * to the basis, and followed while the cargo changes; a line set back to a lump sum keeps its total,
+ * and so does one set to its basis before Cargo details had the figure, until it has (awaitsRate).
  * A selling line that takes another basis from its buying line keeps its total (withBasis). Null when
  * every line has them already.
  */
@@ -518,9 +531,13 @@ export function withLineBasis(data: SalesQuoteData): Pick<SalesQuoteData, "buyin
   }) ?? data.sellingLines;
   const { weightMeasure: wm, chargeableWeight } = computeCargo(data);
   const asBasis = (l: CostLine): CostLine => {
-    if (l.basis === "wm") return withRate(l, lineRate(l), wm);
-    if (l.basis === "kg") return withRate(l, lineRate(l), chargeableWeight);
-    if (l.basis === "container") return withRate(l, lineRate(l), quoteContainerCount(data, l.containerType));
+    if (perUnitBasis(l.basis)) {
+      const units = l.basis === "wm" ? wm : l.basis === "kg" ? chargeableWeight : quoteContainerCount(data, l.containerType);
+      // Given its basis before Cargo details had the figure: its total stays until it has, then
+      // makes the rate, as a change of basis would have (withBasis).
+      if (awaitsRate(l)) return units > 0 ? withRate(l, roundCents((Number(l.amount) || 0) / units), units) : l;
+      return withRate(l, lineRate(l), units);
+    }
     const perUnit = l.unit === WM_UNIT || l.unit === KG_UNIT || l.unit === CONTAINER_UNIT || (!!l.containerType && l.unit === l.containerType);
     return perUnit ? asLumpsum(l) : l;
   };

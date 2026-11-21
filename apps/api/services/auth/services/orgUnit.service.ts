@@ -217,9 +217,10 @@ class OrgUnitService {
     return pickedBy ? locationPickRepository.countsFor(pickedBy.companyId, pickedBy.userId) : undefined;
   }
 
-  async placesByCodes(codes: string[]): Promise<PlaceInfo[]> {
+  /** The known places among `codes`; with `sea`, a carrier code named as its port (mock council S4-2). */
+  async placesByCodes(codes: string[], sea = false): Promise<PlaceInfo[]> {
     const clean = [...new Set(codes.map((c) => c.trim().toUpperCase()).filter((c) => /^[A-Z]{2}[A-Z0-9]{3}$/.test(c)))];
-    return locationRepository.findByCodes(clean);
+    return locationRepository.findByCodes(clean, sea);
   }
 
   async placeCandidates(queries: PlaceCandidateQuery[]): Promise<PlaceInfo[][]> {

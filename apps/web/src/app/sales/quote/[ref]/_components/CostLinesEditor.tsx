@@ -93,6 +93,21 @@ export function basisNotes(seen: Record<string, CostLine>, keys: readonly string
   return changed || Object.keys(next).length !== Object.keys(kept).length ? next : kept;
 }
 
+/**
+ * The update of the notes for `lines` (basisNotes), and `seen` - the lines of the last render, by row
+ * key - moved on to them. The lines before are read now: React may run the update later, when `seen`
+ * holds these lines already and would compare them with themselves (system-21 review).
+ */
+export function notesUpdate(
+  seen: { current: Record<string, CostLine> },
+  keys: readonly string[],
+  lines: readonly CostLine[],
+): (kept: Record<string, LineNote>) => Record<string, LineNote> {
+  const before = seen.current;
+  seen.current = Object.fromEntries(lines.map((l, i) => [keys[i], l]));
+  return (kept) => basisNotes(before, keys, lines, kept);
+}
+
 /** A line's note while the line is still as the note left it: a rate typed or a cargo change after it makes it stale. */
 export const noteFor = (note: LineNote | undefined, line: CostLine): string | null =>
   note && note.amount === (Number(line.amount) || 0) && note.unitPrice === line.unitPrice ? note.text : null;
@@ -206,9 +221,7 @@ export function CostLinesEditor({
   const seen = useRef<Record<string, CostLine>>({});
   const [notes, setNotes] = useState<Record<string, LineNote>>({});
   useEffect(() => {
-    const keys = lineKeys.keys;
-    setNotes((kept) => basisNotes(seen.current, keys, lines, kept));
-    seen.current = Object.fromEntries(lines.map((l, i) => [keys[i], l]));
+    setNotes(notesUpdate(seen, lineKeys.keys, lines));
   }, [lines, lineKeys.keys]);
 
   const chooseService = (i: number, code: string) => {

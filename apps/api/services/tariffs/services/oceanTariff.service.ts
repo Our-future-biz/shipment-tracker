@@ -187,12 +187,15 @@ const portKey = (side: string, name: string) => `${side}|${name}`;
 
 const portOf = (p: OceanPortRecord): OceanPort => ({ side: p.side, name: p.name, countryHint: p.countryHint, code: p.code, status: p.status, candidates: p.candidates });
 
-/** The places of the codes, and the candidates of each name, asked of the place list a batch at a time. */
+/**
+ * The places of the codes, and the candidates of each name, asked of the place list a batch at a time.
+ * Ports, so a carrier code is named as its port (CNSHA "Shanghai"), as the sea pickers name it.
+ */
 async function placeLookup(codes: string[], names: { name: string; countryCode?: string }[]): Promise<{ byCode: OceanPlace[]; candidates: OceanPlace[][] }> {
   const byCode: OceanPlace[] = [];
   const candidates: OceanPlace[][] = [];
   for (let i = 0; i < Math.max(codes.length, names.length); i += LOOKUP_BATCH) {
-    const answer = await auth.placeLookup({ codes: codes.slice(i, i + LOOKUP_BATCH), names: names.slice(i, i + LOOKUP_BATCH) });
+    const answer = await auth.placeLookup({ codes: codes.slice(i, i + LOOKUP_BATCH), names: names.slice(i, i + LOOKUP_BATCH), sea: true });
     byCode.push(...answer.byCode);
     candidates.push(...answer.candidates);
   }

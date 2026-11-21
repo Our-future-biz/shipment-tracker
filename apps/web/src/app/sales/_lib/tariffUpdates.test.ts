@@ -3,6 +3,7 @@ import { withFclPricing } from "./fclPricing";
 import { isOceanFreightLine, withOceanOffer, type OceanOffer } from "./oceanQuote";
 import {
   approvalLineOf,
+  approvedOceanRate,
   isOfferOfUpdate,
   keepChargeSettings,
   linesWaitingForRate,
@@ -124,6 +125,25 @@ describe("approving a new rate", () => {
     ]);
     expect(pick.lines.every((l) => l.tariffRef === "ocean:v2:r2")).toBe(true);
     expect(selling({ ...quote, buyingLines: pick.lines })).toBe(selling(quote));
+  });
+
+  // System-21 review: approving re-describes the buying freight without the shipping line, so its
+  // selling line must lose the name too, as a pick of the tariff does (mock council S2-4).
+  it("gives the selling line of the old freight the new text, the shipping line's name gone", () => {
+    const OLD = "Ocean freight Hamburg → Shanghai (OOCL)";
+    const old: CostLine = { ...freight, description: OLD, supplier: "OOCL", containerType: "20' DC", qty: 1, unitPrice: 1200, amount: 1200, pairId: "p1" };
+    const sold: CostLine = { type: "Ocean freight", description: OLD, currency: "EUR", amount: 1500, pairId: "p1" };
+    const typed: CostLine = { type: "Handling", description: "Handling (OOCL agent)", currency: "EUR", amount: 70, pairId: "p2" };
+    const data: SalesQuoteData = { serviceType: "Sea FCL", currency: "EUR", containers: [{ type: "20' DC", qty: 1 }], buyingLines: [old], sellingLines: [sold, typed] };
+    const lapsedOffer = { ...offer, supplierName: "OOCL", lines: [{ type: "20' DC", qty: 1, price: 1350 }], surcharges: [] } as unknown as OceanOffer;
+    const route = { pol: "Hamburg", pod: "Shanghai" };
+    const { pick, sellingLines } = approvedOceanRate(data, 0, lapsedOffer, route, [old]);
+    expect(pick).toEqual(withApprovedRate(withOceanOffer([old], 0, lapsedOffer, route, data), [old]));
+    const priced = pick.lines[pick.at]!;
+    expect(priced.description).not.toContain("OOCL");
+    expect(sellingLines).toEqual([{ ...sold, description: priced.description }, typed]);
+    // A selling text written by hand stays, and then no selling line changes.
+    expect(approvedOceanRate({ ...data, sellingLines: [{ ...sold, description: "Sea freight door to port" }] }, 0, lapsedOffer, route, [old]).sellingLines).toBeNull();
   });
 
   it("starts a charge the old rate did not have without a profit, giving up a pairing another line kept", () => {

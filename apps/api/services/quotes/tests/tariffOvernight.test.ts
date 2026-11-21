@@ -431,19 +431,37 @@ describe("a save from a page loaded before the night noted the last valid day", 
     });
   });
 
-  it("keeps a day the page sends as it is, and none on a line priced from another tariff or a new one", () => {
-    const stored = { buyingLines: [noted] };
-    expect(keepNotedValidTo({ buyingLines: [{ ...freight, tariffValidTo: "2027-01-31" }] }, stored)).toEqual({ buyingLines: [{ ...freight, tariffValidTo: "2027-01-31" }] });
-    const repriced = { ...freight, tariffRef: "ocean:v2:r1" };
-    expect(keepNotedValidTo({ buyingLines: [repriced] }, stored)).toEqual({ buyingLines: [repriced] });
-    const other = { ...freight, pairId: "p9" };
-    expect(keepNotedValidTo({ buyingLines: [other] }, stored)).toEqual({ buyingLines: [other] });
+  // System-21 review: the night cut the tariff's end to 30 Nov while the page held 31 Dec - its save
+  // must not put the longer day back, or the quote is not warned of until the next night.
+  it("keeps the earlier day the night noted over a later one the page still holds", () => {
+    const cut = { buyingLines: [{ ...freight, tariffValidTo: "2026-11-30" }] };
+    expect(keepNotedValidTo({ buyingLines: [{ ...freight, amount: 1300, tariffValidTo: "2026-12-31" }] }, cut)).toEqual({
+      buyingLines: [{ ...freight, amount: 1300, tariffValidTo: "2026-11-30" }],
+    });
   });
 
-  it("keeps nothing when it can't tell which line is which", () => {
+  it("keeps a day the page sends that is as early or earlier, and none on a line priced from another tariff", () => {
+    const stored = { buyingLines: [noted] };
+    const earlier = { buyingLines: [{ ...freight, tariffValidTo: "2026-11-15" }] };
+    expect(keepNotedValidTo(earlier, stored)).toBe(earlier);
+    const same = { buyingLines: [noted] };
+    expect(keepNotedValidTo(same, stored)).toBe(same);
+    const repriced = { ...freight, tariffRef: "ocean:v2:r1" };
+    expect(keepNotedValidTo({ buyingLines: [repriced] }, stored)).toEqual({ buyingLines: [repriced] });
+  });
+
+  // The night gives every line of a tariff the same day, so the tariff alone tells which day a line keeps:
+  // another pair, or a line the page holds twice, takes it all the same.
+  it("keeps the day on every line of the tariff, also on twins and on another pair", () => {
     const twin = { ...handling, tariffValidTo: "2026-12-31" };
-    expect(keepNotedValidTo({ buyingLines: [handling] }, { buyingLines: [twin, twin] })).toEqual({ buyingLines: [handling] });
-    expect(keepNotedValidTo({ buyingLines: [handling, handling] }, { buyingLines: [twin] })).toEqual({ buyingLines: [handling, handling] });
+    expect(keepNotedValidTo({ buyingLines: [handling] }, { buyingLines: [twin, twin] })).toEqual({ buyingLines: [twin] });
+    expect(keepNotedValidTo({ buyingLines: [handling, handling] }, { buyingLines: [twin] })).toEqual({ buyingLines: [twin, twin] });
+    const other = { ...freight, pairId: "p9" };
+    expect(keepNotedValidTo({ buyingLines: [other] }, { buyingLines: [noted] })).toEqual({ buyingLines: [{ ...other, tariffValidTo: "2026-12-31" }] });
+    // Lines of one tariff stored with two days (picked before the night put them right): the earlier one.
+    expect(keepNotedValidTo({ buyingLines: [freight] }, { buyingLines: [noted, { ...freight, tariffValidTo: "2026-11-30" }] })).toEqual({
+      buyingLines: [{ ...freight, tariffValidTo: "2026-11-30" }],
+    });
   });
 
   it("is the document as sent when the stored one noted no day, or the page sends no buying lines", () => {

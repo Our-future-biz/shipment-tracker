@@ -576,6 +576,24 @@ describe("the reference takes the letters of the Freight Mode", () => {
     expect(rename).not.toHaveBeenCalled();
   });
 
+  // System-21 review: a quote set to Quoted before sent dates were kept, expired and reopened as a
+  // Draft, has no sent date - only its history's `from: "quoted"` says the customer holds it.
+  it("not on a Draft whose history says it left Quoted, though no sent date was kept (wasEverSent)", async () => {
+    const reopened = { status: "draft", sentAt: null, firstSentAt: null };
+    const timeline = [{ status: "draft", from: "quoted" }];
+    repository.saveDocument.mockResolvedValue(quote({ dataVersion: 4, ...reopened, data: { ...withMode("Air"), timeline } }));
+    await expect(salesQuoteService.save(martin, REF, {}, 3)).resolves.toMatchObject({ quoteNumber: REF });
+    expect(rename).not.toHaveBeenCalled();
+    // Nor when the open quotes take their letters after a restart: only the Draft never sent does.
+    const NEVER_SENT = "QCZ20261010002";
+    repository.openQuotes.mockResolvedValueOnce([
+      quote({ ...reopened, data: { ...withMode("Air"), timeline } }),
+      quote({ quoteNumber: NEVER_SENT, data: { ...withMode("Air"), timeline: [{ status: "draft" }] } }),
+    ]);
+    await salesQuoteService.catchUp(martin.companyID);
+    expect(rename.mock.calls).toEqual([[martin.companyID, NEVER_SENT, `QCZAIR${NEVER_SENT.slice(3)}`]]);
+  });
+
   it("on a revision not sent yet, and on a quote Ready to Send", async () => {
     for (const open of [{ status: "revised" }, { status: "ready_to_send" }]) {
       repository.saveDocument.mockResolvedValue(quote({ dataVersion: 4, ...open, data: withMode("Air") }));
@@ -641,6 +659,10 @@ describe("save", () => {
     repository.saveDocument.mockResolvedValue(quote({ dataVersion: 4 }));
     await salesQuoteService.save(martin, REF, { origin: "Brno", buyingLines: [{ ...line, amount: 1300 }] }, 3);
     expect(repository.saveDocument.mock.lastCall![2].data).toEqual({ origin: "Brno", buyingLines: [{ ...line, amount: 1300, tariffValidTo: "2026-12-31" }] });
+    // The night cut the tariff's end since the page was loaded: the page's longer day is not put back.
+    stored = quote({ data: { ...(quote().data as object), buyingLines: [{ ...line, tariffValidTo: "2026-11-30" }] } });
+    await salesQuoteService.save(martin, REF, { buyingLines: [{ ...line, tariffValidTo: "2026-12-31" }] }, 3);
+    expect(repository.saveDocument.mock.lastCall![2].data).toEqual({ buyingLines: [{ ...line, tariffValidTo: "2026-11-30" }] });
   });
 
   it("keeps the whole document of a quote that went out as stored, its details as well as its prices", async () => {

@@ -1,19 +1,26 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { SQL } from "drizzle-orm";
-import { PgDialect } from "drizzle-orm/pg-core";
+import { PgDialect, QueryBuilder } from "drizzle-orm/pg-core";
 
 // The place search's SQL, run against a stand-in for the database that records what it is asked.
-const asked = vi.hoisted(() => ({ queries: [] as unknown[] }));
+const asked = vi.hoisted(() => ({ queries: [] as unknown[], selected: [] as Record<string, unknown>[] }));
 vi.mock("../db/db", () => ({
   db: {
     execute: async (query: unknown) => {
       asked.queries.push(query);
       return { rows: [] };
     },
+    // The lookup by codes: the columns it reads are recorded, and built into SQL by the test.
+    selectDistinctOn: (_on: unknown, columns: Record<string, unknown>) => {
+      asked.selected.push(columns);
+      const chain = { from: () => chain, where: () => chain, orderBy: async () => [] };
+      return chain;
+    },
   },
 }));
 
 import { locationRepository } from "../repositories/orgUnit.repository";
+import { locationTable } from "../schemas/location.schema";
 
 const dialect = new PgDialect();
 const lastQuery = () => dialect.sqlToQuery(asked.queries.at(-1) as SQL);
@@ -88,5 +95,28 @@ describe("locationRepository.search", () => {
   it("asks no carrier code for a text no port name of theirs starts with", async () => {
     await locationRepository.search("Hamburg", null, 30);
     expect(lastQuery().sql).not.toContain("OR code IN");
+  });
+});
+
+// Mock council S4-2, system-21 review: document reading looks codes up whatever the mode - an air job's
+// "Shanghai Hongqiao International Apt (CNSHA)" must stay the airport.
+describe("locationRepository.findByCodes", () => {
+  beforeEach(() => {
+    asked.selected = [];
+  });
+  const selectedSql = () => new QueryBuilder().select(asked.selected.at(-1) as Record<string, never>).from(locationTable).toSQL();
+
+  it("by default keeps the release's names: a carrier code is the airport it is listed as", async () => {
+    await locationRepository.findByCodes(["CNSHA"]);
+    const { sql, params } = selectedSql();
+    expect(sql).not.toContain(`CASE "location"."code"`);
+    expect(params).not.toContain("Shanghai");
+  });
+
+  it("by sea names a carrier code as its port (the ocean tariffs' ports, a sea document's places)", async () => {
+    await locationRepository.findByCodes(["CNSHA"], true);
+    const { sql, params } = selectedSql();
+    expect(sql).toMatch(/CASE "location"\."code" WHEN \$\d+ THEN \$\d+/);
+    expect(params[params.indexOf("CNSHA") + 1]).toBe("Shanghai");
   });
 });

@@ -1,5 +1,6 @@
 import { containerType } from "@/lib/cargo";
 import { fmtMoney } from "@/lib/money";
+import { sellingAfterOceanPick, withOceanOffer, type OceanOffer, type OceanRoute } from "./oceanQuote";
 import type { TariffPick } from "./tariffQuote";
 import type { CostLine, SalesQuoteData, TariffUpdate } from "./types";
 
@@ -118,4 +119,23 @@ export function keepChargeSettings(old: readonly CostLine[], priced: readonly Co
 export function withApprovedRate(pick: TariffPick, old: readonly CostLine[]): TariffPick {
   const offered = pick.lines.slice(pick.at, pick.at + pick.count);
   return { ...pick, lines: [...pick.lines.slice(0, pick.at), ...keepChargeSettings(old, offered), ...pick.lines.slice(pick.at + pick.count)] };
+}
+
+/**
+ * What approving a lapsed ocean tariff's new rate puts on the quote: the offer's lines in the place of
+ * the old rate's from buying line `at` (withApprovedRate, `old` its lines), and the selling lines as a
+ * pick of the tariff leaves them (sellingAfterOceanPick) - the new freight is described without the
+ * shipping line, so its selling line drops the name too and the customer's document no longer shows
+ * it (mock council S2-4, system-21 review). `sellingLines` null when no selling line changes.
+ */
+export function approvedOceanRate(
+  quote: SalesQuoteData,
+  at: number,
+  offer: OceanOffer,
+  route: Pick<OceanRoute, "pol" | "pod">,
+  old: readonly CostLine[],
+): { pick: TariffPick; sellingLines: CostLine[] | null } {
+  const buying = quote.buyingLines ?? [];
+  const pick = withApprovedRate(withOceanOffer(buying, at, offer, route, quote), old);
+  return { pick, sellingLines: sellingAfterOceanPick(quote.sellingLines ?? [], buying[at], pick.lines[pick.at]) };
 }

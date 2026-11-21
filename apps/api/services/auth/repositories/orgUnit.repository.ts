@@ -175,14 +175,16 @@ class LocationRepository {
   }
 
   /**
-   * One row per known code (the first-listed name where a code has several), a carrier code named as
-   * its port. Asked by the ocean tariffs' ports and by document reading (which reads an air job's
-   * airports as IATA codes), never by a picker: an air or road job's pickers search (mock council S4-2).
+   * One row per known code (the first-listed name where a code has several). With `sea` (the ocean
+   * tariffs' ports, the places of a sea document) a carrier code is named as its port, as the sea
+   * pickers name it; otherwise as the release lists it: document reading looks codes up whatever the
+   * mode, and by air or road "Shanghai Hongqiao International Apt (CNSHA)" is the airport (mock council
+   * S4-2, system-21 review).
    */
-  async findByCodes(codes: string[]) {
+  async findByCodes(codes: string[], sea = false) {
     if (codes.length === 0) return [];
     return db
-      .selectDistinctOn([locationTable.code], this.shownColumns)
+      .selectDistinctOn([locationTable.code], sea ? this.shownColumns : this.placeColumns)
       .from(locationTable)
       .where(inArray(locationTable.code, codes))
       .orderBy(locationTable.code, asc(locationTable.id));

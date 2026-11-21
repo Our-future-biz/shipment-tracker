@@ -6,6 +6,7 @@ import { parseJsonFromResponse } from "../lib/fields";
 import { countryValue, fold, placeCodeOf, placeLabel, resolveCountryCode, type GeoKind } from "../../../lib/geo/format";
 import type { Place } from "../../../lib/geo/place";
 import { subdivisionOf, type Subdivision } from "../../../lib/geo/subdivisions";
+import { isSeaMode } from "../../../lib/geo/carrierPorts";
 
 // Turns places and countries read by the AI (or typed into an inquiry) into the form the
 // database uses: "Hamburg (DEHAM)", "Germany (DE)", "DE". Text that matches nothing is left
@@ -64,10 +65,12 @@ export function splitPlace(text: string): { name: string; countryCode: string | 
   return { name, countryCode, weakCountry, state };
 }
 
-// The places a lookup returned; on failure none, so the values stay as read and get flagged.
-async function lookupPlaces(codes: string[], names: { name: string; countryCode?: string; subdivision?: string }[]): Promise<{ byCode: Place[]; candidates: Place[][] }> {
+// The places a lookup returned; on failure none, so the values stay as read and get flagged. `sea`: a
+// carrier code is named as its port (CNSHA "Shanghai"); otherwise as the release lists it, by air or
+// road the Hongqiao airport (mock council S4-2).
+async function lookupPlaces(codes: string[], names: { name: string; countryCode?: string; subdivision?: string }[], sea: boolean): Promise<{ byCode: Place[]; candidates: Place[][] }> {
   try {
-    return await auth.placeLookup({ codes, names });
+    return await auth.placeLookup({ codes, names, sea });
   } catch (err) {
     log.error(err, "place lookup failed");
     return { byCode: [], candidates: names.map(() => []) };
@@ -77,9 +80,11 @@ async function lookupPlaces(codes: string[], names: { name: string; countryCode?
 /** The stored form of each item, or null where nothing in the database matches it. */
 /**
  * `beforeAi`: called once before the AI is asked (the items the database did not settle), e.g. to
- * charge the caller's reading budget; it may refuse by throwing.
+ * charge the caller's reading budget; it may refuse by throwing. `sea`: the places are a sea job's,
+ * so a carrier code is named as its port; not known means not by sea (mock council S4-2).
  */
-export async function resolveGeo(items: GeoItem[], opts: { beforeAi?: () => void } = {}): Promise<(string | null)[]> {
+export async function resolveGeo(items: GeoItem[], opts: { beforeAi?: () => void; sea?: boolean } = {}): Promise<(string | null)[]> {
+  const sea = opts.sea ?? false;
   const out: (string | null)[] = items.map(() => null);
   // Items still open after the database pass, for one AI call: candidates are the database
   // rows the text could mean (empty when none were found by name).
@@ -111,7 +116,7 @@ export async function resolveGeo(items: GeoItem[], opts: { beforeAi?: () => void
       world: p.weakCountry ? names.push({ name: p.name }) - 1 : -1,
       state: p.state ? names.push({ name: p.name, countryCode: p.state.countryCode, subdivision: p.state.name }) - 1 : -1,
     }));
-    const { byCode, candidates } = await lookupPlaces(placeItems.flatMap((p) => (p.code ? [p.code] : [])), names);
+    const { byCode, candidates } = await lookupPlaces(placeItems.flatMap((p) => (p.code ? [p.code] : [])), names, sea);
     const known = new Map(byCode.map((p) => [p.code, p]));
     placeItems.forEach((p, i) => {
       const slot = slots[i]!;
@@ -149,7 +154,7 @@ export async function resolveGeo(items: GeoItem[], opts: { beforeAi?: () => void
     opts.beforeAi?.();
     const picks = await askAi(items, open);
     const suggested = [...new Set(Object.values(picks).filter((c): c is string => !!c))];
-    const valid = suggested.length > 0 ? (await lookupPlaces(suggested, [])).byCode : [];
+    const valid = suggested.length > 0 ? (await lookupPlaces(suggested, [], sea)).byCode : [];
     const validByCode = new Map(valid.map((p) => [p.code, p]));
     for (const { index } of open) {
       const code = picks[index];
@@ -208,8 +213,11 @@ async function askAi(items: GeoItem[], open: { index: number; candidates: Place[
   }
 }
 
-/** Rewrites the place and country fields of extracted records in place (one lookup for all). */
-export async function canonicalizeRecords(records: Record<string, string>[]): Promise<void> {
+/**
+ * Rewrites the place and country fields of extracted records in place (one lookup for all). By sea
+ * (mock council S4-2) when the caller says so - a bill of lading is - or every record's Freight Mode is.
+ */
+export async function canonicalizeRecords(records: Record<string, string>[], opts: { sea?: boolean } = {}): Promise<void> {
   const refs: { record: Record<string, string>; key: string }[] = [];
   const items: GeoItem[] = [];
   for (const record of records) {
@@ -221,7 +229,7 @@ export async function canonicalizeRecords(records: Record<string, string>[]): Pr
     }
   }
   if (items.length === 0) return;
-  const resolved = await resolveGeo(items);
+  const resolved = await resolveGeo(items, { sea: opts.sea ?? records.every((r) => isSeaMode(r["Freight Mode"])) });
   resolved.forEach((value, i) => {
     if (value) refs[i]!.record[refs[i]!.key] = value;
   });

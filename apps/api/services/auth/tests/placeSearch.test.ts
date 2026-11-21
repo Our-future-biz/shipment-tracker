@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // The Encore runtime isn't loaded under vitest; the repositories are stand-ins.
 vi.mock("encore.dev/api", () => import("../../../lib/tests/encoreApi.stub"));
-const locations = vi.hoisted(() => ({ search: vi.fn() }));
+const locations = vi.hoisted(() => ({ search: vi.fn(), findByCodes: vi.fn() }));
 vi.mock("../repositories/orgUnit.repository", () => ({
   departmentRepository: {},
   branchRepository: {},
@@ -37,6 +37,21 @@ describe("orgUnitService.searchPlaces", () => {
   it("asks nothing for less than 2 letters, by sea too", async () => {
     expect(await orgUnitService.searchPlaces("H", undefined, JAN, "sea")).toEqual([]);
     expect(locations.search).not.toHaveBeenCalled();
+  });
+});
+
+// Mock council S4-2, system-21 review: document reading looks codes up whatever the mode.
+describe("orgUnitService.placesByCodes", () => {
+  beforeEach(() => {
+    locations.findByCodes.mockReset();
+    locations.findByCodes.mockResolvedValue([]);
+  });
+
+  it("names a carrier code as its port only when asked by sea", async () => {
+    await orgUnitService.placesByCodes([" cnsha ", "CNSHA", "PVG"]);
+    expect(locations.findByCodes).toHaveBeenLastCalledWith(["CNSHA"], false);
+    await orgUnitService.placesByCodes(["CNSHA"], true);
+    expect(locations.findByCodes).toHaveBeenLastCalledWith(["CNSHA"], true);
   });
 });
 

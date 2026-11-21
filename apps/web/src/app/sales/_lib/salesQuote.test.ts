@@ -385,10 +385,38 @@ describe("a change of basis", () => {
     expect(basisChangeNote(lump(1000), line)).toBe("Rate set from the lump sum: 1,000.00 ÷ 640 kg = 1.56; the line now comes to 998.40");
   });
 
-  it("with no quantity in Cargo details yet sets no rate of the lump sum, and says so", () => {
+  it("with no quantity in Cargo details yet keeps the lump sum, sets no rate, and says so", () => {
     const line = withBasis(lump(1344), "kg", { serviceType: "Air" });
-    expect(line).toMatchObject({ basis: "kg", qty: 0, unitPrice: 0, amount: 0 });
-    expect(basisChangeNote(lump(1344), line)).toBe("Cargo details has no chargeable weight yet, so the lump sum of 1,344.00 could not be made a rate: type the rate per chargeable kg");
+    expect(line).toMatchObject({ basis: "kg", qty: 0, unitPrice: 0, amount: 1344 });
+    expect(basisChangeNote(lump(1344), line)).toBe(
+      "Cargo details has no chargeable weight yet, so the line keeps the lump sum of 1,344.00 and its rate is made from it once it has; or type the rate per chargeable kg",
+    );
+    // A rate typed on it meanwhile is the user's: no note.
+    expect(basisChangeNote(lump(1344), withRate(line, 2.1, 0))).toBeNull();
+  });
+
+  // System-21 review: an Air quote with no weight yet, buying 1,000.00 and selling 1,500.00 typed as lump
+  // sums. Buying set to per chargeable kg and back must leave both totals as they were typed.
+  it("with no quantity yet wipes no total, on either side, and makes the rate of it once Cargo details has the weight", () => {
+    const empty: SalesQuoteData = { serviceType: "Air" };
+    const buying = withBasis(lump(1000, { basis: "lumpsum", pairId: "p1" }), "kg", empty);
+    const sold = lump(1500, { basis: "lumpsum", pairId: "p1" });
+    expect(buying).toMatchObject({ basis: "kg", unitPrice: 0, amount: 1000 });
+    const perKg = { ...empty, buyingLines: [buying], sellingLines: [sold], ...withLineBasis({ ...empty, buyingLines: [buying], sellingLines: [sold] }) };
+    expect(perKg.buyingLines).toEqual([buying]);
+    expect(perKg.sellingLines).toEqual([expect.objectContaining({ basis: "kg", qty: 0, unitPrice: 0, amount: 1500 })]);
+    // It stays so while Cargo details has no weight.
+    expect(withLineBasis(perKg)).toBeNull();
+    // Back to a lump sum: both totals as typed.
+    const back = { ...perKg, buyingLines: [withBasis(buying, "lumpsum", empty)] };
+    const lumpsums = { ...back, ...withLineBasis(back) };
+    expect(lumpsums.buyingLines).toEqual([expect.objectContaining({ basis: "lumpsum", amount: 1000 })]);
+    expect(lumpsums.sellingLines).toEqual([expect.objectContaining({ basis: "lumpsum", amount: 1500 })]);
+    expect(lumpsums.sellingLines![0]).not.toHaveProperty("unitPrice");
+    // Weighed meanwhile (640 kg chargeable): the totals kept become the rates, as a change of basis makes them.
+    const weighed = withLineBasis({ ...perKg, packages: air.packages });
+    expect(weighed?.buyingLines).toEqual([expect.objectContaining({ qty: 640, unitPrice: 1.56, amount: 998.4 })]);
+    expect(weighed?.sellingLines).toEqual([expect.objectContaining({ qty: 640, unitPrice: 2.34, amount: 1497.6 })]);
   });
 
   it("back to a lump sum keeps the total: rate × quantity becomes the lump sum", () => {

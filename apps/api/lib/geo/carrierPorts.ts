@@ -72,6 +72,9 @@ export function carrierPortsNamed(query: string): string[] {
     .map(([code]) => code);
 }
 
+/** Whether a Freight Mode ("Sea FCL", "Sea Freight", …) is by sea: only then is a carrier code its port. */
+export const isSeaMode = (freightMode: string | null | undefined): boolean => /^sea/i.test(freightMode ?? "");
+
 /**
  * A stored place text as a sea job shows it: a carrier code saved before the pickers named it as
  * its port ("Shanghai Hongqiao International Apt (CNSHA)") reads "Shanghai (CNSHA)". Only on
@@ -80,7 +83,7 @@ export function carrierPortsNamed(query: string): string[] {
  */
 export function seaPortText(text: string | null | undefined, freightMode: string | null | undefined): string {
   const value = text ?? "";
-  if (!/^sea/i.test(freightMode ?? "")) return value;
+  if (!isSeaMode(freightMode)) return value;
   const m = /^(.*\S)\s*\(([A-Z]{2}[A-Z0-9]{3})\)\s*$/.exec(value);
   const name = m ? CARRIER_PORT_NAMES[m[2]!] : undefined;
   return m && name && m[1] !== name ? `${name} (${m[2]})` : value;

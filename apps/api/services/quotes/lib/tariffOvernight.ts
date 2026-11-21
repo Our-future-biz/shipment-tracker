@@ -422,33 +422,30 @@ function withValidTo(line: Line, validTo: string | null | undefined): Line {
 /**
  * A save of a quote's document from a page loaded before the night noted its tariffs' last valid day: that note
  * makes no new version (mock council S2-6, keepVersion), so a colleague's page left open still saves - and its copy
- * has no day on the lines (mock council M4, system-21 review). A stored buying line's tariffValidTo is kept when the
- * incoming line is the same line - the same pairId and tariff, or with no pairId the same tariff, charge and text,
- * each one line only - and carries none. A line priced again from another tariff is another line and keeps none;
- * a day that no longer holds is put right the next night. `incoming` as it is when there is nothing to keep.
+ * has no day on the lines, or the day from before the night moved it (mock council M4, system-21 review). The night
+ * gives every buying line of a tariff (tariffRef) the same day, so the tariff alone says which day a line keeps: an
+ * incoming line of a tariff the stored lines noted a day for keeps that day when it carries none or a later one.
+ * The earlier day wins because the day is there to warn of a quote valid longer than its buying (web
+ * sales/_lib/tariffRecheck tariffValidityWarning) - a warning, never a block: a needless one, left by a re-pick of a
+ * tariff extended since the night, is gone the next night; a missing one would not be back before it. A line priced
+ * again from another tariff keeps none. `incoming` as it is when there is nothing to keep.
  */
 export function keepNotedValidTo(incoming: Doc, stored: Doc): Doc {
-  const storedLines = linesOf(stored, "buyingLines");
-  if (!Array.isArray(incoming.buyingLines) || !storedLines.some((l) => text(l.tariffValidTo))) return incoming;
-  const keyOf = (l: Line) => {
-    const ref = text(l.tariffRef);
-    if (!ref) return "";
-    const pair = text(l.pairId);
-    return pair ? `pair:${pair}|${ref}` : `line:${ref}|${text(l.type)}|${text(l.description)}`;
-  };
-  const counted = (lines: Line[]) => {
-    const n = new Map<string, number>();
-    for (const l of lines) n.set(keyOf(l), (n.get(keyOf(l)) ?? 0) + 1);
-    return n;
-  };
-  const incomingLines = incoming.buyingLines.filter(isObject) as Line[];
-  const [storedCount, incomingCount] = [counted(storedLines), counted(incomingLines)];
-  const noted = new Map(storedLines.filter((l) => keyOf(l) && storedCount.get(keyOf(l)) === 1 && text(l.tariffValidTo)).map((l) => [keyOf(l), text(l.tariffValidTo)]));
+  if (!Array.isArray(incoming.buyingLines)) return incoming;
+  // The earliest day the stored lines of each tariff keep.
+  const noted = new Map<string, string>();
+  for (const l of linesOf(stored, "buyingLines")) {
+    const [ref, day] = [text(l.tariffRef), text(l.tariffValidTo)];
+    const earlier = noted.get(ref);
+    if (ref && day && (!earlier || day < earlier)) noted.set(ref, day);
+  }
+  if (!noted.size) return incoming;
   let kept = false;
   const buyingLines = incoming.buyingLines.map((l: unknown) => {
-    if (!isObject(l) || text(l.tariffValidTo)) return l;
-    const day = noted.get(keyOf(l));
-    if (!day || incomingCount.get(keyOf(l)) !== 1) return l;
+    if (!isObject(l)) return l;
+    const day = noted.get(text(l.tariffRef));
+    const sent = text(l.tariffValidTo);
+    if (!day || (sent && sent <= day)) return l;
     kept = true;
     return { ...l, tariffValidTo: day };
   });

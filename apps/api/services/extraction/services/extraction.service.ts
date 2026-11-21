@@ -10,6 +10,7 @@ import { withInvoiceLines } from "../lib/invoiceLines";
 import { applyTradeDirection, QUOTE_DESTINATION_LABELS } from "../lib/tradeDirection";
 import type { ExtractionResult } from "../interfaces/interfaces";
 import { canonicalizeRecords, resolveGeo } from "./places.service";
+import { isSeaMode } from "../../../lib/geo/carrierPorts";
 
 // The model only returns useful keys when told the exact field names to use;
 // filterExtracted() then keeps only exact matches, so the list must be injected.
@@ -195,7 +196,11 @@ const QUOTE_PLACE_ROLES: Record<string, string> = {
 async function asQuoteFields(done: ExtractionResult): Promise<ExtractionResult> {
   const extracted = normalizeQuoteFields(done.extracted);
   const labels = Object.keys(QUOTE_PLACE_ROLES).filter((label) => extracted[label]);
-  const places = await resolveGeo(labels.map((label) => ({ text: extracted[label]!, kind: "place" as const, role: QUOTE_PLACE_ROLES[label] })));
+  // By sea a carrier code is named as its port; by air or road it is the airport (mock council S4-2).
+  const places = await resolveGeo(
+    labels.map((label) => ({ text: extracted[label]!, kind: "place" as const, role: QUOTE_PLACE_ROLES[label] })),
+    { sea: isSeaMode(extracted["Freight Mode"]) },
+  );
   labels.forEach((label, i) => {
     if (places[i]) extracted[label] = places[i]!;
   });

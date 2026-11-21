@@ -117,8 +117,8 @@ export async function checkQuote(found: { companyId: string; quoteNumber: string
   // that only notes a still-valid tariff's last valid day on its lines - every quote priced before
   // the day was kept, the first night after the deploy - makes no new version (mock council S2-6):
   // a colleague's page left open with unsaved edits is not refused as "changed meanwhile" for it.
-  // Their save keeps the day on each line it noted that the page sends as the same line without one
-  // (lib/tariffOvernight keepNotedValidTo, system-21 mock council review of M4).
+  // Their save keeps the day it noted on each line of the tariff the page sends without one, or with
+  // a later one (lib/tariffOvernight keepNotedValidTo, system-21 mock council review of M4).
   const saved = await salesQuoteRepository.saveDocument(
     quote.companyId,
     quote.quoteNumber,
