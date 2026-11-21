@@ -3,7 +3,7 @@ import { APIError, ErrCode } from "encore.dev/api";
 import log from "encore.dev/log";
 import { getAuthData } from "~encore/auth";
 import { customers, fx, shipments } from "~encore/clients";
-import { invoiceRepository, type InvoiceLineInput } from "../repositories/invoice.repository";
+import { invoiceRepository, lockInvoiceRow, type InvoiceLineInput } from "../repositories/invoice.repository";
 import { generatedInvoiceRepository } from "../repositories/generatedInvoice.repository";
 import { invoiceProfileRepository } from "../repositories/invoiceProfile.repository";
 import { sellingCostRepository } from "../repositories/sellingCost.repository";
@@ -930,6 +930,9 @@ class InvoiceDocumentService {
         lineRows(calcLines),
         {
           beforeInsert: async (tx) => {
+            // The invoice's row lock a change of it is asked under (repositories/invoiceChangeRequest): one asked a
+            // moment ago is taken back below, one asked now waits and then sees this credit note (system-21 review).
+            await lockInvoiceRow(tx, companyId, original.id);
             await truckingLinesLock(tx, original.shipmentId);
             if ((await invoiceRepository.creditNotesOf(original.id, companyId, tx)).length !== credits.length) {
               throw APIError.failedPrecondition(`Invoice ${original.number} was credited a moment ago: open the request again`);

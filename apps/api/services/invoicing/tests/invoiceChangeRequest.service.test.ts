@@ -11,7 +11,7 @@ const requests = vi.hoisted(() => ({
   pending: vi.fn(),
   answersFor: vi.fn(),
 }));
-const invoices = vi.hoisted(() => ({ getByIdForCompany: vi.fn(), creditNotesOf: vi.fn() }));
+const invoices = vi.hoisted(() => ({ getByIdForCompany: vi.fn(), getInTx: vi.fn(), creditNotesOf: vi.fn() }));
 const docs = vi.hoisted(() => ({ cancelOnIssueDay: vi.fn() }));
 const creditRequests = vi.hoisted(() => ({ pendingFor: vi.fn() }));
 const TODAY = "2026-11-17";
@@ -48,6 +48,7 @@ const row = (over: Record<string, unknown> = {}) => ({
 beforeEach(() => {
   vi.clearAllMocks();
   invoices.getByIdForCompany.mockResolvedValue(invoice);
+  invoices.getInTx.mockResolvedValue(invoice);
   invoices.creditNotesOf.mockResolvedValue([]);
   creditRequests.pendingFor.mockResolvedValue(null);
   requests.create.mockImplementation(async (values: Record<string, unknown>) => row(values));
@@ -112,6 +113,26 @@ describe("asking to change an invoice", () => {
     creditRequests.pendingFor.mockResolvedValueOnce(null).mockResolvedValueOnce({ id: "cr1", requestedAt: new Date("2026-11-17T08:13:00Z") });
     await expect(invoiceChangeRequestService.ask(user, INVOICE, { fixes: ["duzp"], reason: "Wrong" })).rejects.toThrow(/partial credit note for this invoice is waiting/);
     expect(creditRequests.pendingFor).toHaveBeenLastCalledWith(COMPANY, INVOICE, tx);
+  });
+
+  // System-21 review: the lock kept the two requests apart, but not the invoice credited meanwhile.
+  it("checks the invoice again under its lock: credited in part, in full or cancelled a moment ago takes no change", async () => {
+    const tx = { tx: true };
+    requests.create.mockImplementation(async (values: Record<string, unknown>, guard?: (t: unknown) => Promise<void>) => {
+      await guard?.(tx);
+      return row(values);
+    });
+    const ask = () => invoiceChangeRequestService.ask(user, INVOICE, { fixes: ["duzp"], reason: "Wrong" });
+    // A partial credit note issued while this was asked.
+    invoices.creditNotesOf.mockResolvedValueOnce([]).mockResolvedValueOnce([{ id: "cn" }]);
+    await expect(ask()).rejects.toMatchObject({ code: "failed_precondition", message: expect.stringMatching(/credited in part: correct it with a credit note/) });
+    expect(invoices.creditNotesOf).toHaveBeenLastCalledWith(INVOICE, COMPANY, tx);
+    invoices.getInTx.mockResolvedValueOnce({ ...invoice, status: "credited" });
+    await expect(ask()).rejects.toThrow(/is credited already/);
+    expect(invoices.getInTx).toHaveBeenLastCalledWith(tx, INVOICE, COMPANY);
+    invoices.getInTx.mockResolvedValueOnce({ ...invoice, status: "cancelled" });
+    await expect(ask()).rejects.toThrow(/is cancelled already/);
+    await expect(ask()).resolves.toMatchObject({ status: "pending" });
   });
 });
 

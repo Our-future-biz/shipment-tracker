@@ -15,6 +15,8 @@ interface CostPaidCellProps {
   paidAt: string | null;
   /** The supplier invoice on Finance → Accounts Payable the line is on; its payment is noted there (D11). */
   supplierInvoiceId?: string | null;
+  /** Whether the line has its real cost: with no amount there is nothing to pay (User Council A1). */
+  hasRealCost?: boolean;
   /** A day marks it paid, "" takes the payment back. */
   onChange: (paidOn: string) => void;
 }
@@ -24,8 +26,9 @@ interface CostPaidCellProps {
 // and when shown once paid (K6). A click only opens the box, so a row is never paid or unpaid by an
 // accidental click.
 // A line on a supplier invoice (Council Outlay 9, D11) shows its payment as it is: Paid is noted once for the
-// whole invoice on Finance → Accounts Payable, and the server refuses it on the line.
-export function CostPaidCell({ received, receivedAt, paidOn, paidBy, paidAt, supplierInvoiceId, onChange }: CostPaidCellProps) {
+// whole invoice on Finance → Accounts Payable, and the server refuses it on the line. A line with no real cost is
+// paid once its amount is in, as the server checks (User Council A1); a payment noted before can still be taken back.
+export function CostPaidCell({ received, receivedAt, paidOn, paidBy, paidAt, supplierInvoiceId, hasRealCost = true, onChange }: CostPaidCellProps) {
   const [open, setOpen] = useState(false);
   const [day, setDay] = useState<Dayjs | null>(null);
   const today = dayjs(businessToday());
@@ -51,6 +54,15 @@ export function CostPaidCell({ received, receivedAt, paidOn, paidBy, paidAt, sup
       >
         <span>
           <Checkbox checked={!!paidOn} disabled aria-label={paidOn ? `Paid on ${formatDate(paidOn)}, noted on Accounts Payable` : "Unpaid, noted on Accounts Payable"} />
+        </span>
+      </Tooltip>
+    );
+  }
+  if (!hasRealCost && !paidOn) {
+    return (
+      <Tooltip title="Paid once its real cost is in">
+        <span>
+          <Checkbox checked={false} disabled aria-label="Supplier invoice paid" />
         </span>
       </Tooltip>
     );
@@ -88,7 +100,7 @@ export function CostPaidCell({ received, receivedAt, paidOn, paidBy, paidAt, sup
                 Take back payment
               </Button>
             )}
-            <Button size="small" type="primary" disabled={!day || day.format("YYYY-MM-DD") === paidOn} onClick={() => day && save(day.format("YYYY-MM-DD"))}>
+            <Button size="small" type="primary" disabled={!hasRealCost || !day || day.format("YYYY-MM-DD") === paidOn} onClick={() => day && save(day.format("YYYY-MM-DD"))}>
               {paidOn ? "Change day" : "Mark paid"}
             </Button>
           </span>

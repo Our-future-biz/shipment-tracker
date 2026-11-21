@@ -1045,6 +1045,7 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
                         paidBy={r.paidBy}
                         paidAt={r.paidAt}
                         supplierInvoiceId={r.supplierInvoiceId}
+                        hasRealCost={!!r.realAmount.trim()}
                         onChange={(paidOn) => updateBuy.mutate({ id: r.id, paidOn })}
                       />
                     </span>

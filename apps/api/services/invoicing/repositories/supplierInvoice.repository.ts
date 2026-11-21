@@ -200,7 +200,10 @@ class SupplierInvoiceRepository {
       const ids = [...touched];
       const inIds = (list: string[]) => sql`(${sql.join(list.map((id) => sql`${id}::uuid`), sql`, `)})`;
       // An invoice gathered from lines that were all paid before Accounts Payable existed stays paid (D11): it is
-      // taken as approved and paid on its lines' last day, so it is neither approved nor paid again.
+      // taken as approved and paid on its lines' last day, so it is neither approved nor paid again. Only with every
+      // line's amount in: a line paid with no real cost paid nothing anyone knows of, so its invoice is booked to wait
+      // for its amount, and is approved and paid on Accounts Payable as any other (User Council A1) - this runs on
+      // every cost write, for a number typed on a line paid on the job before it had one, not only for the backfill.
       const fresh = [...created];
       if (fresh.length) {
         const paid = (await tx.execute(sql`
@@ -208,10 +211,10 @@ class SupplierInvoiceRepository {
              SET status = 'approved', paid_on = s.paid_on, paid_at = s.paid_at, paid_by = coalesce(s.paid_by, ''),
                  decision_reason = 'Paid before Accounts Payable existed', version = h.version + 1, updated_at = now()
           FROM (SELECT supplier_invoice_id AS id, max(paid_on) AS paid_on, max(paid_at) AS paid_at, max(paid_by) AS paid_by,
-                       bool_and(paid_on IS NOT NULL) AS all_paid
+                       bool_and(paid_on IS NOT NULL) AS all_paid, bool_and(real_amount IS NOT NULL) AS all_priced
                 FROM invoice_cost WHERE deleted_at IS NULL AND supplier_invoice_id IN ${inIds(fresh)}
                 GROUP BY supplier_invoice_id) s
-          WHERE h.id = s.id AND s.all_paid AND h.status = 'booked'
+          WHERE h.id = s.id AND s.all_paid AND s.all_priced AND h.status = 'booked'
           RETURNING h.id, h.paid_on`)) as unknown as { rows?: { id: string; paid_on: string }[] } | { id: string; paid_on: string }[];
         const rows = Array.isArray(paid) ? paid : (paid.rows ?? []);
         for (const row of rows) {

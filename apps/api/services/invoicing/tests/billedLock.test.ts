@@ -16,9 +16,11 @@ import {
   billedBuyingProblem,
   billedLateRealCosts,
   billedRefusesOutright,
+  keepsItsInvoice,
   lateRealCost,
   lateRealCostOf,
   leavesBuyingCostAlone,
+  leavesItsInvoice,
 } from "../lib/billedLock";
 
 beforeEach(() => {
@@ -64,6 +66,24 @@ describe("what still goes on a billed shipment", () => {
   it("the number of the supplier's invoice that came after the billing (Accounts Payable D6)", () => {
     expect(leavesBuyingCostAlone({ invoiceNumber: "F1", paidOn: "" })).toBe(true);
     expect(leavesBuyingCostAlone({ invoiceNumber: "F1", received: true })).toBe(true);
+  });
+
+  // System-21 review: a new number or supplier took the line off its approved invoice, sent back to be approved.
+  it("but not a new number or supplier of a line on a supplier invoice approved or paid", () => {
+    const line = { invoiceNumber: "F1", supplierCustomerId: "s1", haulierId: null };
+    expect(leavesItsInvoice({ invoiceNumber: "F2" }, line)).toBe(true);
+    expect(leavesItsInvoice({ invoiceNumber: "" }, line)).toBe(true);
+    expect(leavesItsInvoice({ supplierCustomerId: null }, line)).toBe(true);
+    expect(leavesItsInvoice({ haulierId: "h1" }, line)).toBe(true);
+    // The same sent again, or nothing of them, keeps it on its invoice.
+    expect(leavesItsInvoice({ invoiceNumber: "F1", supplierCustomerId: "s1", haulierId: "" }, line)).toBe(false);
+    expect(leavesItsInvoice({}, line)).toBe(false);
+    expect(keepsItsInvoice({ status: "approved", paidOn: null })).toBe(true);
+    expect(keepsItsInvoice({ status: "approved", paidOn: "2026-11-15" })).toBe(true);
+    // Still waiting for approval, refused (its corrected invoice is booked as a new one), or none: the line moves.
+    expect(keepsItsInvoice({ status: "booked", paidOn: null })).toBe(false);
+    expect(keepsItsInvoice({ status: "refused", paidOn: null })).toBe(false);
+    expect(keepsItsInvoice(null)).toBe(false);
   });
 });
 

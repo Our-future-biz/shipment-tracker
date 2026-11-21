@@ -8,6 +8,7 @@ import { partialCreditTotals, planPartialCredit, type AskedLine, type RemainingL
 import { answerProblem } from "../lib/sellingAmount";
 import { waitingRequestProblem } from "../lib/waitingRequest";
 import { invoiceChangeRequestRepository as changeRequests } from "../repositories/invoiceChangeRequest.repository";
+import { invoiceRepository } from "../repositories/invoice.repository";
 import { creditNoteRequestRepository as requests } from "../repositories/creditNoteRequest.repository";
 import type { CreditNoteRequestRecord } from "../schemas/creditNoteRequest.schema";
 import type { CreditNoteRequestItem, CreditOptionsItem, CreditableLineItem } from "../interfaces/interfaces";
@@ -27,6 +28,8 @@ const BELL_LIMIT = 100;
 const SEEN_KEEP_DAYS = 7;
 const DAY = 86_400_000;
 const notThere = () => APIError.notFound("This request is not there");
+const notIssued = (number: string, status: string) =>
+  APIError.failedPrecondition(`Invoice ${number} has already been ${status === "cancelled" ? "cancelled" : "credited"}`);
 
 export const toCreditRequestItem = (r: CreditNoteRequestRecord): CreditNoteRequestItem => ({
   id: r.id,
@@ -92,9 +95,9 @@ class CreditNoteRequestService {
   async ask(actor: Actor, invoiceId: string, input: { lines: AskedLine[]; reason: string }): Promise<CreditNoteRequestItem> {
     const reason = (input.reason ?? "").trim();
     if (reason.length < 3) throw APIError.invalidArgument("Give the reason for the credit note");
-    const { original, remaining } = await invoiceDocumentService.creditState(invoiceId, actor.companyID);
+    const { original, credits, remaining } = await invoiceDocumentService.creditState(invoiceId, actor.companyID);
     if (original.kind !== "invoice") throw APIError.failedPrecondition("A credit note cannot be credited");
-    if (original.status !== "issued") throw APIError.failedPrecondition(`Invoice ${original.number} has already been ${original.status === "cancelled" ? "cancelled" : "credited"}`);
+    if (original.status !== "issued") throw notIssued(original.number, original.status);
     // Approving a change on the issue day would cancel the invoice and take this request back unasked
     // (user council B5): one waits at a time. A change waits on its issue day only; an older one has expired.
     const change = await changeRequests.pendingFor(actor.companyID, original.id);
@@ -104,8 +107,15 @@ class CreditNoteRequestService {
     const totals = partialCreditTotals(plan.lines, Number(original.fxRate));
     const userEmail = await userEmailOf(actor.userID);
     // Checked again under the invoice's row lock, with the insert (mock council S5-4 / X-3): a change asked a second
-    // ago is seen, so the two never both wait.
+    // ago is seen, so the two never both wait - and so is the invoice credited in full or cancelled, or credited in
+    // part since what is left of it was read (system-21 review): the lines asked are then asked again on what is left.
     const noChangeWaits: Parameters<typeof requests.create>[1] = async (tx) => {
+      const current = await invoiceRepository.getInTx(tx, original.id, actor.companyID);
+      if (!current) throw APIError.notFound("Invoice not found");
+      if (current.status !== "issued") throw notIssued(original.number, current.status);
+      if ((await invoiceRepository.creditNotesOf(original.id, actor.companyID, tx)).length !== credits.length) {
+        throw APIError.failedPrecondition(`Invoice ${original.number} was credited in part a moment ago: open it again to see what is left to credit`);
+      }
       const now = await changeRequests.pendingFor(actor.companyID, original.id, tx);
       if (now && now.issueDate === pragueToday()) throw APIError.failedPrecondition(waitingRequestProblem("change", now.requestedAt));
     };

@@ -73,6 +73,30 @@ describe("matching lines to supplier invoices (sync)", () => {
     expect(byNumber.get("OLD-2")).toMatchObject({ status: "booked", paidOn: null });
   });
 
+  // System-21 review: a line received and paid on the job with no amount, its number typed after, came to Accounts
+  // Payable approved and paid with no amount - past approval, the manager's payment and the supplier's checks.
+  it("books an invoice with a paid line of no real cost to wait for its amount, on a cost write as in the backfill (User Council A1)", async () => {
+    const a = randomUUID();
+    const paid = { paidOn: "2026-10-01", paidAt: new Date("2026-10-01T10:00:00Z"), paidBy: "jana@test.cz" };
+    const noAmount = await costLine(a, { realAmount: null, ...paid });
+    await repo.sync(a, { shipmentIds: [noAmount.shipmentId] }, ORIGIN);
+    expect(await invoicesOf(a)).toEqual([]);
+    await db.update(c).set({ invoiceNumber: "NOAMT-1" }).where(eq(c.id, noAmount.id));
+
+    await repo.sync(a, { shipmentIds: [noAmount.shipmentId] }, ORIGIN);
+
+    const [booked, ...more] = await invoicesOf(a);
+    expect(more).toEqual([]);
+    expect(booked).toMatchObject({ status: "booked", paidOn: null, numberKey: "NOAMT-1" });
+    expect(await eventsOf(booked!.id)).toEqual(["booked"]);
+    expect((await line(noAmount.id)).supplierInvoiceId).toBe(booked!.id);
+    // In the backfill too: one line of the invoice with its amount, one without, both paid - it waits.
+    await costLine(a, { invoiceNumber: "OLD-3", ...paid });
+    await costLine(a, { invoiceNumber: "OLD-3", realAmount: null, ...paid });
+    await repo.sync(a, { all: true }, { source: "backfill" });
+    expect((await invoicesOf(a)).find((h) => h.numberKey === "OLD-3")).toMatchObject({ status: "booked", paidOn: null });
+  });
+
   it("lets go of an invoice whose only line lost its number, but keeps one a manager decided", async () => {
     const a = randomUUID();
     const typo = await costLine(a, { invoiceNumber: "TYPO" });

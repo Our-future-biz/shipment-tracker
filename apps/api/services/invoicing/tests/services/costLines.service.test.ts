@@ -496,6 +496,77 @@ describe("a billed shipment", () => {
       [SHIP_C, "33.33"],
     ]);
   });
+
+  // System-21 review: a new number or supplier took the line off its approved invoice - sent back to be approved from
+  // the job page, the line booked on a new record - and its late real cost opened on the job again.
+  describe("a line on an approved supplier invoice keeps its number and supplier", () => {
+    const SUPPLIER = "3d55a500-d6f8-4def-8e95-82e77493cabb";
+    const late = { createdAt: new Date("2026-11-12T09:00:00Z"), paidOn: null };
+    const update = (input: Parameters<typeof invoicingService.updateBuyingCost>[3]) => invoicingService.updateBuyingCost(rows[0] ? (rows[0] as unknown as { id: string }).id : "", COMPANY, SHIP_A, input);
+    // A late supplier invoice typed on a billed job's line: its number, then its amount, booked on Accounts Payable.
+    const lateLine = async () => {
+      await invoicingService.addBuyingCost(SHIP_A, COMPANY, { category: "ocean_freight", estAmount: "1500.00" });
+      billing.billed.add(SHIP_A);
+      await update({ invoiceNumber: "X-1", received: true });
+      apInvoices.set("si-late", { ...late, status: "booked" });
+      Object.assign(rows[0]!, { supplierInvoiceId: "si-late" });
+      await update({ realAmount: "1450.00" });
+    };
+
+    it("refuses them once the invoice is approved or paid, as it refuses the late real cost", async () => {
+      await lateLine();
+      apInvoices.set("si-late", { ...late, status: "approved" });
+      await expect(update({ realAmount: "999" })).rejects.toThrow(/approved or paid, so the real cost stays as it is/);
+      await expect(update({ invoiceNumber: "X-1b", received: true })).rejects.toThrow(/approved or paid, so the real cost stays as it is/);
+      await expect(update({ invoiceNumber: "", received: false })).rejects.toThrow(/approved or paid/);
+      await expect(update({ supplierCustomerId: SUPPLIER })).rejects.toThrow(/approved or paid/);
+      await expect(update({ haulierId: SUPPLIER })).rejects.toThrow(/approved or paid/);
+      apInvoices.set("si-late", { ...late, status: "approved", paidOn: "2026-11-15" });
+      await expect(update({ invoiceNumber: "X-1b", received: true })).rejects.toThrow(/approved or paid/);
+      // What keeps it on its invoice goes on: the same number sent again, its place in the list.
+      await update({ invoiceNumber: "X-1", received: true });
+      await update({ sortOrder: 3 });
+      expect(rows).toEqual([expect.objectContaining({ invoiceNumber: "X-1", realAmount: "1450.00", supplierCustomerId: null, haulierId: null, supplierInvoiceId: "si-late" })]);
+    });
+
+    it("takes a pre-billing real cost's line the same: approved, it stays on its invoice", async () => {
+      const line = await invoicingService.addBuyingCost(SHIP_A, COMPANY, { category: "ocean_freight", estAmount: "1500.00", realAmount: "1000.00" });
+      await invoicingService.updateBuyingCost(line.id, COMPANY, SHIP_A, { invoiceNumber: "X-1", received: true });
+      apInvoices.set("si-early", { ...late, status: "approved" });
+      Object.assign(rows[0]!, { supplierInvoiceId: "si-early" });
+      billing.billed.add(SHIP_A);
+      await expect(update({ invoiceNumber: "X-9", received: true })).rejects.toThrow(/approved or paid/);
+      expect(rows).toEqual([expect.objectContaining({ invoiceNumber: "X-1" })]);
+    });
+
+    it("moves a line off a refused invoice, or one still waiting for approval - kept as approved when one lands meanwhile", async () => {
+      await lateLine();
+      // Waiting for approval: Accounts Payable is asked to keep an approval landing meanwhile, not to send it back.
+      vi.mocked(supplierInvoiceService.beforeLineChange).mockClear();
+      await update({ invoiceNumber: "X-1b", received: true });
+      expect(vi.mocked(supplierInvoiceService.beforeLineChange).mock.lastCall?.[3]).toEqual({ keepDecided: true });
+      // Approved between the rule's read and the write: the line stays as it is.
+      vi.mocked(supplierInvoiceService.beforeLineChange).mockImplementationOnce(async () => {
+        apInvoices.set("si-late", { ...late, status: "approved" });
+      });
+      await expect(update({ invoiceNumber: "X-1c", received: true })).rejects.toThrow(/approved or paid/);
+      expect(rows).toEqual([expect.objectContaining({ invoiceNumber: "X-1b" })]);
+      // Refused: its corrected invoice is booked as a new one.
+      apInvoices.set("si-late", { ...late, status: "refused" });
+      await update({ invoiceNumber: "X-2", received: true });
+      expect(rows).toEqual([expect.objectContaining({ invoiceNumber: "X-2" })]);
+    });
+
+    it("moves on a job not billed: its invoice goes back to be approved, as anywhere", async () => {
+      await invoicingService.addBuyingCost(SHIP_A, COMPANY, { category: "ocean_freight", realAmount: "1000.00", invoiceNumber: "X-1", received: true } as never);
+      apInvoices.set("si-1", { ...late, status: "approved" });
+      Object.assign(rows[0]!, { supplierInvoiceId: "si-1" });
+      vi.mocked(supplierInvoiceService.beforeLineChange).mockClear();
+      await update({ invoiceNumber: "X-9", received: true });
+      expect(vi.mocked(supplierInvoiceService.beforeLineChange).mock.lastCall?.[3]).toBeUndefined();
+      expect(rows).toEqual([expect.objectContaining({ invoiceNumber: "X-9" })]);
+    });
+  });
 });
 
 describe("a shipment priced from a quote", () => {
@@ -573,6 +644,16 @@ describe("a buying cost's supplier and payment (Council Review 5)", () => {
     expect(paid.paidAt).not.toBeNull();
     const back = await invoicingService.updateBuyingCost(line.id, COMPANY, SHIP_A, { paidOn: "" }, "u1");
     expect(back).toMatchObject({ paidOn: "", paidBy: "", paidAt: null });
+  });
+
+  it("is paid only with its real cost in, as a supplier invoice with no amount is not (User Council A1)", async () => {
+    at("2026-11-01T09:00:00Z");
+    const line = await invoicingService.addBuyingCost(SHIP_A, COMPANY, { category: "ocean_freight", estAmount: "100" });
+    await invoicingService.updateBuyingCost(line.id, COMPANY, SHIP_A, { received: true });
+    at("2026-11-04T09:00:00Z");
+    await expect(invoicingService.updateBuyingCost(line.id, COMPANY, SHIP_A, { paidOn: "2026-11-02" }, "u1")).rejects.toThrow(/Fill in the real cost first/);
+    await expect(invoicingService.addBuyingCost(SHIP_A, COMPANY, { received: true, paidOn: "2026-11-04" } as never, "u1")).rejects.toThrow(/Fill in the real cost first/);
+    await expect(invoicingService.updateBuyingCost(line.id, COMPANY, SHIP_A, { realAmount: "95", paidOn: "2026-11-02" }, "u1")).resolves.toMatchObject({ paidOn: "2026-11-02" });
   });
 
   it("is paid no earlier than the Prague day its invoice was received, unless that day is not known (C-8)", async () => {

@@ -3,7 +3,21 @@ import log from "encore.dev/log";
 import { customers, quotes, shipments } from "~encore/clients";
 import { iso } from "../../../lib/db/serialize";
 import { assertShipmentExists } from "../../../lib/shipmentRefs";
-import { BILLED, BILLED_LATE_DECIDED, BILLED_REAL_COST_CHANGED, assertNotBilled, billedBuyingProblem, billedRefusesOutright, billedLateRealCosts, isBilled, lateRealCost, leavesBuyingCostAlone, touchesRealCost } from "../lib/billedLock";
+import {
+  BILLED,
+  BILLED_LATE_DECIDED,
+  BILLED_REAL_COST_CHANGED,
+  assertNotBilled,
+  billedBuyingProblem,
+  billedRefusesOutright,
+  billedLateRealCosts,
+  isBilled,
+  keepsItsInvoice,
+  lateRealCost,
+  leavesBuyingCostAlone,
+  leavesItsInvoice,
+  touchesRealCost,
+} from "../lib/billedLock";
 import { toChargeCode } from "../../../lib/chargeCodes";
 import { statusesFollow } from "./sellingStatusFollow";
 import { canDecideQuoteInquiry, quoteCostCopyRefusal } from "../../../lib/salesPolicy";
@@ -183,11 +197,12 @@ function paidOnOf(value: string | undefined): string | null | undefined {
  * When the vendor's invoice came and when it was paid (Council Outlay 7, step 6b): ticking Received stamps
  * the moment (its due day is that plus the supplier's payment days), unticking it clears both, and a cost
  * is paid only once its invoice was received, on a day neither after today nor before the (Prague) day it was
- * received - not checked for a line received before that day was kept. `current` is the stored line (null
- * for a new one).
+ * received - not checked for a line received before that day was kept - and only with its real cost in: with no
+ * amount there is nothing to pay, as a supplier invoice with none is not paid (User Council A1). `current` is the
+ * stored line (null for a new one).
  */
 export function receiptChanges(
-  current: { received: boolean; receivedAt: Date | null; paidOn: string | null } | null,
+  current: { received: boolean; receivedAt: Date | null; paidOn: string | null; realAmount: string | null } | null,
   changes: Partial<NewInvoiceCostRecord>,
   now: Date,
   today: string,
@@ -200,6 +215,8 @@ export function receiptChanges(
   const received = changes.received ?? current?.received ?? false;
   if (changes.paidOn) {
     if (!received) throw APIError.invalidArgument("Tick Received first: a cost is paid once its invoice came");
+    const realAmount = changes.realAmount !== undefined ? changes.realAmount : (current?.realAmount ?? null);
+    if (realAmount === null) throw APIError.invalidArgument("Fill in the real cost first: a cost is paid once its amount is in");
     if (changes.paidOn > today) throw APIError.invalidArgument("The day it was paid cannot be after today");
     const receivedAt = out.receivedAt ?? current?.receivedAt ?? null;
     const receivedOn = receivedAt ? businessDay(receivedAt) : "";
@@ -358,6 +375,11 @@ async function costsQuoteOf(quoteRef: string | undefined): Promise<CostsQuoteIte
 }
 
 const INVOICED_ROW = "This selling row is on an issued invoice — credit the invoice to change it";
+/** A billed line's number changed by someone else meanwhile (it is on another supplier invoice now): the later save is refused. */
+const LINE_CHANGED = "This line was changed meanwhile by someone else: reload the job to see it, then type yours again if it is still needed";
+
+/** Whether a supplier invoice still waits for approval: booked and unpaid. */
+const isOpenInvoice = (h: { status: string; paidOn: string | null } | null) => !!h && h.status === "booked" && !h.paidOn;
 
 /** A change of the row's place in the list only: it prints nothing different on an invoice. */
 const onlyReorders = (input: SellingCostInput) =>
@@ -428,6 +450,14 @@ class InvoicingService {
     // An approval landing meanwhile keeps it as approved - it is not sent back to be approved by this change - and the
     // write below goes through only while the invoice is still booked and unpaid (system-21 mock council review).
     const lateFix = billed && current.realAmount != null && touchesRealCost(input) && !!current.supplierInvoiceId;
+    // Billed: a new number or supplier takes the line off its supplier invoice - refused while that is approved or paid,
+    // or the approval would be taken back from the job page and the late real cost open again (system-21 review). Off
+    // one still waiting for approval it goes, and an approval landing meanwhile is kept, as for a late fix.
+    const leaving =
+      !!current.supplierInvoiceId && leavesItsInvoice(changes, current) && (billed || (leavesBuyingCostAlone(input) && (await isBilled(shipmentId, companyId))));
+    const leftInvoice = leaving ? await supplierInvoiceRepository.byId(companyId, current.supplierInvoiceId as string) : null;
+    if (keepsItsInvoice(leftInvoice)) throw APIError.failedPrecondition(BILLED_LATE_DECIDED);
+    const keepDecided = lateFix || leftInvoice?.status === "booked";
     await assertSupplierCompany(changes.supplierCustomerId, current.supplierCustomerId);
     if (current.sourceQuoteNumber && quoteFixedChanged(current, changes).length) {
       throw APIError.failedPrecondition(`this cost was copied from ${current.sourceQuoteNumber}: its category, description and estimate stay as the quote has them`);
@@ -438,7 +468,7 @@ class InvoicingService {
       { companyID: companyId, userID: actorUserId },
       current as unknown as Parameters<typeof supplierInvoiceService.beforeLineChange>[1],
       { ...changes, ...unlinkOnVendorChange(current, changes) },
-      lateFix ? { keepDecided: true } : undefined,
+      keepDecided ? { keepDecided: true } : undefined,
     );
     const now = new Date();
     const receipt = receiptChanges(current, changes, now, businessDay(now), await payer(changes, actorUserId));
@@ -448,20 +478,23 @@ class InvoicingService {
     if (stamp) delete receipt.receivedAt;
     // A billed line's real cost is written only onto the real cost as it was read above: two people typing a late
     // real cost on one line at once both read it, and the later save is refused instead of silently winning (mock
-    // council S1-06). Its amount always, as whether it is open rests on it, and each other part being changed.
-    const asRead = billed && touchesRealCost(input) ? { ...realCostAsRead(current, changes), ...(lateFix ? { openInvoiceId: current.supplierInvoiceId as string } : {}) } : undefined;
+    // council S1-06). Its amount always, as whether it is open rests on it, and each other part being changed. A late
+    // fix, and a line leaving its invoice, only while that invoice is still on the line, booked and unpaid.
+    const asRead = billed && touchesRealCost(input) ? realCostAsRead(current, changes) : undefined;
+    const openInvoiceId = keepDecided ? (current.supplierInvoiceId as string) : undefined;
+    const condition = asRead || openInvoiceId ? { ...asRead, ...(openInvoiceId ? { openInvoiceId } : {}) } : undefined;
     let row: InvoiceCostRecord | null;
     try {
-      row = await invoiceCostRepository.updateLine(id, companyId, shipmentId, { ...changes, ...unlinkOnVendorChange(current, changes), ...receipt }, stamp, asRead);
+      row = await invoiceCostRepository.updateLine(id, companyId, shipmentId, { ...changes, ...unlinkOnVendorChange(current, changes), ...receipt }, stamp, condition);
     } catch (err) {
       // The database refused a paid day on a line someone unticked Received on meanwhile.
       if (constraintOf(err) === "invoice_cost_paid_check") throw APIError.failedPrecondition("Its invoice is no longer ticked Received: reload, then mark it paid again");
       throw err;
     }
-    if (!row && asRead) {
-      // Its supplier invoice was approved or paid meanwhile: the late real cost stays as it is now.
-      if (lateFix && (await lateRealCost(shipmentId, companyId, current)) !== "open") throw APIError.failedPrecondition(BILLED_LATE_DECIDED);
-      throw APIError.aborted(BILLED_REAL_COST_CHANGED);
+    if (!row && condition) {
+      // Its supplier invoice was approved or paid meanwhile: the late real cost, and the line on it, stay as they are now.
+      if (openInvoiceId && !isOpenInvoice(await supplierInvoiceRepository.byId(companyId, openInvoiceId))) throw APIError.failedPrecondition(BILLED_LATE_DECIDED);
+      throw APIError.aborted(asRead ? BILLED_REAL_COST_CHANGED : LINE_CHANGED);
     }
     if (!row) throw APIError.notFound("Buying cost not found");
     return this.matched(row, companyId, actorUserId, "typed");

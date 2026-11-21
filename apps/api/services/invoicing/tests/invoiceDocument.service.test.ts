@@ -17,6 +17,7 @@ const repo = vi.hoisted(() => ({
   linesOf: vi.fn(),
   getInTx: vi.fn(),
   lockSeries: vi.fn(),
+  lockInvoiceRow: vi.fn(async () => undefined),
   markCancelled: vi.fn(),
 }));
 const generated = vi.hoisted(() => ({ shipmentIdsWithInvoices: vi.fn() }));
@@ -72,7 +73,7 @@ const clients = vi.hoisted(() => ({
 const receivables = vi.hoisted(() => ({ figuresOne: vi.fn(), creditNotesOf: vi.fn(), paymentsOf: vi.fn() }));
 
 vi.mock("~encore/auth", () => ({ getAuthData: () => ({ userID: "u1", companyID: "c1", role: "user" }) }));
-vi.mock("../repositories/invoice.repository", () => ({ invoiceRepository: repo }));
+vi.mock("../repositories/invoice.repository", () => ({ invoiceRepository: repo, lockInvoiceRow: repo.lockInvoiceRow }));
 vi.mock("../repositories/creditNoteRequest.repository", () => ({ creditNoteRequestRepository: requests }));
 vi.mock("../repositories/invoiceChangeRequest.repository", () => ({ invoiceChangeRequestRepository: changes }));
 vi.mock("../db/db", () => ({ db: { transaction: async (work: (tx: unknown) => Promise<unknown>) => work({}) } }));
@@ -988,6 +989,10 @@ describe("partial credit notes", () => {
     );
     expect(clients.invoiceMarkCredited).not.toHaveBeenCalled();
     expect(cn.number).toBe("CN2026CZ00000028-001");
+    // Under the invoice's row lock, as a change of it is asked (system-21 review): a change asked meanwhile is taken
+    // back by this credit note, or sees it and is refused - never left waiting on an invoice credited in part.
+    expect(repo.lockInvoiceRow).toHaveBeenCalledWith({}, COMPANY, "inv1");
+    expect(repo.lockInvoiceRow.mock.invocationCallOrder[0]).toBeLessThan(changes.withdrawForInvoice.mock.invocationCallOrder[0]!);
   });
 
   describe("a credit Trucking says is owed (Y1 / P1)", () => {

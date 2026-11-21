@@ -64,7 +64,7 @@ describe("write changes", () => {
 describe("received and paid (Council Outlay 7, step 6b)", () => {
   const now = new Date("2026-11-04T09:00:00Z");
   const today = "2026-11-04";
-  const stored = (over = {}) => ({ received: false, receivedAt: null, paidOn: null, ...over });
+  const stored = (over = {}) => ({ received: false, receivedAt: null, paidOn: null, realAmount: "10.00", ...over });
 
   it("stamp when Received is ticked, keep the first stamp, and clear both when it is unticked", () => {
     expect(receiptChanges(stored(), { received: true }, now, today)).toEqual({ receivedAt: now });
@@ -84,10 +84,22 @@ describe("received and paid (Council Outlay 7, step 6b)", () => {
     });
     expect(receiptChanges(stored({ received: true, paidOn: "2026-11-01" }), buyingChanges({ paidOn: "" }), now, today)).toEqual({ paidOn: null, paidAt: null, paidByUserId: null, paidBy: null });
     expect(() => receiptChanges(stored({ received: true }), buyingChanges({ paidOn: "2026-11-05" }), now, today)).toThrow(/after today/);
-    expect(receiptChanges(null, buyingChanges({ received: true, paidOn: "2026-11-04" } as never), now, today)).toEqual({ receivedAt: now, paidAt: now, paidByUserId: null, paidBy: null });
+    expect(receiptChanges(null, buyingChanges({ received: true, paidOn: "2026-11-04", realAmount: "10" } as never), now, today)).toEqual({ receivedAt: now, paidAt: now, paidByUserId: null, paidBy: null });
     expect(() => buyingChanges({ paidOn: "4.11.2026" })).toThrow(/paidOn must be a date/);
     expect(() => buyingChanges({ paidOn: "2026-02-30" })).toThrow(/paidOn must be a date/);
     expect(buyingChanges({ paidOn: "" })).toEqual({ paidOn: null });
+  });
+
+  // System-21 review: a line paid with no amount, its number typed after, made Accounts Payable take its invoice as paid.
+  it("pay only a cost with its real cost in: with no amount there is nothing to pay (User Council A1)", () => {
+    const noAmount = stored({ received: true, realAmount: null });
+    expect(() => receiptChanges(noAmount, buyingChanges({ paidOn: "2026-11-01" }), now, today)).toThrow("Fill in the real cost first: a cost is paid once its amount is in");
+    expect(() => receiptChanges(stored({ received: true }), buyingChanges({ paidOn: "2026-11-01", realAmount: "" }), now, today)).toThrow(/Fill in the real cost first/);
+    expect(() => receiptChanges(null, buyingChanges({ received: true, paidOn: "2026-11-04" } as never), now, today)).toThrow(/Fill in the real cost first/);
+    // Its amount typed with the payment is in.
+    expect(receiptChanges(noAmount, buyingChanges({ paidOn: "2026-11-01", realAmount: "12" }), now, today)).toMatchObject({ paidAt: now });
+    // A payment noted before is taken back all the same.
+    expect(receiptChanges({ ...noAmount, paidOn: "2026-11-01" }, buyingChanges({ paidOn: "" }), now, today)).toEqual({ paidOn: null, paidAt: null, paidByUserId: null, paidBy: null });
   });
 
   it("pay no earlier than the Prague day the invoice was received; a line received before that was kept on any day (C-8)", () => {

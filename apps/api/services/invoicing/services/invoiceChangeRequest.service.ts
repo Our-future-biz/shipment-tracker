@@ -26,6 +26,8 @@ const BELL_LIMIT = 100;
 const SEEN_KEEP_DAYS = 7;
 const DAY = 86_400_000;
 const notThere = () => APIError.notFound("This request is not there");
+const notIssued = (number: string, status: string) => APIError.failedPrecondition(`Invoice ${number} is ${status} already`);
+const creditedInPart = (number: string) => APIError.failedPrecondition(`Invoice ${number} has been credited in part: correct it with a credit note`);
 
 export const toChangeRequestItem = (r: InvoiceChangeRequestRecord): InvoiceChangeRequestItem => ({
   id: r.id,
@@ -68,19 +70,22 @@ class InvoiceChangeRequestService {
     const invoice = isUuid(invoiceId) ? await invoiceRepository.getByIdForCompany(invoiceId, actor.companyID) : null;
     if (!invoice) throw APIError.notFound("Invoice not found");
     if (invoice.kind !== "invoice") throw APIError.failedPrecondition("A credit note can't be changed");
-    if (invoice.status !== "issued") throw APIError.failedPrecondition(`Invoice ${invoice.number} is ${invoice.status} already`);
+    if (invoice.status !== "issued") throw notIssued(invoice.number, invoice.status);
     if (invoice.issueDate !== pragueToday()) {
       throw APIError.failedPrecondition(`Invoice ${invoice.number} was issued on ${invoice.issueDate}: it can be changed only on its issue day. Correct it with a credit note`);
     }
-    if ((await invoiceRepository.creditNotesOf(invoice.id, actor.companyID)).length) {
-      throw APIError.failedPrecondition(`Invoice ${invoice.number} has been credited in part: correct it with a credit note`);
-    }
+    if ((await invoiceRepository.creditNotesOf(invoice.id, actor.companyID)).length) throw creditedInPart(invoice.number);
     // Approving a partial credit note would take this change back unasked (user council B5): one waits at a time.
     const credit = await creditRequests.pendingFor(actor.companyID, invoice.id);
     if (credit) throw APIError.failedPrecondition(waitingRequestProblem("credit", credit.requestedAt));
     // Checked again under the invoice's row lock, with the insert (mock council S5-4 / X-3): a partial credit asked a
-    // second ago is seen, so the two never both wait.
+    // second ago is seen, so the two never both wait - and so is the invoice credited in part or in full, or cancelled,
+    // a moment ago (system-21 review), which no change cancels any more.
     const noCreditWaits: Parameters<typeof requests.create>[1] = async (tx) => {
+      const current = await invoiceRepository.getInTx(tx, invoice.id, actor.companyID);
+      if (!current) throw APIError.notFound("Invoice not found");
+      if (current.status !== "issued") throw notIssued(invoice.number, current.status);
+      if ((await invoiceRepository.creditNotesOf(invoice.id, actor.companyID, tx)).length) throw creditedInPart(invoice.number);
       const now = await creditRequests.pendingFor(actor.companyID, invoice.id, tx);
       if (now) throw APIError.failedPrecondition(waitingRequestProblem("credit", now.requestedAt));
     };

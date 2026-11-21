@@ -15,14 +15,17 @@ import { supplierInvoiceRepository } from "../repositories/supplierInvoice.repos
 //    postInvoiceLines) - as a new row where the shipment's row of the charge has a real cost
 //    already, never over it - a Trucking push, noting that a received invoice was paid, and linking a
 //    cost to the supplier who sent it, and a supplier's invoice typed by hand on the line it bills: its
-//    number, and its real cost while the line has none or it is a late one not yet approved (billedBuyingProblem). A master job's split leaves a billed shipment as it is.
+//    number, and its real cost while the line has none or it is a late one not yet approved
+//    (billedBuyingProblem) - a line on a supplier invoice approved or paid keeps its number and supplier
+//    (keepsItsInvoice). A master job's split leaves a billed shipment as it is.
 
 export const BILLED = "This shipment is billed: its buying costs can't be changed. Credit the invoice first";
 
 // The supplier links change no amount: a supplier invoice posted after the billing is still linked
 // to its supplier, so it counts in what the company owes them (lib/supplierCosts). Its invoice number
 // changes no amount either: a supplier's invoice that comes after the billing is booked on the line it
-// bills, which then counts in Accounts Payable (Council Outlay 9, D6) - with its real cost (below).
+// bills, which then counts in Accounts Payable (Council Outlay 9, D6) - with its real cost (below). A line on a
+// supplier invoice approved or paid keeps both, so it stays on that invoice (keepsItsInvoice).
 const BUYING_STILL_OPEN = new Set(["sortOrder", "received", "paidOn", "supplierCustomerId", "haulierId", "invoiceNumber"]);
 
 // A supplier's invoice that comes after the billing and is typed by hand brings its amount: the real cost
@@ -73,6 +76,26 @@ export function lateRealCostOf(realCostAt: Date | null | undefined, invoice: Lat
   if (!realCostAt || !invoice || !billedAt || invoice.status === "refused" || realCostAt <= billedAt) return null;
   return invoice.status === "booked" && !invoice.paidOn ? "open" : "decided";
 }
+
+// What a line is matched to its supplier invoice by (repositories/supplierInvoice sync): its number and its supplier link.
+const INVOICE_KEYS = ["invoiceNumber", "supplierCustomerId", "haulierId"] as const;
+type InvoiceKeys = Partial<Record<(typeof INVOICE_KEYS)[number], string | null>>;
+/** A number or link as Accounts Payable compares it when a line changes: blank is none, the rest as typed. */
+const keyText = (v: string | null | undefined) => ((v ?? "").trim() ? String(v) : "");
+
+/** Whether a change gives a line another invoice number or supplier link than it has, so it leaves the supplier invoice it is on. */
+export const leavesItsInvoice = (changes: InvoiceKeys, current: InvoiceKeys) =>
+  INVOICE_KEYS.some((k) => changes[k] !== undefined && keyText(changes[k]) !== keyText(current[k]));
+
+/**
+ * Whether a billed job's line keeps the supplier invoice it is on, and its number and supplier with it: one approved
+ * or paid (system-21 review). Moved off it, the invoice would go back to be approved from the job page and the line,
+ * booked on a new record, have its late real cost open on the job again - an approval taken back is put right on
+ * Finance → Accounts Payable, as the late real cost is (BILLED_LATE_DECIDED). A refused invoice's line moves (its
+ * corrected invoice is booked as a new one), and so does one of an invoice still waiting for approval.
+ */
+export const keepsItsInvoice = (invoice: LateInvoice | null | undefined) =>
+  !!invoice && invoice.status !== "refused" && (invoice.status !== "booked" || !!invoice.paidOn);
 
 const only = (input: object, open: Set<string>) => Object.entries(input).every(([key, value]) => value === undefined || open.has(key));
 

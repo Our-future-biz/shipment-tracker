@@ -60,11 +60,12 @@ const FIXED_QUEUE_COLUMNS = [FIRST_QUEUE_COLUMN];
 // The stage tabs, set apart by thin lines.
 const STAGE_TABS: { key: View; label: string; dividerBefore?: boolean; title?: string }[] = [
   // Owner's decision (a434fd85): released for billing or invoiced, cancelled ones left out - with To bill's
-  // late-charge jobs too (Q9). The unbilled arrivals are not released, so they are their own tab only.
+  // late-charge jobs too (Q9), a cancelled one among them (R10), as the server lists them (invoicingPredicate). The
+  // unbilled arrivals are not released, so they are their own tab only.
   {
     key: "all",
     label: "All",
-    title: "Released for billing or invoiced, and every job with an invoice and a charge on no invoice - cancelled jobs left out",
+    title: "Released for billing or invoiced, and every job with an invoice and a charge on no invoice - cancelled jobs left out, unless a charge added after their invoice waits",
   },
   // Q9: a job with an invoice and a charge added since is to bill, whatever its Shipment Status.
   {
@@ -103,7 +104,8 @@ interface BillingQueueProps {
  * no invoice, whatever its status (User Council B4, owner's answer Q9: a job may be invoiced before
  * Billing). "Invoiced" follows the Invoicing Status, "Unbilled, tax date passed" are jobs past their tax date
  * that operations hasn't released, and "All" is what is released for billing or invoiced - with To bill's
- * late-charge jobs - cancelled ones left out (owner's decision). The tab, search and filters are kept in
+ * late-charge jobs - cancelled ones left out (owner's decision) unless a charge added after their invoice waits
+ * (R10). The tab, search and filters are kept in
  * the URL, so Back from a job returns to the queue as it was left.
  */
 export function BillingQueue({ onOpen }: BillingQueueProps) {
