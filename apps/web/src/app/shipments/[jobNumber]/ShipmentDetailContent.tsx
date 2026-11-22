@@ -2073,7 +2073,7 @@ export function ShipmentDetailContent() {
                     <StackabilityRow
                       value={shipmentStackability(shipment.cargoDimensions ?? [])}
                       onPick={(stackable) => {
-                        // A new row goes where the Dimensions dialog would put it: the first container, else the shipment.
+                        // A new row goes on the first container, else on the shipment.
                         const containerId = shipment.containers?.find((c) => c.id)?.id ?? null;
                         updateShipment({
                           id: shipment.id,

@@ -792,7 +792,7 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
 
   return (
     <div>
-      {/* An accepted remeasurement changed the cargo: its quantities to check. */}
+      {/* An accepted remeasurement: its quantities to check. */}
       <RemeasureCostsNotice shipmentId={shipment.id} />
       {billed && (
         <Alert

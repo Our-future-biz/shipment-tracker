@@ -12,7 +12,7 @@ import { invoiceLinesToSave, invoiceTotalsByCurrency, isEmptyInvoiceLine } from 
 import { HINT, LABEL_TEXT } from "@/styles/ui";
 
 // The Invoice Number(s) / Invoice Value cells open this: the shipment's commercial
-// invoices (number, value, currency), edited as a whole like the Dimensions dialog —
+// invoices (number, value, currency), edited as a whole —
 // nothing is written until Save.
 
 type CommercialInvoiceLine = interfaces.CommercialInvoiceLine;

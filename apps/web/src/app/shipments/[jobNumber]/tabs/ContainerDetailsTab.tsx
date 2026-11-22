@@ -59,9 +59,9 @@ type Field = "containerNumber" | "sealNumber" | "type" | "packages" | "packageTy
 /**
  * The containers the next save is held to (expectedContainers) after a resync: the server's
  * (`server`) only when the rows are drawn again from them, else what they were (`base`). A save
- * sends the rows as drawn - a page that kept its rows while an accepted remeasurement wrote the only
- * container's Pieces, Gross Weight and Volume would write the old ones back with its next seal; held
- * to the containers it drew, that save is refused instead, and the refusal draws the saved list.
+ * sends the rows as drawn - a page that kept its rows while another save changed a container's
+ * Pieces, Gross Weight or Volume would write the old ones back with its next seal; held to the
+ * containers it drew, that save is refused instead, and the refusal draws the saved list.
  */
 export function heldContainers(base: ContainerLine[], server: ContainerLine[], at: { redraw: boolean }): ContainerLine[] {
   return at.redraw ? server : base;
