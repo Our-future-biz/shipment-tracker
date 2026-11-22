@@ -1,8 +1,8 @@
 import { Tooltip } from "antd";
 import { FIGURE_TOLERANCE, fmtFixed, type FigureCheck } from "@/lib/cargo";
 
-// The check of cargo lines against what their container declares, the same in Cargo Details
-// and the grid's Dimensions dialog.
+// The check of cargo lines against what declares their figures (their container, the shipment, what was
+// booked, a consolidation's House B/L), under each table of Cargo Details.
 
 // The shape of a check pill; the colours come from whoever draws it (also a plain total, such
 // as the invoice value in Cargo Details, which nothing declares).

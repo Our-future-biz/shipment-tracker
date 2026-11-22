@@ -54,7 +54,7 @@ export function cargoTotals(s: ShipmentItem): CargoTotals {
 // No thousands separator, so the ", " between the parts stays unambiguous ("2644 kg").
 const plain = (n: number, decimals: number) => n.toLocaleString("en-US", { maximumFractionDigits: decimals, useGrouping: false });
 
-/** "10 pcs", "" for no pieces. */
+/** "10 colli", "" for no pieces. */
 export function piecesText(pcs: number): string {
   return pcs > 0 ? `${plain(pcs, 2)} colli` : "";
 }
@@ -71,7 +71,7 @@ export function volumeText(m3: number): string {
   return m3 < 0.01 ? "<0.01 cbm" : `${plain(m3, 2)} cbm`;
 }
 
-/** The cargo in short: "10 pcs, 2644 kg, 3.45 cbm"; parts without a value are left out, "" when none has one. */
+/** The cargo in short: "10 colli, 2644 kg, 3.45 cbm"; parts without a value are left out, "" when none has one. */
 export function cargoLine(s: ShipmentItem): string {
   const t = cargoTotals(s);
   return [piecesText(t.pcs), weightText(t.kg), volumeText(t.m3)].filter(Boolean).join(", ");

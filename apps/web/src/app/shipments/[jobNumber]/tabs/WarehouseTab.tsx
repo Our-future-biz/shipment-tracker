@@ -237,7 +237,8 @@ function DimensionsEditor({ shipment, messageApi }: { shipment: ShipmentItem; me
   const informedAt = jobSection.inform_operations_sent;
   const saved = jobSection.remeasure_rows;
   // What the shipment's own House B/L says (Document Reading): a row of the Compared table, not a remeasured line.
-  const houseBl = readHouseBlFigures(jobSection.house_bl_figures);
+  // Only while it is the shipment's House B/L still: a corrected B/L's old figures are not shown (review of system-23).
+  const houseBl = readHouseBlFigures(jobSection.house_bl_figures, shipment.houseBolNumber);
 
   // Each line keeps its own key (rowKey), so a delete or an open line always means the line it was
   // asked for, also after the lines changed meanwhile.

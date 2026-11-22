@@ -276,7 +276,7 @@ export interface DimensionTotals {
 
 // ── Dimension units ──
 // The server stores the sizes of a dimension line in cm; dimensionUnit says whether the line
-// was typed in cm or inches. The editors (Cargo Details, the Dimensions dialog) hold a line in
+// was typed in cm or inches. The editor (Cargo Details) holds a line in
 // its own unit and convert at the edges: lineInUnit when it comes from the server,
 // lineInCm when it is sent or measured. 1 in = 2.54 cm exactly, rounded to 4 decimals, so an
 // inch value with up to 4 decimals goes there and back unchanged (44 in -> 111.76 cm -> 44 in).
@@ -308,8 +308,7 @@ export const lineInCm = <L extends SizedLine>(l: L): L =>
 export const unitLabel = (u?: DimensionUnit | null) => (u === "in" ? "in" : "cm");
 
 // A dimension line with nothing in it: never saved. The pallet type and ADR count, so
-// a line holding only those (typed in Cargo Details) survives a save from the grid's
-// Dimensions dialog, which does not show them.
+// a line holding only those (typed in Cargo Details) is saved as any other.
 export function dimensionLineIsEmpty(l: CargoDimensionLine): boolean {
   return (
     !l.pieces && !l.lengthCm && !l.widthCm && !l.heightCm && !l.weightPerPcKg && !l.volumePerPcM3?.trim() && !l.packageType && !l.stackable &&
@@ -394,8 +393,7 @@ export type DeclaredFigures = ContainerLine & { kgDecimals?: number };
 export const SHIPMENT_KG_DECIMALS = 1;
 
 /**
- * The containers a shipment's cargo lines are grouped and checked by (Cargo Details, the grid's
- * Dimensions dialog): its saved ones (with an id) - none on an air job (owner decision, 18 Nov 2026).
+ * The containers a shipment's cargo lines are grouped and checked by (Cargo Details): its saved ones (with an id) - none on an air job (owner decision, 18 Nov 2026).
  * Air cargo does not travel in the shipment's sea containers, so a container row an air job carries
  * (copied or read in) neither splits its lines nor declares their figures: they are checked against
  * the shipment's own Pcs, Total Weight and Total Volume. The rows stay on Container Details, and a
@@ -455,6 +453,55 @@ export function civByCurrency(items: CargoItemLine[]): string {
     byCurrency.set(currency, (byCurrency.get(currency) ?? 0) + value);
   }
   return [...byCurrency.entries()].map(([c, v]) => `${fmtNum(v)} ${c}`).join(", ");
+}
+
+/** A description line with nothing in it (its currency alone, which defaults, is nothing). */
+export const cargoItemIsEmpty = (l: CargoItemLine): boolean =>
+  !l.cargoDescription && !l.hsCode && !l.pieces && !l.packageType && !l.grossWeight && !l.commercialInvoiceValue;
+
+/** A tab's cargo lines, or every line of the shipment. */
+export interface CargoLines {
+  dims: CargoDimensionLine[];
+  items: CargoItemLine[];
+}
+
+/** What a tab of Cargo Details shows of its lines against what they are held to (cargoPanelCheck). */
+export interface CargoPanelCheck {
+  /** The Dimensions lines' Colli, kg and m³. */
+  check: ConsistencyCheck;
+  /** The Description lines' Colli and kg. */
+  descCheck: { pcs: FigureCheck; kg: FigureCheck };
+  /** The same Description lines' own values ("12 500 USD"), which nothing declares. */
+  descCiv: string;
+  /** The tab's dot: Matched / Mismatch, or null for none. */
+  matched: boolean | null;
+}
+
+/**
+ * How one tab of Cargo Details checks its lines. The tab's own (`panel`) against `declared` - its container's
+ * figures, or a container-less shipment's own - or, held to a sea consolidation's House B/L (`houseBl`, owner's
+ * answer 22 Nov), every line of the shipment (`all`), of every container, against the B/L's. One set of lines under
+ * every pill of both tables, the Line value too (review of system-23).
+ *
+ * The dot is what the pills say (CargoCheck): against a container every figure counts - lines with one the
+ * container does not declare are a mismatch, as their pill is red; against the House B/L a figure it does not
+ * declare is grey on its pill and not counted, and with none declared (no B/L read) there is no dot. No dot either
+ * while the tab has no line of its own, and the Description counts once it has description lines. Dimension lines
+ * in cm or inches, as held.
+ */
+export function cargoPanelCheck(p: { panel: CargoLines; all: CargoLines; declared: DeclaredFigures; houseBl: DeclaredFigures | null }): CargoPanelCheck {
+  const against = p.houseBl ?? p.declared;
+  const lines = p.houseBl ? p.all : p.panel;
+  const check = checkConsistency(against, lines.dims.filter((l) => !dimensionLineIsEmpty(l)).map(lineInCm));
+  const descCheck = {
+    pcs: compareFigure(lines.items.reduce((s, l) => s + num(l.pieces), 0), num(against.packages), 0),
+    kg: compareFigure(lines.items.reduce((s, l) => s + num(l.grossWeight), 0), num(against.grossWeight), against.kgDecimals ?? 2),
+  };
+  const hasDesc = p.panel.items.some((l) => !cargoItemIsEmpty(l));
+  const hasLines = hasDesc || p.panel.dims.some((l) => !dimensionLineIsEmpty(l));
+  const counted = [check.pcs, check.kg, check.m3, ...(hasDesc ? [descCheck.pcs, descCheck.kg] : [])].filter((m) => !p.houseBl || !!m.declared);
+  const matched = hasLines && counted.length > 0 ? counted.every((m) => m.ok) : null;
+  return { check, descCheck, descCiv: civByCurrency(lines.items), matched };
 }
 
 /**

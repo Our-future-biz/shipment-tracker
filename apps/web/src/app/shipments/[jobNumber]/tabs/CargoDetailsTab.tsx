@@ -6,7 +6,7 @@ import { Input, Button, AutoComplete, Select, Checkbox, Tooltip } from "antd";
 import { CargoDimensionAdrFields } from "./CargoDimensionAdrFields";
 import { CheckPill, CHECK_PILL_CLASS, type CheckAgainst } from "@/app/shipments/_components/CargoCheck";
 import { useWarehouseSection } from "@/hooks/useWarehouseSection";
-import { HOUSE_BL_KEY, houseBlDeclaredFigures, readHouseBlFigures } from "./warehouse/houseBlFigures";
+import { HOUSE_BL_KEY, heldToHouseBl, houseBlDeclaredFigures, readHouseBlFigures } from "./warehouse/houseBlFigures";
 import { ContainerTabs } from "@/app/shipments/_components/ContainerTabs";
 import { PlusOutlined } from "@ant-design/icons";
 import { RowActionsMenu } from "@/app/shipments/_components/RowActionsMenu";
@@ -42,8 +42,8 @@ import {
   dimensionLineIsEmpty,
   withoutTypedVolumeWhenSized,
   checkConsistency,
-  compareFigure,
-  civByCurrency,
+  cargoItemIsEmpty,
+  cargoPanelCheck,
   shipmentDeclaredFigures,
   bookedDeclaredFigures,
   cargoContainers,
@@ -85,8 +85,7 @@ const emptyDim = (containerId: string | null, dimensionUnit: DimensionUnit = "cm
   stackable: "",
 });
 
-const itemIsEmpty = (l: CargoItemLine) =>
-  !l.cargoDescription && !l.hsCode && !l.pieces && !l.packageType && !l.grossWeight && !l.commercialInvoiceValue;
+const itemIsEmpty = cargoItemIsEmpty;
 const dimIsEmpty = dimensionLineIsEmpty;
 
 // What a table holds, for telling a save's own echo from a real change (another screen,
@@ -241,7 +240,8 @@ export function CargoDetailsTab({
   // The panel a line is shown in: its container's, or the shipment's own (always on an air job).
   const lineKey = useCallback((containerId: string | null | undefined) => (air ? NONE : keyOf(containerId)), [air]);
   // An air job that carries container rows (copied or read in): said under the check, so its pills
-  // reading the shipment's figures, not the container's, are no surprise.
+  // reading the shipment's figures, not the container's, are no surprise. True of an air consolidation
+  // too: it is never held to a House B/L (heldToHouseBl, review of system-23).
   const airWithBoxes = air && (shipment.containers ?? []).some((c) => !!c.id);
 
   const [items, setItems] = useState<CargoItemLine[]>(() => shipment.cargoItems ?? []);
@@ -521,15 +521,19 @@ export function CargoDetailsTab({
   // 22 Nov): the Booked Dimensions tile holds all the shipment's Dimensions lines against it. The Dimensions
   // and Description tables are checked as before.
   const bookedDeclared = useMemo<DeclaredFigures | null>(() => bookedDeclaredFigures(shipment.bookedDimensions), [shipment.bookedDimensions]);
-  // A consolidation (owner's answer 22 Nov): its Dimensions - all its lines - are checked against its House B/L's
-  // figures, the Warehouse tab's Bill Of Lading Details; its container is the master's box, whose figures are
-  // the whole box's. Nothing declared ("/ —") until a B/L was read. Its Description likewise.
-  const consolidation = shipment.loadType === "Consolidation";
-  const { data: warehouseJob } = useWarehouseSection(consolidation ? shipment.id : "", "job");
+  // A sea consolidation with containers (owner's answer 22 Nov): its Dimensions - all its lines - are checked against
+  // its House B/L's figures, the Warehouse tab's Bill Of Lading Details; its container is the master's box, whose
+  // figures are the whole box's. Nothing declared ("/ —") until a B/L was read. Its Description likewise. A road, air
+  // or container-less consolidation has no master's box: checked as before (heldToHouseBl, review of system-23).
+  const held = heldToHouseBl(shipment, containers.length);
+  const { data: warehouseJob } = useWarehouseSection(held ? shipment.id : "", "job");
   const houseBlText = (warehouseJob as Record<string, unknown> | null)?.[HOUSE_BL_KEY];
   const houseBlDeclared = useMemo(
-    () => (consolidation ? houseBlDeclaredFigures(readHouseBlFigures(typeof houseBlText === "string" ? houseBlText : undefined)) : null),
-    [consolidation, houseBlText],
+    () =>
+      held
+        ? houseBlDeclaredFigures(readHouseBlFigures(typeof houseBlText === "string" ? houseBlText : undefined, shipment.houseBolNumber))
+        : null,
+    [held, houseBlText, shipment.houseBolNumber],
   );
 
   // Everything one tab shows: its lines, their totals and how they compare with what the
@@ -542,28 +546,21 @@ export function CargoDetailsTab({
     const declared: DeclaredFigures = container ?? shipmentDeclared ?? NOTHING_DECLARED;
     const panelItems = items.map((l, idx) => ({ l, idx })).filter(({ l }) => lineKey(l.containerId) === key);
     const panelDims = dims.map((l, idx) => ({ l, idx })).filter(({ l }) => lineKey(l.containerId) === key);
-    const filledDims = panelDims.filter(({ l }) => !dimIsEmpty(l)).length;
-    const filledItems = panelItems.filter(({ l }) => !itemIsEmpty(l)).length;
-    const check = houseBlDeclared
-      ? checkConsistency(houseBlDeclared, dims.filter((l) => !dimIsEmpty(l)).map(lineInCm))
-      : checkConsistency(declared, panelDims.map(({ l }) => lineInCm(l)));
-    // A consolidation's Description - all its lines - against its House B/L too, as its Dimensions.
-    const descLines = houseBlDeclared ? items : panelItems.map(({ l }) => l);
-    const descDeclared = houseBlDeclared ?? declared;
-    const descPcs = descLines.reduce((s, l) => s + num(l.pieces), 0);
-    const descKg = descLines.reduce((s, l) => s + num(l.grossWeight), 0);
-    const descCheck = { pcs: compareFigure(descPcs, num(descDeclared.packages), 0), kg: compareFigure(descKg, num(descDeclared.grossWeight), descDeclared.kgDecimals ?? 2) };
-    const hasDesc = filledItems > 0;
-    const hasLines = filledDims > 0 || hasDesc;
-    const matched = check.matched && (!hasDesc || (descCheck.pcs.ok && descCheck.kg.ok));
+    // Held to the House B/L, all the lines - the Line value's too - against it; the dot as the pills (lib/cargo).
+    const { check, descCheck, descCiv, matched } = cargoPanelCheck({
+      panel: { dims: panelDims.map(({ l }) => l), items: panelItems.map(({ l }) => l) },
+      all: { dims, items },
+      declared,
+      houseBl: houseBlDeclared,
+    });
     const index = container ? containers.indexOf(container) : -1;
     const label = container ? container.containerNumber || `Container #${index + 1}` : "No container";
-    return { key, container, label, panelItems, panelDims, check, descCheck, hasDesc, hasLines, matched };
+    return { key, container, label, panelItems, panelDims, check, descCheck, descCiv, matched };
   };
 
   const panels = panelKeys.map(panelOf);
   const active = panels.find((p) => p.key === activeKey) ?? panels[0]!;
-  const { check, descCheck } = active;
+  const { check, descCheck, descCiv } = active;
   // whose figures the pills hold: the tab's container, the container-less shipment's own, or none
   const against: CheckAgainst = active.container ? "Container" : shipmentDeclared ? "Shipment" : "No container";
   // Under Dimensions and Description alike.
@@ -679,8 +676,6 @@ export function CargoDetailsTab({
 
   const noLines = (what: string) => (readOnly ? <div className={EMPTY_STATE}>No {what} lines yet.</div> : null);
 
-  const descCiv = civByCurrency(panelItems.map(({ l }) => l));
-
   // A thin line between rows; the last row has none, so the line of the totals row (or of the
   // pills under the table) is the only one under it - the same thick line as under Container Details.
   const rowLine = (i: number, count: number) => (i < count - 1 ? "border-b border-slate-100" : "");
@@ -748,8 +743,8 @@ export function CargoDetailsTab({
         }}
       />
       {panels.length > 1 && (
-        // The containers as tabs (as in the grid's Dimensions dialog) - only when there is
-        // more than one to choose from. A container's dot shows once it has lines.
+        // The containers as tabs - only when there is more than one to choose from. A container's
+        // dot shows once it has lines and they are checked against a figure (cargoPanelCheck).
         <div className={`${CARD} overflow-hidden`}>
           <ContainerTabs
             className="px-3"
@@ -760,7 +755,7 @@ export function CargoDetailsTab({
               label: p.label,
               type: p.container?.type,
               isContainer: !!p.container,
-              matched: p.container && p.hasLines ? p.matched : null,
+              matched: p.container ? p.matched : null,
             }))}
           />
         </div>
@@ -793,7 +788,7 @@ export function CargoDetailsTab({
                         cell), so double-clicking a line only turns its values into fields -
                         nothing in the table moves or loses its band. */}
                     <div className={`${DIM_BANDS} px-1 [&>*]:!py-1`}>
-                      {/* Numbers only, like the Dimensions modal: Pcs whole, the rest may take a decimal point; at most 4 digits (weight 5). */}
+                      {/* Numbers only: Colli whole, the rest may take a decimal point; at most 4 digits (weight 5). */}
                       <div>
                         <Input size="small" className={EDIT_FIELD} aria-label="Colli" inputMode="numeric" value={l.pieces} onChange={(e) => patchPieces(idx, l, numberInput(e.target.value, false, 4))} onBlur={persistDims} />
                       </div>

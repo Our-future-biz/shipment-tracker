@@ -1,5 +1,6 @@
 import type { GeoKind } from "./places";
-import { CANCELLED_STATUS, LOAD_TYPES, STATUS_COLORS } from "./enums";
+import { CANCELLED_STATUS, LOAD_TYPES, LOAD_TYPE_FILTER_OPTIONS, STATUS_COLORS } from "./enums";
+import { fold } from "./fold";
 import { INCOTERMS } from "./incoterms";
 import { formatDateTime } from "./date";
 import { dimensionVolumePerPiece, hasAllSizes, lineInUnit, unitLabel, type DimensionUnit } from "./cargo";
@@ -80,7 +81,8 @@ export const DROPDOWN_OPTIONS: Record<string, string[]> = {
   "Credit Check": ["Green", "Yellow", "Red"],
   "Freight Payable At": ["Origin", "Destination"],
   // A shipment's (and its master job's) service, picked from a fixed list (owner's answer 22 Nov). "Domestic" is
-  // what Trucking's road jobs are made with (roadJob.service); what each one means is SERVICE_NAME_HINTS.
+  // what Trucking's road jobs are made with (roadJob.service); what each one means is SERVICE_NAME_HINTS. It can be
+  // emptied, and a value typed before is filtered for, as CLEARABLE_DROPDOWNS says.
   "Service Name": ["ISHA", "Domestic"],
   "Validity Status": ["Ok", "Check"],
   "Switch BoL": ["YES", "NO"],
@@ -359,6 +361,33 @@ export const COLUMNS: ColumnDef[] = [
 
 // Column key lookup for quick access
 export const COLUMN_MAP = new Map(COLUMNS.map((col) => [col.key, col]));
+
+/**
+ * The dropdown columns that were typed in before they were lists - Service Name (owner's answer 22 Nov) - so
+ * a value typed then still shows in its cell. Their value can be emptied, as it could be while typed, and
+ * their grid filter offers what the rows hold too (gridFilterOptions). Review of system-23.
+ */
+export const CLEARABLE_DROPDOWNS: ReadonlySet<string> = new Set(["serviceName"]);
+
+/**
+ * What the grid's filter on a dropdown column offers: its list - Load Type also Single Shipment, an air Full
+ * Load as its cell reads - and on a column typed in before (CLEARABLE_DROPDOWNS), every other value the loaded
+ * rows hold (`held`, read only there), so a value typed before can still be filtered for (review of
+ * system-23). Each once, in any case or accents (the filter matches as foldIncludes does), the rows' own after
+ * the list in alphabetical order.
+ */
+export function gridFilterOptions(key: string, held: () => readonly string[]): string[] {
+  const options = key === "loadType" ? LOAD_TYPE_FILTER_OPTIONS : (COLUMN_MAP.get(key)?.options ?? []);
+  if (!CLEARABLE_DROPDOWNS.has(key)) return options;
+  const seen = new Set(options.map((o) => fold(o.trim())));
+  const typed = new Map<string, string>();
+  for (const value of held()) {
+    const text = (value ?? "").trim();
+    const folded = fold(text);
+    if (text && !seen.has(folded) && !typed.has(folded)) typed.set(folded, text);
+  }
+  return [...options, ...[...typed.values()].sort((a, b) => a.localeCompare(b))];
+}
 
 // Columns that can never be hidden or removed (Internal Reference).
 // Kept first, in config order, regardless of the user's selection/templates.

@@ -1,5 +1,17 @@
 import { describe, expect, it } from "vitest";
-import { COLUMN_MAP, computeDimensionTotals, dateTimeUpdate, getRowConditionalStyle, incotermOptionsFor, joinDateTime, splitDateTime, summarizeDimensions, waitsForOriginalBl } from "./columnConfig";
+import {
+  CLEARABLE_DROPDOWNS,
+  COLUMN_MAP,
+  computeDimensionTotals,
+  dateTimeUpdate,
+  getRowConditionalStyle,
+  gridFilterOptions,
+  incotermOptionsFor,
+  joinDateTime,
+  splitDateTime,
+  summarizeDimensions,
+  waitsForOriginalBl,
+} from "./columnConfig";
 
 describe("summarizeDimensions", () => {
   it("writes each line in the unit it was typed in", () => {
@@ -100,5 +112,31 @@ describe("incotermOptionsFor", () => {
       expect(offered).toEqual(expect.arrayContaining(["EXW", "FCA", "CPT", "CIP", "DAP", "DPU", "DDP"]));
     }
     expect(incotermOptionsFor("Air Freight", "FOB").at(-1)).toBe("FOB");
+  });
+});
+
+// Review of system-23: Service Name became a list (owner's answer 22 Nov), and the values typed before it did
+// still show in their cells.
+describe("gridFilterOptions", () => {
+  it("offers Service Name's list and the other values the loaded rows hold, each once", () => {
+    const held = ["ISHA", "", "  Express Rail ", "express rail", "Domestic", "isha", "Barge"];
+    expect(gridFilterOptions("serviceName", () => held)).toEqual(["ISHA", "Domestic", "Barge", "Express Rail"]);
+    expect(gridFilterOptions("serviceName", () => [])).toEqual(["ISHA", "Domestic"]);
+  });
+
+  it("offers a column never typed in its list only, without reading the rows", () => {
+    const rows = () => {
+      throw new Error("not read");
+    };
+    expect(gridFilterOptions("invoicingStatus", rows)).toEqual(COLUMN_MAP.get("invoicingStatus")!.options);
+    // Load Type also offers Single Shipment, an air Full Load as its cell reads.
+    expect(gridFilterOptions("loadType", rows)).toContain("Single Shipment");
+  });
+});
+
+describe("CLEARABLE_DROPDOWNS", () => {
+  it("lets a Service Name be emptied, as when it was typed", () => {
+    expect(CLEARABLE_DROPDOWNS.has("serviceName")).toBe(true);
+    expect(CLEARABLE_DROPDOWNS.has("status")).toBe(false);
   });
 });

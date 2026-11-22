@@ -1,4 +1,5 @@
 import type { DeclaredFigures } from "@/lib/cargo";
+import { freightKindOf } from "../../_components/taskDefinitions";
 import type { CargoFigures } from "./RemeasureCompare";
 
 // The Colli, weight and volume of the shipment's own House B/L, as Document Reading read it (owner's answer
@@ -16,8 +17,16 @@ export interface HouseBlFigures extends CargoFigures {
 
 const figure = (v: unknown) => (typeof v === "number" && Number.isFinite(v) && v > 0 ? v : 0);
 
-/** The kept figures; null when there are none or they can't be read. */
-export function readHouseBlFigures(json: string | undefined): HouseBlFigures | null {
+// A B/L number as two are compared (as the server's billOfLadingKey): letters and digits, upper case.
+const bolKey = (ref: string | null | undefined) => (ref ?? "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+
+/**
+ * The kept figures of the shipment's House B/L `houseBol`; null when there are none, they can't be read, or
+ * they were read from another House B/L (review of system-23): after the shipment's House B/L is corrected,
+ * the old one's figures are not its Bill Of Lading Details. The two compared by letters and digits, any case;
+ * figures kept without the B/L they were read from still count.
+ */
+export function readHouseBlFigures(json: string | undefined, houseBol: string | null | undefined): HouseBlFigures | null {
   try {
     const o: unknown = JSON.parse(json || "null");
     if (!o || typeof o !== "object" || Array.isArray(o)) return null;
@@ -29,10 +38,26 @@ export function readHouseBlFigures(json: string | undefined): HouseBlFigures | n
       weightKg: figure(r.weightKg),
       volumeCbm: figure(r.volumeCbm),
     };
+    if (bolKey(out.houseBol) && bolKey(out.houseBol) !== bolKey(houseBol)) return null;
     return out.colli || out.weightKg || out.volumeCbm ? out : null;
   } catch {
     return null;
   }
+}
+
+/**
+ * Whether a job's Cargo Details lines are held against its House B/L's figures (owner's answer 22 Nov): only on a
+ * sea Consolidation with containers, whose container is the master's box, its figures the whole box's. A road
+ * consolidation (Trucking's LTL jobs, roadJob.service), an air one or a sea one with no container has no
+ * master's box: its lines are checked as before - its container's figures, or its own Colli, Total Weight and
+ * Total Volume (review of system-23). The load type read in any case, as the server reads it (jobNumber same()),
+ * how the job travels as everywhere on the page (freightKindOf); `containers`: the job's saved containers.
+ */
+export function heldToHouseBl(
+  s: { loadType?: string | null; tradeDirection?: string | null; freightMode?: string | null; department?: string | null },
+  containers: number,
+): boolean {
+  return (s.loadType ?? "").trim().toLowerCase() === "consolidation" && freightKindOf(s.tradeDirection, s.freightMode, s.department) === "sea" && containers > 0;
 }
 
 /**

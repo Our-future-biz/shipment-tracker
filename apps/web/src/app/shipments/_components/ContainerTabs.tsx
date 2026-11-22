@@ -22,10 +22,10 @@ interface ContainerTabsProps {
   className?: string;
 }
 
-// A shipment's containers as tabs over their cargo lines (Cargo Details, the grid's Dimensions
-// dialog). The open container stands out: tinted tab, indigo number and a thick indigo bar
-// along its bottom edge; the others stay quiet until hovered. A dot says whether the
-// container's lines add up to what it declares: green yes, red no.
+// A shipment's containers as tabs over their cargo lines (Cargo Details). The open container
+// stands out: tinted tab, indigo number and a thick indigo bar along its bottom edge; the
+// others stay quiet until hovered. A dot says whether the container's lines add up to what
+// they are checked against (its own figures, or a consolidation's House B/L): green yes, red no.
 export function ContainerTabs({ tabs, activeKey, onChange, className = "" }: ContainerTabsProps) {
   return (
     <div role="tablist" aria-label="Containers" className={`flex items-end gap-1 pt-2 bg-white border-b border-slate-200 overflow-x-auto ${className}`}>

@@ -9,7 +9,7 @@ import { LockedBox } from "@/components/LockedBox";
 import type { InputRef } from "antd";
 import dayjs from "dayjs";
 import { DEPARTMENT_FIELDS } from "@/lib/shipmentEditRule";
-import { COLUMN_MAP, INCOTERM_FIELDS, SERVICE_NAME_HINTS, geoKindOf, getFilteredStatusOptions, incotermOptionsFor, splitDateTime } from "@/lib/columnConfig";
+import { CLEARABLE_DROPDOWNS, COLUMN_MAP, INCOTERM_FIELDS, SERVICE_NAME_HINTS, geoKindOf, getFilteredStatusOptions, incotermOptionsFor, splitDateTime } from "@/lib/columnConfig";
 import { GeoFlag, GeoSelect } from "@/components/GeoSelect";
 import { FadeText } from "@/components/FadeText";
 import { UserPicker } from "@/components/UserPicker";
@@ -564,7 +564,9 @@ function EditableCellBody({
                 }
               : undefined
           }
-          onChange={(v) => commit(v)}
+          // A Service Name, typed before it was a list, can still be emptied: cleared, it saves "" (review of system-23).
+          allowClear={CLEARABLE_DROPDOWNS.has(fieldKey)}
+          onChange={(v?: string) => commit(v ?? "")}
           onBlur={() => setEditing(false)}
         />
       </div>

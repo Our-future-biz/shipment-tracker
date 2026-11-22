@@ -28,7 +28,7 @@ import { ListCapNotice } from "@/components/ListCapNotice";
 import Link from "next/link";
 import { canChangeShipmentDetails, canChangeShipmentField, isApprovedByLocked, isCreditCheckLocked, SALES_REFERENCE_LOCKED_HINT, salesReferenceLocked } from "@/lib/shipmentEditRule";
 import { CUSTOMS_PROCEDURE_LOCKED_HINT, customsProcedureLocked } from "@/lib/customsOffices";
-import { COLUMNS, COLUMN_MAP, getCellConditionalStyle, getFilteredStatusOptions, getRowConditionalStyle, getShipmentUrgency, isFixedColumn, withFixedColumns, type CellStyle } from "@/lib/columnConfig";
+import { COLUMNS, COLUMN_MAP, getCellConditionalStyle, getFilteredStatusOptions, getRowConditionalStyle, getShipmentUrgency, gridFilterOptions, isFixedColumn, withFixedColumns, type CellStyle } from "@/lib/columnConfig";
 import { useAuth, useCanChangeCustomsOffice } from "@/lib/auth/AuthContext";
 import { useColumnView } from "@/hooks/useColumnView";
 import { DEFAULT_SHIPMENT_COLUMNS, SHIPMENT_DEFAULTS_VERSION } from "@/hooks/useColumnPrefs";
@@ -63,7 +63,7 @@ import { asksCancelReason, cancelOffered, cancelUpdate } from "./cancelReason";
 import { asksBillingRelease } from "./billingRelease";
 import { BillingReleaseDialog } from "./BillingReleaseDialog";
 import { statusLabel } from "@/lib/shipmentStatus";
-import { CANCELLED_STATUS, LOAD_TYPE_FILTER_OPTIONS, loadTypeLabel } from "@/lib/enums";
+import { CANCELLED_STATUS, loadTypeLabel } from "@/lib/enums";
 import { downloadCsv } from "@/lib/csv";
 import { businessToday } from "@/lib/date";
 import { foldIncludes } from "@/lib/fold";
@@ -316,7 +316,7 @@ export const ShipmentsTable = ({
   const [pageSize, setPageSize] = useState(50);
   const [currentPage, setCurrentPage] = useState(1);
   const [docsShipment, setDocsShipment] = useState<ShipmentItem | null>(null);
-  // Shipment whose Dimensions dialog is open, by id so the dialog sees fresh rows.
+  // Shipment whose Commercial Invoices dialog is open, by id so the dialog sees fresh rows.
   const [invoicesShipmentId, setInvoicesShipmentId] = useState<string | null>(null);
   const [chatShipment, setChatShipment] = useState<Pick<ShipmentItem, "id" | "jobNumber"> | null>(null);
   // A row whose status is being set to Cancelled Shipment: the reason is asked first (D22).
@@ -1024,8 +1024,9 @@ export const ShipmentsTable = ({
                                 placeholder="Select value"
                                 value={f.value || undefined}
                                 onChange={(val) => updateFilter(i, { value: val ?? "" })}
-                                // Load Type also offers Single Shipment (an air Full Load, as its cell reads).
-                                options={(f.key === "loadType" ? LOAD_TYPE_FILTER_OPTIONS : col!.options!).map((o) => ({ value: o, label: o }))}
+                                // Load Type also offers Single Shipment (an air Full Load, as its cell reads); Service
+                                // Name also the values typed before it was a list, as the cells show them.
+                                options={gridFilterOptions(f.key, () => shipments.map((s) => cellText(s, f.key, peopleNames))).map((o) => ({ value: o, label: o }))}
                                 optionFilterProp="label"
                                 size="small"
                                 className="w-full"

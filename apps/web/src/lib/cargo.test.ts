@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   bookedDeclaredFigures,
   cargoContainers,
+  cargoItemIsEmpty,
+  cargoPanelCheck,
   shipmentDeclaredFigures,
   piecesOf,
   perPieceText,
@@ -33,7 +35,7 @@ import {
   withShipmentStackability,
   withoutTypedVolumeWhenSized,
 } from "./cargo";
-import type { CargoDimensionLine } from "./cargo";
+import type { CargoDimensionLine, CargoItemLine, DeclaredFigures } from "./cargo";
 import { containerTypeFrom } from "@/app/documents/_lib/extraction";
 
 describe("CONTAINER_TYPES", () => {
@@ -433,5 +435,63 @@ describe("bookedDeclaredFigures (Booked Dimensions, owner's answer 22 Nov)", () 
     expect(bookedDeclaredFigures([])).toBeNull();
     expect(bookedDeclaredFigures(undefined)).toBeNull();
     expect(bookedDeclaredFigures([line({ weightPerPcKg: "10" })])).toBeNull();
+  });
+});
+
+// Review of system-23: one tab of Cargo Details - its pills, its Line value and its dot - counts one set of lines
+// against one set of figures, and its dot agrees with its pills.
+describe("cargoPanelCheck", () => {
+  const dim = (containerId: string | null, pieces: string): CargoDimensionLine =>
+    ({ containerId, pieces, lengthCm: "100", widthCm: "100", heightCm: "100", weightPerPcKg: "100", packageType: "", stackable: "" }) as CargoDimensionLine;
+  const item = (containerId: string | null, pieces: string, value: string): CargoItemLine => ({
+    containerId,
+    cargoDescription: "PARTS",
+    hsCode: "",
+    pieces,
+    packageType: "",
+    grossWeight: pieces ? String(Number(pieces) * 100) : "",
+    commercialInvoiceValue: value,
+    currency: "USD",
+  });
+  const figures = (packages: string, grossWeight: string, volume: string): DeclaredFigures =>
+    ({ containerNumber: "", sealNumber: "", type: "", teu: "", packageType: "", packages, grossWeight, volume }) as DeclaredFigures;
+  // Two containers, A and B; the tab shown is A's.
+  const all = { dims: [dim("A", "2"), dim("B", "3")], items: [item("A", "2", "1000"), item("B", "3", "500")] };
+  const panel = { dims: [all.dims[0]!], items: [all.items[0]!] };
+  const nothing = figures("", "", "");
+
+  it("holds the tab's own lines against its container", () => {
+    const c = cargoPanelCheck({ panel, all, declared: figures("2", "200", "2"), houseBl: null });
+    expect([c.check.pcs.sum, c.descCheck.pcs.sum, c.descCheck.kg.sum]).toEqual([2, 2, 200]);
+    expect(c.descCiv).toBe(civByCurrency([all.items[0]!]));
+    expect(c.matched).toBe(true);
+  });
+
+  it("calls the lines of a container that declares nothing a mismatch, as its pills are red", () => {
+    expect(cargoPanelCheck({ panel, all, declared: nothing, houseBl: null }).matched).toBe(false);
+  });
+
+  it("sums every line, of every container, under each pill against a House B/L - the Line value too", () => {
+    const c = cargoPanelCheck({ panel, all, declared: figures("2", "200", "2"), houseBl: figures("5", "500", "5") });
+    expect([c.check.pcs.sum, c.check.pcs.declared, c.descCheck.pcs.sum, c.descCheck.kg.sum]).toEqual([5, 5, 5, 500]);
+    expect(c.descCiv).toBe(civByCurrency(all.items));
+    expect(c.descCiv).not.toBe(civByCurrency(panel.items));
+    expect(c.matched).toBe(true);
+  });
+
+  it("shows no dot while the House B/L declares nothing (no B/L read), as its pills are grey", () => {
+    expect(cargoPanelCheck({ panel, all, declared: figures("2", "200", "2"), houseBl: nothing }).matched).toBeNull();
+  });
+
+  it("counts only the figures the House B/L declares, as only those pills are coloured", () => {
+    expect(cargoPanelCheck({ panel, all, declared: nothing, houseBl: figures("5", "", "") }).matched).toBe(true);
+    expect(cargoPanelCheck({ panel, all, declared: nothing, houseBl: figures("4", "", "") }).matched).toBe(false);
+  });
+
+  it("shows no dot for a tab with no line of its own", () => {
+    const blankDim = { ...dim("A", ""), lengthCm: "", widthCm: "", heightCm: "", weightPerPcKg: "" };
+    const blankItem = { ...item("A", "", ""), cargoDescription: "" };
+    expect(cargoItemIsEmpty(blankItem)).toBe(true);
+    expect(cargoPanelCheck({ panel: { dims: [blankDim], items: [blankItem] }, all, declared: figures("2", "200", "2"), houseBl: null }).matched).toBeNull();
   });
 });
