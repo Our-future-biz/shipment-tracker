@@ -49,6 +49,15 @@ export function noticeAudience(v: Pick<NoticeFormValues, "countryCodes" | "branc
   return { ...audience, forAll: !audience.countryCodes.length && !audience.branchIds.length && !audience.departmentIds.length };
 }
 
+/**
+ * Whom a new post is sent to: the company when every field is "All" - the server refuses an audience with
+ * nothing chosen, which once turned into a company notice unasked (review of system-23) - else the audience.
+ */
+export function noticeTarget(v: Pick<NoticeFormValues, "countryCodes" | "branchIds" | "departmentIds">) {
+  const { forAll, ...audience } = noticeAudience(v);
+  return forAll ? { scope: "company" as const } : { scope: "audience" as const, ...audience };
+}
+
 /** A field's picks after a change: "All" picked clears the others, and one picked after "All" takes its place. */
 export function allOrSome(next: string[] | undefined, prev: string[] | undefined): string[] {
   const picked = next ?? [];
@@ -233,8 +242,7 @@ export function NoticePostModal({ target, onClose, onCreate, onUpdate, onAddAtta
         // Also a retry after the notice was posted without its documents: send what the form says now.
         await onUpdate({ id, input: { severity: v.severity, title: v.title, body: v.body ?? "" } });
       } else {
-        const { forAll, ...audience } = noticeAudience(v);
-        const created = await onCreate({ scope: forAll ? "company" : "audience", ...audience, severity: v.severity, title: v.title, body: v.body ?? "" });
+        const created = await onCreate({ ...noticeTarget(v), severity: v.severity, title: v.title, body: v.body ?? "" });
         id = created.id;
         setCreatedId(id);
         // Worded by the server, the same as the post will show on the board.

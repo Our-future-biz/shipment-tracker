@@ -123,6 +123,30 @@ describe("customer addresses", () => {
     await expect(customerAddressService.makeBilling("gone", COMPANY)).rejects.toThrow("Address not found");
   });
 
+  // Review of system-23: "Add to the Registered address" sent the whole list as the page last read it, so a
+  // Billing moved to the address meanwhile ("Use for invoices" in another tab) was taken off it again.
+  it("add types to the address as the write finds it, not as the page last read it", async () => {
+    // The write hands the change the row it locked: meanwhile made [Registered, Billing].
+    addresses.updateWithSeat.mockImplementationOnce(async (_id: string, _c: string, change: unknown) =>
+      row(typeof change === "function" ? change({ types: ["Registered", "Billing"] }) : (change as Record<string, unknown>)),
+    );
+    const item = await customerAddressService.update("a1", COMPANY, { addTypes: ["Pickup", "Registered"] });
+    expect(addresses.updateWithSeat).toHaveBeenCalledWith("a1", COMPANY, expect.any(Function));
+    expect(item.types).toEqual(["Registered", "Billing", "Pickup"]);
+  });
+
+  it("refuses types added together with the whole list, or no known type to add", async () => {
+    await expect(customerAddressService.update("a1", COMPANY, { types: ["Registered"], addTypes: ["Pickup"] })).rejects.toThrow("not both");
+    await expect(customerAddressService.update("a1", COMPANY, { addTypes: [] })).rejects.toThrow("Choose at least one type");
+    expect(addresses.updateWithSeat).not.toHaveBeenCalled();
+  });
+
+  it("change the whole list of types as the Edit dialog sends it", async () => {
+    addresses.updateWithSeat.mockResolvedValueOnce(row({ types: ["Registered", "Pickup"] }));
+    await customerAddressService.update("a1", COMPANY, { types: ["Pickup", "Registered"] });
+    expect(addresses.updateWithSeat).toHaveBeenCalledWith("a1", COMPANY, { types: ["Registered", "Pickup"] });
+  });
+
   it("tells a site given to the address by another save at the same moment apart from a second registered address", async () => {
     const race = Object.assign(new Error("Failed query"), { cause: { code: "23505", constraint: "customer_site_one_per_address" } });
     addresses.updateWithSeat.mockRejectedValueOnce(race);

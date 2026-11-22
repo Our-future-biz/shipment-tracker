@@ -16,7 +16,7 @@ import { useToast } from "@/lib/toast";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { canDeleteCustomerRecords } from "../../_lib/customerPermissions";
 import { ADDRESS_TYPES } from "../../_lib/constants";
-import { CustomerAddressDialog, withAddedTypes } from "../_components/CustomerAddressDialog";
+import { CustomerAddressDialog, addedTypesRequest } from "../_components/CustomerAddressDialog";
 import type { CustomerAddressFormValues } from "../_components/CustomerAddressDialog";
 import { CustomerCountChip } from "../_components/CustomerCountChip";
 import { EMPTY_CELL, TABLE_PAGINATION } from "../../_lib/customerTable";
@@ -75,12 +75,13 @@ export function AddressesTab({ customerId }: AddressesTabProps) {
     }
   };
 
-  // "The Registered address" picked in Add Address: the chosen types are added to it, not a second copy made.
+  // "The Registered address" picked in Add Address: the chosen types are added to it, not a second copy made -
+  // added by the server to the types it has then, not sent as the whole list this page read (review of system-23).
   const handleAddToRegistered = async (types: AddressItem["types"]) => {
     if (!registered) return;
     setSaving(true);
     try {
-      await updateAddress({ id: registered.id, params: { types: withAddedTypes(registered.types, types) } });
+      await updateAddress({ id: registered.id, params: addedTypesRequest(types) });
       toast.success(`${types.join(", ")} added to the Registered address`);
       handleCloseDialog();
     } catch (err) {

@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { allOrSome, noticeAudience } from "./NoticePostModal";
+import { allOrSome, noticeAudience, noticeTarget } from "./NoticePostModal";
 
 const source = readFileSync(join(__dirname, "NoticePostModal.tsx"), "utf8");
 
@@ -42,5 +42,21 @@ describe("several countries, branches and departments (owner's answer 22 Nov)", 
     expect(allOrSome(["all", "CZ"], ["all"])).toEqual(["CZ"]);
     expect(allOrSome(["CZ", "DE"], ["CZ"])).toEqual(["CZ", "DE"]);
     expect(allOrSome([], ["CZ"])).toEqual([]);
+  });
+});
+
+describe("whom a new notice is sent to (review of system-23)", () => {
+  it("is the company when 'All' is chosen everywhere: the server refuses an audience with nothing chosen", () => {
+    expect(noticeTarget({ countryCodes: ["all"], branchIds: ["all"], departmentIds: ["all"] })).toEqual({ scope: "company" });
+  });
+
+  it("is the audience chosen otherwise, its lists only, never the single fields of the pages from before", () => {
+    const target = noticeTarget({ countryCodes: ["all"], branchIds: ["brno"], departmentIds: ["all"] });
+    expect(target).toEqual({ scope: "audience", countryCodes: [], branchIds: ["brno"], departmentIds: [] });
+    expect(target).not.toHaveProperty("branchId");
+  });
+
+  it("is what Post sends", () => {
+    expect(source).toMatch(/onCreate\(\{ \.\.\.noticeTarget\(v\), severity/);
   });
 });

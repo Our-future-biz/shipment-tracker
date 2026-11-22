@@ -17,6 +17,11 @@ export interface AddressInput {
   country: string;
 }
 
+/** An address edit: the fields sent; for its types the whole list, or the types to add to the ones it has. */
+export interface AddressPatch extends Partial<AddressInput> {
+  addTypes?: AddressType[];
+}
+
 // A field an address must have: trimmed, and refused when only spaces were sent.
 function required(value: string, field: string): string {
   const v = value.trim();
@@ -89,8 +94,16 @@ class CustomerAddressService {
     return toAddressItem(row);
   }
 
-  async update(id: string, companyId: string, input: Partial<AddressInput>): Promise<AddressItem> {
-    const row = await oneRegistered(() => customerAddressRepository.updateWithSeat(id, companyId, addressValues(input)), "update");
+  // `addTypes` instead of `types`: added to the types the address has when the write runs, under its row
+  // lock. "Add to the Registered address" sent the whole list as the page had read it, so a Billing moved
+  // to the address meanwhile ("Use for invoices") was taken off it again (review of system-23).
+  async update(id: string, companyId: string, input: AddressPatch): Promise<AddressItem> {
+    const { addTypes, ...fields } = input;
+    if (addTypes !== undefined && fields.types !== undefined) throw APIError.invalidArgument("Send the types or the types to add, not both");
+    const values = addressValues(fields);
+    const added = addTypes === undefined ? null : addressTypes(addTypes);
+    const change = added ? (locked: { types: AddressType[] }) => ({ ...values, types: addressTypes([...locked.types, ...added]) }) : values;
+    const row = await oneRegistered(() => customerAddressRepository.updateWithSeat(id, companyId, change), "update");
     if (!row) throw APIError.notFound("Address not found");
     return toAddressItem(row);
   }

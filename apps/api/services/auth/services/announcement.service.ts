@@ -6,7 +6,7 @@ import { departmentRepository, branchRepository, countryRepository } from "../re
 import { userRepository } from "../repositories/user.repository";
 import type { AnnouncementRecord } from "../schemas/announcement.schema";
 import { MAX_ATTACHMENT_BYTES, parseAttachmentDataUrl } from "../lib/attachmentDataUrl";
-import { type AnnouncementScope, audienceCountryCodes, audienceLabel, isAddressedTo } from "../lib/announcementAudience";
+import { type AnnouncementScope, type AudienceLists, audienceCountryCodes, audienceLabel, isAddressedTo } from "../lib/announcementAudience";
 
 export { ANNOUNCEMENT_SCOPES, type AnnouncementScope } from "../lib/announcementAudience";
 
@@ -84,6 +84,9 @@ interface AnnouncementInput {
   departmentId?: string;
   branchId?: string;
   country?: string;
+  // For "audience" from a page loaded before several could be chosen: its one country (code). It, branchId and
+  // departmentId are each taken as a list of one (review of system-23).
+  countryCode?: string;
   // For "audience": the company's countries (codes), branches and departments it is for, each left out or
   // empty for all of them. Several of each may be chosen (owner's answer 22 Nov).
   countryCodes?: string[];
@@ -294,8 +297,18 @@ class AnnouncementService {
       case "company":
         return { ...empty, scope: "company", label: audienceLabel([]) };
       case "audience": {
-        // Each country, branch and department is one of the company's own; a list left empty is all of them.
-        const codes = unique((input.countryCodes ?? []).map((c) => c.trim().toUpperCase()));
+        // Each country, branch and department is one of the company's own; a list left empty is all of them. A
+        // page loaded before several could be chosen sends its one country, branch and department in countryCode,
+        // branchId and departmentId: each is taken as a list of one, merged with the lists, not dropped - dropped,
+        // "Brno, all countries, all departments" was posted to everyone (review of system-23).
+        const codes = unique([...(input.countryCodes ?? []), input.countryCode ?? ""].map((c) => c.trim().toUpperCase()));
+        const branchIds = unique([...(input.branchIds ?? []), input.branchId ?? ""]);
+        const departmentIds = unique([...(input.departmentIds ?? []), input.departmentId ?? ""]);
+        // Nothing chosen is no audience: a notice to everyone is a company notice, which the page asks
+        // "Send to all?" for before it sends one.
+        if (!codes.length && !branchIds.length && !departmentIds.length) {
+          throw APIError.invalidArgument("Choose a country, branch or department; a notice to all is a company notice");
+        }
         const [countries, branches, departments] = await Promise.all([
           countryRepository.listByName(companyId),
           branchRepository.listByName(companyId),
@@ -303,14 +316,12 @@ class AnnouncementService {
         ]);
         const chosenCountries = codes.map((code) => countries.find((c) => c.code === code));
         if (chosenCountries.some((c) => !c)) throw APIError.invalidArgument("Choose the organization's own countries");
-        const chosenBranches = unique(input.branchIds ?? []).map((id) => branches.find((b) => b.id === id));
+        const chosenBranches = branchIds.map((id) => branches.find((b) => b.id === id));
         if (chosenBranches.some((b) => !b)) throw APIError.invalidArgument("Choose the organization's own branches");
         const outside = chosenBranches.find((b) => codes.length > 0 && !codes.includes(b!.countryCode ?? ""));
         if (outside) throw APIError.invalidArgument(`${outside.name} is not in the countries chosen`);
-        const chosenDepartments = unique(input.departmentIds ?? []).map((id) => departments.find((d) => d.id === id));
+        const chosenDepartments = departmentIds.map((id) => departments.find((d) => d.id === id));
         if (chosenDepartments.some((d) => !d)) throw APIError.invalidArgument("Choose the organization's own departments");
-        // All three left at "all" is everyone: the company-wide notice.
-        if (!chosenCountries.length && !chosenBranches.length && !chosenDepartments.length) return { ...empty, scope: "company", label: audienceLabel([]) };
         return {
           ...empty,
           scope: "audience",
@@ -340,18 +351,31 @@ class AnnouncementService {
     }
   }
 
-  // The names of the countries, branches and departments the audience posts are for, looked up once per list.
-  async #audienceNames(companyId: string, rows: { scope: string }[]) {
-    const lists = rows.some((r) => r.scope === "audience")
-      ? await Promise.all([countryRepository.listByName(companyId), branchRepository.listByName(companyId), departmentRepository.listByName(companyId)])
+  // The names of the countries, branches and departments the audience posts are for, looked up once per list -
+  // the ones removed from the organization since too, so a post still says whom it was for by name (review of
+  // system-23: the pickers' live lists left a removed branch as its raw id).
+  async #audienceNames(companyId: string, rows: (AudienceLists & { scope: string })[]) {
+    const audience = rows.filter((r) => r.scope === "audience");
+    const keys = (list: (r: AudienceLists) => readonly string[]) => unique(audience.flatMap(list));
+    const lists = audience.length
+      ? await Promise.all([
+          countryRepository.namesByCodes(companyId, keys((r) => r.countryCodes)),
+          branchRepository.namesByIds(companyId, keys((r) => r.branchIds)),
+          departmentRepository.namesByIds(companyId, keys((r) => r.departmentIds)),
+        ])
       : [[], [], []];
-    const byKey = <T,>(items: T[], key: (t: T) => string, name: (t: T) => string) => new Map(items.map((i) => [key(i), name(i)]));
+    // The first row of a key names it (a country's live row comes before its removed ones).
+    const byKey = <T,>(items: T[], key: (t: T) => string, name: (t: T) => string) => {
+      const map = new Map<string, string>();
+      for (const item of items) if (!map.has(key(item))) map.set(key(item), name(item));
+      return map;
+    };
     const [countries, branches, departments] = [
       byKey(lists[0], (c) => c.code, (c) => c.name),
       byKey(lists[1], (b) => b.id, (b) => b.name),
       byKey(lists[2], (d) => d.id, (d) => d.name),
     ];
-    // One no longer in the organization (deleted since) keeps its id or code, so the post still says whom it was for.
+    // One whose row is not there at all keeps its id or code, so the post still says whom it was for.
     const named = (map: Map<string, string>) => (keys: readonly string[]) => keys.map((k) => map.get(k) ?? k);
     return { countries: named(countries), branches: named(branches), departments: named(departments) };
   }

@@ -38,9 +38,13 @@ interface CustomerAddressDialogProps {
   onAddToRegistered?: (types: interfaces.AddressType[]) => void;
 }
 
-/** The types an address gets when chosen ones are added to it: its own first, each once, in the list's order. */
-export function withAddedTypes(own: readonly interfaces.AddressType[], added: readonly interfaces.AddressType[]): interfaces.AddressType[] {
-  return ADDRESS_TYPES.filter((t) => own.includes(t) || added.includes(t));
+/**
+ * The change that adds chosen types to an address: only those chosen, each once, in the list's order. The server
+ * adds them to the types the address has then; the whole list as this page last read it would undo a change made
+ * meanwhile, such as Billing moved to the address by "Use for invoices" (review of system-23).
+ */
+export function addedTypesRequest(added: readonly interfaces.AddressType[]): { addTypes: interfaces.AddressType[] } {
+  return { addTypes: ADDRESS_TYPES.filter((t) => added.includes(t)) };
 }
 
 const COUNTRY_NAME = new Map(COUNTRIES.map((c) => [c.code, c.name]));

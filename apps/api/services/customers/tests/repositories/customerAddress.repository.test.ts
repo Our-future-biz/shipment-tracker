@@ -19,12 +19,24 @@ const fake = vi.hoisted(() => {
     siteInserts: [] as Record<string, unknown>[],
     siteUpdates: [] as Record<string, unknown>[],
     siteUpdateWheres: [] as SQL[],
+    /** The tables whose rows a read locked (`FOR UPDATE`). */
+    locks: [] as string[],
   };
   const name = (table: unknown) => (table as { [k: symbol]: string })[Symbol.for("drizzle:Name")];
   const tx = {
     select: (fields?: Record<string, unknown>) => ({
       from: (table: unknown) => ({
-        where: () => ({ limit: async () => (name(table) === "customer_site" ? state.site : fields && "types" in fields ? state.before : state.seat) }),
+        where: () => ({
+          limit: () => {
+            const rows = name(table) === "customer_site" ? state.site : fields && "types" in fields ? state.before : state.seat;
+            return Object.assign(Promise.resolve(rows), {
+              for: async (strength: string) => {
+                state.locks.push(`${name(table)} ${strength}`);
+                return rows;
+              },
+            });
+          },
+        }),
       }),
     }),
     insert: (table: unknown) => ({
@@ -83,7 +95,35 @@ const address = (over: Record<string, unknown> = {}) => ({
 const seatOf = (a: Record<string, unknown>) => ({ street: a.street, city: a.city, postalCode: a.postalCode, country: a.country });
 
 beforeEach(() => {
-  Object.assign(fake.state, { before: [], address: null, seat: [], customerWrites: [], addressWrites: [], site: [], siteInserts: [], siteUpdates: [], siteUpdateWheres: [] });
+  Object.assign(fake.state, { before: [], address: null, seat: [], customerWrites: [], addressWrites: [], site: [], siteInserts: [], siteUpdates: [], siteUpdateWheres: [], locks: [] });
+});
+
+// Review of system-23: types added to an address are added to the ones it has when the write runs.
+describe("a change worked out from the address's types", () => {
+  it("is made to the types of the row as it is locked, with the seat and the site following", async () => {
+    // Meanwhile "Use for invoices" made the Registered address [Registered, Billing].
+    fake.state.before = [{ types: ["Registered", "Billing"] }];
+    fake.state.address = address({ types: ["Registered", "Billing", "Pickup"] });
+    fake.state.seat = [seatOf(address())];
+    const seen: unknown[] = [];
+    await customerAddressRepository.updateWithSeat("a1", COMPANY, (locked) => {
+      seen.push(locked.types);
+      return { types: [...locked.types, "Pickup"] };
+    });
+    expect(fake.state.locks).toEqual(["customer_address update"]);
+    expect(seen).toEqual([["Registered", "Billing"]]);
+    expect(fake.state.addressWrites).toEqual([expect.objectContaining({ types: ["Registered", "Billing", "Pickup"] })]);
+    // Pickup makes it a site; it is still the seat.
+    expect(fake.state.siteInserts).toEqual([expect.objectContaining({ kind: "loading", addressId: "a1" })]);
+    expect(fake.state.customerWrites).toHaveLength(1);
+  });
+
+  it("is not worked out for an address that isn't there", async () => {
+    const change = vi.fn(() => ({ types: ["Pickup" as const] }));
+    await expect(customerAddressRepository.updateWithSeat("x", COMPANY, change)).resolves.toBeNull();
+    expect(change).not.toHaveBeenCalled();
+    expect(fake.state.addressWrites).toEqual([]);
+  });
 });
 
 describe("the customer's seat follows its Registered address", () => {

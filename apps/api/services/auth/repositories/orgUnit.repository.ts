@@ -18,6 +18,16 @@ class DepartmentRepository extends TenantRepository<typeof departmentTable> {
       .where(and(eq(departmentTable.companyId, companyId), isNull(departmentTable.deletedAt)))
       .orderBy(asc(departmentTable.name));
   }
+
+  // The names of these departments, the removed ones too: a notice keeps naming whom it was for after one
+  // of them is deleted (review of system-23).
+  async namesByIds(companyId: string, ids: readonly string[]) {
+    if (!ids.length) return [];
+    return this.db
+      .select({ id: departmentTable.id, name: departmentTable.name })
+      .from(departmentTable)
+      .where(and(eq(departmentTable.companyId, companyId), inArray(departmentTable.id, [...ids])));
+  }
 }
 
 class BranchRepository extends TenantRepository<typeof branchTable> {
@@ -31,6 +41,15 @@ class BranchRepository extends TenantRepository<typeof branchTable> {
       .from(branchTable)
       .where(and(eq(branchTable.companyId, companyId), isNull(branchTable.deletedAt)))
       .orderBy(asc(branchTable.name));
+  }
+
+  // The names of these branches, the removed ones too (as departmentRepository.namesByIds).
+  async namesByIds(companyId: string, ids: readonly string[]) {
+    if (!ids.length) return [];
+    return this.db
+      .select({ id: branchTable.id, name: branchTable.name })
+      .from(branchTable)
+      .where(and(eq(branchTable.companyId, companyId), inArray(branchTable.id, [...ids])));
   }
 
   // Branches in a country: by its code, or — for branches saved before codes — by its name.
@@ -63,6 +82,17 @@ class CountryRepository extends TenantRepository<typeof countryTable> {
       .from(countryTable)
       .where(and(eq(countryTable.companyId, companyId), isNull(countryTable.deletedAt)))
       .orderBy(asc(countryTable.name));
+  }
+
+  // The names of these countries, the removed ones too (as departmentRepository.namesByIds). A country removed
+  // and picked again has a row for each time: the live one comes first, then the one removed last.
+  async namesByCodes(companyId: string, codes: readonly string[]) {
+    if (!codes.length) return [];
+    return this.db
+      .select({ code: countryTable.code, name: countryTable.name })
+      .from(countryTable)
+      .where(and(eq(countryTable.companyId, companyId), inArray(countryTable.code, [...codes])))
+      .orderBy(sql`${countryTable.deletedAt} DESC NULLS FIRST`);
   }
 
   async findByCode(companyId: string, code: string) {

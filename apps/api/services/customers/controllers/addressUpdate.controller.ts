@@ -8,6 +8,11 @@ interface AddressUpdateRequest {
   id: string;
   /** What the address is used for; at least one */
   types?: AddressType[] & MinLen<1> & MaxLen<6>;
+  /**
+   * Instead of types: the types to add to the ones the address has when the change is made, which a
+   * change made meanwhile keeps (Add Address as the Registered address)
+   */
+  addTypes?: AddressType[] & MinLen<1> & MaxLen<6>;
   label?: string & MaxLen<100>;
   street?: string & MinLen<1> & MaxLen<200>;
   city?: string & MinLen<1> & MaxLen<200>;

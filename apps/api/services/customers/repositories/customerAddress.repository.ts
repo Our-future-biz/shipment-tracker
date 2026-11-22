@@ -42,6 +42,9 @@ async function copySeat(tx: Tx, companyId: string, customerId: string): Promise<
   await writeSeat(tx, companyId, customerId, seatColumns(seat ?? null));
 }
 
+/** The columns an address write changes. */
+export type AddressChange = Partial<InsertForCompany<typeof customerAddressTable>>;
+
 /** What a site keeps besides its address (lib/addressSite): set from the Sites tab with an address write. */
 export type SiteDetails = Partial<
   Pick<NewCustomerSiteRecord, "lat" | "lng" | "openingHours" | "avizaceName" | "avizacePhone" | "avizaceEmail" | "loadingNotes" | "tailLiftNeeded" | "isDefault">
@@ -126,18 +129,22 @@ class CustomerAddressRepository extends TenantRepository<typeof customerAddressT
   }
 
   // A type change counts both ways: an address made (also) Registered becomes the seat, and the
-  // seat no longer Registered leaves the customer without one.
+  // seat no longer Registered leaves the customer without one. The row is locked as it is read, so
+  // a change worked out from its types (`data` given as a function of them: types added to it) is
+  // made to the types it has now, not to the ones a page read a while ago, and a write at the same
+  // moment waits for this one (review of system-23).
   async updateWithSeat(
     id: string,
     companyId: string,
-    data: Partial<InsertForCompany<typeof customerAddressTable>>,
+    data: AddressChange | ((locked: { types: AddressType[] }) => AddressChange),
     site?: SiteDetails,
   ): Promise<CustomerAddressRecord | null> {
     return this.db.transaction(async (tx) => {
       const live = and(eq(customerAddressTable.id, id), eq(customerAddressTable.companyId, companyId), isNull(customerAddressTable.deletedAt));
-      const [before] = await tx.select({ types: customerAddressTable.types }).from(customerAddressTable).where(live).limit(1);
+      const [before] = await tx.select({ types: customerAddressTable.types }).from(customerAddressTable).where(live).limit(1).for("update");
       if (!before) return null;
-      const [row] = await tx.update(customerAddressTable).set({ ...data, updatedAt: new Date() }).where(live).returning();
+      const change = typeof data === "function" ? data(before) : data;
+      const [row] = await tx.update(customerAddressTable).set({ ...change, updatedAt: new Date() }).where(live).returning();
       if (!row) return null;
       if (isSeat(before.types) || isSeat(row.types)) await copySeat(tx, companyId, row.customerId);
       await syncSite(tx, companyId, row, site);

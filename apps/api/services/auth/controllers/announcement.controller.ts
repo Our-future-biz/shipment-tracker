@@ -53,8 +53,12 @@ interface AnnouncementCreateRequest {
   departmentId?: string;
   branchId?: string;
   country?: string & MaxLen<100>;
+  // "audience" from a page loaded before several could be chosen: its one country (code), branch and department
+  // in countryCode, branchId and departmentId, each taken as a list of one (review of system-23).
+  countryCode?: string & MaxLen<2>;
   // "audience": the countries (codes), branches and departments it is for; each left out or empty means all
-  // of them. Several of each may be chosen (owner's answer 22 Nov).
+  // of them, but not all three: a notice to all is "company" (review of system-23). Several of each may be
+  // chosen (owner's answer 22 Nov).
   countryCodes?: (string & MaxLen<2>)[] & MaxLen<300>;
   branchIds?: string[] & MaxLen<500>;
   departmentIds?: string[] & MaxLen<500>;

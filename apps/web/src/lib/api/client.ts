@@ -4551,9 +4551,10 @@ export namespace shipments {
         }
 
         /**
-         * Cargo Details → Accept remeasurement (owner decision, 18 Nov 2026): the warehouse's remeasured
-         * lines replace the cargo dimension lines, and Pcs, Total Weight and Total Volume take their totals.
-         * Only for who may change the shipment's details (Handled By, Holiday Cover, a manager).
+         * Cargo Details → Accept remeasurement (owner decision, 18 Nov 2026; since 22 Nov only recorded): the
+         * warehouse's remeasured lines are recorded as accepted in the Remeasured by Warehouse tile - Cargo
+         * Details' lines, the shipment's Colli, Total Weight and Total Volume and its container stay as they
+         * are. Only for who may change the shipment's details (Handled By, Holiday Cover, a manager).
          */
         public async shipmentRemeasureAccept(shipmentId: string, params: controllers.AcceptRemeasurementRequest): Promise<controllers.AcceptRemeasurementResponse> {
             // Now make the actual call to the API
@@ -7900,6 +7901,12 @@ export namespace controllers {
          */
         types?: interfaces.AddressType[]
 
+        /**
+         * Instead of types: the types to add to the ones the address has when the change is made, which a
+         * change made meanwhile keeps (Add Address as the Registered address)
+         */
+        addTypes?: interfaces.AddressType[]
+
         label?: string
         street?: string
         city?: string
@@ -7955,8 +7962,15 @@ export namespace controllers {
         branchId?: string
         country?: string
         /**
+         * "audience" from a page loaded before several could be chosen: its one country (code), branch and department
+         * in countryCode, branchId and departmentId, each taken as a list of one (review of system-23).
+         */
+        countryCode?: string
+
+        /**
          * "audience": the countries (codes), branches and departments it is for; each left out or empty means all
-         * of them. Several of each may be chosen (owner's answer 22 Nov).
+         * of them, but not all three: a notice to all is "company" (review of system-23). Several of each may be
+         * chosen (owner's answer 22 Nov).
          */
         countryCodes?: string[]
 
