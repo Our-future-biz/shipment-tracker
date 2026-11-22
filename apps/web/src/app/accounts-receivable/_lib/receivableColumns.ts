@@ -65,6 +65,19 @@ const noNames: NameOf = () => "";
 /** A person as the Filter panel matches them: the name the list shows and the e-mail it is stored by (mock test run). */
 const personText = (email: string, nameOf: NameOf) => [nameOf(email), email].filter(Boolean).join(" ");
 
+/** A person as the list shows them (PersonName): the user's name, else the e-mail they are stored by. */
+export const personShown = (email: string, nameOf: NameOf = noNames): string => nameOf(email.trim()) || email.trim();
+
+/**
+ * The order of a people column (Person in Charge, Issued by): by what the cell shows, the name - by the e-mail behind
+ * it, "z.adam@…" (Adam Zelený) came after "eva@…" (Eva Nová) (review of system-22). One who is no user's, or every one
+ * while the users load, by the e-mail the cell shows then.
+ */
+export const byPerson =
+  (of: (r: ReceivableRow) => string, nameOf: NameOf = noNames) =>
+  (a: ReceivableRow, b: ReceivableRow): number =>
+    personShown(of(a), nameOf).localeCompare(personShown(of(b), nameOf));
+
 /** A cell's text in the invoices table, as the row shows it (the Filter panel matches it). */
 export function receivableCellText(r: ReceivableRow, key: string, nameOf: NameOf = noNames): string {
   switch (key) {

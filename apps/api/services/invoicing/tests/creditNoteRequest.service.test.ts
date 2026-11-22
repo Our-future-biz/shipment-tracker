@@ -68,11 +68,21 @@ describe("asking for a partial credit note", () => {
         lines: [{ lineId: "l1", description: "THC", unitCurrency: "EUR", amount: "50.00", net: "50.00" }],
         net: "50.00", vat: "10.50", gross: "60.50", invoiceGross: "363.00", reason: "Agreed discount", requestedById: "u-rep", requestedByName: "u-rep@test.cz",
       }),
-      // the check run again under the invoice's lock (S5-4)
-      expect.any(Function),
+      // the check run again under the invoice's lock (S5-4), and the rows the lines credit: what is owed on them is kept
+      // with the request (review of system-22)
+      { creditedRows: ["s1"], guard: expect.any(Function) },
     );
     expect(asked.status).toBe("pending");
     expect(docs.issuePartialCredit).not.toHaveBeenCalled();
+  });
+
+  // Review of system-22: the approval compares what is owed then with what is owed now, on the rows it credits - the
+  // ask names the same rows, as the approval works them out (planPartialCredit): each line's selling row, none for a
+  // line made from no row.
+  it("names the rows the lines asked credit, as the approval works them out", async () => {
+    docs.creditState.mockResolvedValueOnce({ original, credits: [], remaining: [remaining[0], { ...remaining[1], sourceSellingCostId: null }] });
+    await creditNoteRequestService.ask(user, "inv1", { lines: [{ lineId: "l2", amount: "10" }, { lineId: "l1", amount: "50" }], reason: "Agreed discount" });
+    expect(requests.create.mock.calls[0]![1]).toMatchObject({ creditedRows: ["s1"] });
   });
 
   it("needs a reason, a valid amount, and less than the whole invoice", async () => {
@@ -112,8 +122,8 @@ describe("asking for a partial credit note", () => {
   // Mock council S5-4 / X-3: a change asked a second earlier is seen again under the invoice's row lock.
   it("checks again under the invoice's lock, with the insert, so two requests a second apart never both wait", async () => {
     const tx = { tx: true };
-    requests.create.mockImplementation(async (values: Record<string, unknown>, guard?: (t: unknown) => Promise<void>) => {
-      await guard?.(tx);
+    requests.create.mockImplementation(async (values: Record<string, unknown>, ask?: { guard?: (t: unknown) => Promise<void> }) => {
+      await ask?.guard?.(tx);
       return row(values);
     });
     changeRequests.pendingFor.mockResolvedValueOnce(null).mockResolvedValueOnce({ id: "ch1", issueDate: TODAY, requestedAt: new Date("2026-11-17T08:13:00Z") });
@@ -124,8 +134,8 @@ describe("asking for a partial credit note", () => {
   // System-21 review: the lock kept the two requests apart, but not the invoice credited meanwhile.
   it("checks the invoice again under its lock: credited in full or cancelled, or credited in part, a moment ago", async () => {
     const tx = { tx: true };
-    requests.create.mockImplementation(async (values: Record<string, unknown>, guard?: (t: unknown) => Promise<void>) => {
-      await guard?.(tx);
+    requests.create.mockImplementation(async (values: Record<string, unknown>, ask?: { guard?: (t: unknown) => Promise<void> }) => {
+      await ask?.guard?.(tx);
       return row(values);
     });
     const ask = () => creditNoteRequestService.ask(user, "inv1", { lines: [{ lineId: "l1", amount: "5" }], reason: "Discount" });

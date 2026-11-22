@@ -109,7 +109,7 @@ class CreditNoteRequestService {
     // Checked again under the invoice's row lock, with the insert (mock council S5-4 / X-3): a change asked a second
     // ago is seen, so the two never both wait - and so is the invoice credited in full or cancelled, or credited in
     // part since what is left of it was read (system-21 review): the lines asked are then asked again on what is left.
-    const noChangeWaits: Parameters<typeof requests.create>[1] = async (tx) => {
+    const noChangeWaits: Parameters<typeof requests.create>[1]["guard"] = async (tx) => {
       const current = await invoiceRepository.getInTx(tx, original.id, actor.companyID);
       if (!current) throw APIError.notFound("Invoice not found");
       if (current.status !== "issued") throw notIssued(original.number, current.status);
@@ -136,7 +136,12 @@ class CreditNoteRequestService {
       reason,
       requestedById: actor.userID,
       requestedByName: userEmail,
-    }, noChangeWaits);
+    }, {
+      // The rows the lines credit, as the approval works them out (invoiceDocument issuePartialCredit): what is owed on
+      // them is kept with the request, and its approval is refused once it is not what is owed (review of system-22).
+      creditedRows: plan.lines.flatMap((l) => (l.sourceSellingCostId ? [l.sourceSellingCostId] : [])),
+      guard: noChangeWaits,
+    });
     if (!created) throw APIError.failedPrecondition(`A partial credit note of ${original.number} already waits for a manager: take it back to ask again`);
     return toCreditRequestItem(created);
   }

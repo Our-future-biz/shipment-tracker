@@ -21,6 +21,8 @@ const fake = vi.hoisted(() => {
 });
 
 vi.mock("../../db/db", () => ({ db: fake.db }));
+// What a partial credit request is asked on is read from the Trucking lines with the ask (review of system-22): not here.
+vi.mock("../../repositories/truckingLines.repository", () => ({ truckingLinesLock: vi.fn(), truckingLinesRepository: {} }));
 
 import { invoiceChangeRequestRepository } from "../../repositories/invoiceChangeRequest.repository";
 import { creditNoteRequestRepository } from "../../repositories/creditNoteRequest.repository";

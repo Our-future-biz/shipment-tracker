@@ -1,0 +1,1 @@
+ALTER TABLE "credit_note_request" ADD COLUMN "owed_when_asked" jsonb;

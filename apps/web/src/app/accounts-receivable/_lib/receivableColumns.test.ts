@@ -1,6 +1,16 @@
 import { describe, expect, it } from "vitest";
 import { CHECK_KEY, knownFilters, matchesTableFilters, normalizeColumns } from "@/lib/tableModel";
-import { CUSTOMER_TABLE, customerCellText, customerRowsOf, RECEIVABLE_DEFAULT_COLUMNS, receivableCellText, receivableTable } from "./receivableColumns";
+import {
+  byPerson,
+  CUSTOMER_TABLE,
+  customerCellText,
+  customerRowsOf,
+  personShown,
+  RECEIVABLE_DEFAULT_COLUMNS,
+  receivableCellText,
+  receivableTable,
+  type NameOf,
+} from "./receivableColumns";
 import { limitStates, limitUsedPct, type ReceivableCustomer, type ReceivableRow } from "./receivables";
 import { formatAmount } from "@/lib/money";
 
@@ -75,6 +85,25 @@ describe("the invoices' Filter panel", () => {
     // Before the users are read: by e-mail, as before.
     expect(receivableCellText(r, "issuedBy")).toBe("libor@example.com");
     expect(receivableCellText(row({ holidayCover: "" }), "pic")).toBe("jana@example.com");
+  });
+
+  // Review of system-22: the cells show the name, and the column sorted by the e-mail behind it.
+  it("sorts Person in Charge and Issued by by the name the list shows, an e-mail no user has among them", () => {
+    const names: Record<string, string> = { "z.adam@example.com": "Adam Zelený", "eva@example.com": "Eva Nová", "b.zdenek@example.com": "Zdeněk Bureš" };
+    const nameOf = (email: string) => names[email] ?? "";
+    const rows = [
+      row({ id: "eva", personInCharge: "eva@example.com", issuedBy: "eva@example.com" }),
+      row({ id: "zdenek", personInCharge: "b.zdenek@example.com", issuedBy: "b.zdenek@example.com" }),
+      row({ id: "unknown", personInCharge: "carl@example.com", issuedBy: " carl@example.com " }),
+      row({ id: "adam", personInCharge: "z.adam@example.com", issuedBy: "z.adam@example.com" }),
+    ];
+    const order = (key: "personInCharge" | "issuedBy", by: NameOf | undefined) => [...rows].sort(byPerson((r) => r[key], by)).map((r) => r.id);
+    expect(order("personInCharge", nameOf)).toEqual(["adam", "unknown", "eva", "zdenek"]);
+    expect(order("issuedBy", nameOf)).toEqual(["adam", "unknown", "eva", "zdenek"]);
+    // Before the users are read the cells show the e-mails, and so does the order.
+    expect(order("personInCharge", undefined)).toEqual(["zdenek", "unknown", "eva", "adam"]);
+    expect(personShown(" z.adam@example.com ", nameOf)).toBe("Adam Zelený");
+    expect(personShown(" carl@example.com ", nameOf)).toBe("carl@example.com");
   });
 
   it("finds an invoice by a credit note's number in the number column", () => {

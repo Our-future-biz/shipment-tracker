@@ -7,9 +7,11 @@ import type { ColumnsType } from "antd/es/table";
 import { DataTable } from "@/components/DataTable";
 import { Pill } from "@/components/Pill";
 import { useReceivable } from "@/hooks/useReceivables";
+import { useUsers } from "@/hooks/useUsers";
 import { AGING_LABEL, markChips, REMINDER_LEVEL_LABEL, statusLabel, statusTitle, statusTone } from "@/lib/accountsReceivable";
 import { apiErrorMessage } from "@/lib/api";
 import { formatDate } from "@/lib/date";
+import { userByEmail } from "@/lib/people";
 import { shownColumns } from "@/lib/tableModel";
 import { EMPTY, HINT, LINK, REF } from "@/styles/ui";
 import {
@@ -26,11 +28,13 @@ import {
   shortJobNumber,
   type ReceivableRow,
 } from "../_lib/receivables";
+import { byPerson, type NameOf } from "../_lib/receivableColumns";
 import { PersonName } from "./PersonName";
 
 // The invoices of a tab: one row per issued invoice, its credit notes folded in (D1), opened to its lines, its credit
 // notes and the job's people. A click anywhere else opens the drawer.
 
+const NO_USERS: ReturnType<typeof useUsers>["users"] = [];
 const none = <span className={EMPTY}>—</span>;
 const day = (v: string | null | undefined) => (v ? <span className="tabular-nums whitespace-nowrap">{formatDate(v)}</span> : none);
 const cmp = (a: string | null | undefined, b: string | null | undefined) => (a ?? "").localeCompare(b ?? "");
@@ -74,7 +78,8 @@ function StatusCell({ r }: { r: ReceivableRow }) {
 // cut, each whole on hover, the credit notes under the number, Status right after it - so all the mock's columns fit a
 // 1440 px screen, as LIST_WIDTHS sums them (mock test S21-079). The order is receivableColumns' RECEIVABLE_COLUMNS, which
 // the shown columns follow. `currencyShown`: the Currency column is shown, so the amounts beside it leave the currency out.
-const listColumns = (currencyShown: boolean): ColumnsType<ReceivableRow> => [
+// `nameOf`: the users' names, so the people columns sort by the name they show (byPerson).
+const listColumns = (currencyShown: boolean, nameOf: NameOf): ColumnsType<ReceivableRow> => [
   {
     // On two lines, as Amount with VAT: in one line the title made the column wider than its numbers.
     title: (
@@ -246,7 +251,7 @@ const listColumns = (currencyShown: boolean): ColumnsType<ReceivableRow> => [
   {
     title: "Person in Charge",
     key: "pic",
-    sorter: (a, b) => a.personInCharge.localeCompare(b.personInCharge),
+    sorter: byPerson((r) => r.personInCharge, nameOf),
     render: (_, r) => (
       <div>
         {person(r.personInCharge)}
@@ -258,7 +263,7 @@ const listColumns = (currencyShown: boolean): ColumnsType<ReceivableRow> => [
       </div>
     ),
   },
-  { title: "Issued by", key: "issuedBy", sorter: (a, b) => a.issuedBy.localeCompare(b.issuedBy), render: (_, r) => person(r.issuedBy) },
+  { title: "Issued by", key: "issuedBy", sorter: byPerson((r) => r.issuedBy, nameOf), render: (_, r) => person(r.issuedBy) },
   { title: "Payment terms", key: "terms", render: (_, r) => text(r.paymentTerms) },
   {
     title: "Last reminder",
@@ -331,7 +336,14 @@ interface ReceivablesTableProps {
 
 export function ReceivablesTable({ rows, loading, emptyText, resetKey, visible, onOpen, selection }: ReceivablesTableProps) {
   const currencyShown = visible.includes("currency");
-  const columns = useMemo(() => shownColumns(listColumns(currencyShown), visible), [currencyShown, visible]);
+  // People by the name the cells show them by (PersonName); until the users are read, one empty list (not a new one
+  // each render, which would make the columns anew every time) - by e-mail, as the cells are then.
+  const people = useUsers();
+  const users = people.loaded ? people.users : NO_USERS;
+  const columns = useMemo(
+    () => shownColumns(listColumns(currencyShown, (email) => userByEmail(email, users)?.displayName.trim() ?? ""), visible),
+    [currencyShown, visible, users],
+  );
   return (
     <DataTable<ReceivableRow>
       // Drawn anew when the tick boxes come or go: the list fits its card, so antd stretches the columns to it, and it

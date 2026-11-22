@@ -56,8 +56,10 @@ import {
   planPartialCredit,
   remainingLines,
   sameCreditsOwed,
+  sameOwedAsAsked,
   settleTruckingCredit,
   type CreditLineCalc,
+  type OpenCreditDiff,
   type RemainingLine,
 } from "../lib/partialCredit";
 import { creditNoteRequestRepository } from "../repositories/creditNoteRequest.repository";
@@ -473,6 +475,25 @@ const CREDITED_MEANWHILE = (number: string) => `Invoice ${number} was credited a
 // rejected, and asked again on what is owed now.
 const STALE_CREDIT_REQUEST =
   "What is owed on this job changed since this was asked (a Trucking price, a line below zero, another invoice or credit note): reject the request, and ask again on what is owed now";
+
+/**
+ * Whether what is owed on the job is still what the request was asked on (mock test S20-195), read under the invoice's
+ * and the shipment's locks: what the ask kept (owedWhenAsked) against the credits owed now (`owedNow`, of the rows the
+ * lines credit) and the job's documents now. By what they are, not by the clock (review of system-22): a line moved in
+ * the list (the one write a line on an invoice takes, made on every row below a Duplicate or an Undo), a line's text,
+ * VAT code or Invoice tick changed, and a credited invoice's PDF stored late leave it so; a Trucking push committed
+ * after the ask does not, though it began before the ask and its row is dated then. A request asked before what was
+ * owed was kept with it is told by the clock, as it was. Exported for its database test (tests/db/truckingCredit).
+ */
+export async function stillAskedOn(tx: NonNullable<Reader>, request: CreditNoteRequestRecord, shipmentId: string, owedNow: ReadonlyMap<string, readonly OpenCreditDiff[]>): Promise<boolean> {
+  const companyId = request.companyId;
+  if (request.owedWhenAsked) return sameOwedAsAsked(request.owedWhenAsked, owedNow, await invoiceRepository.documentStatesOf(tx, companyId, shipmentId));
+  const since = request.requestedAt;
+  return (
+    !(await truckingLinesRepository.creditsOwedChangedSince(tx, companyId, shipmentId, since)) &&
+    !(await invoiceRepository.documentsChangedSince(tx, companyId, shipmentId, since))
+  );
+}
 
 export interface InvoicePdfFile {
   fileName: string;
@@ -938,15 +959,17 @@ class InvoiceDocumentService {
             // moment ago is taken back below, one asked now waits and then sees this credit note (system-21 review).
             await lockInvoiceRow(tx, companyId, original.id);
             await truckingLinesLock(tx, original.shipmentId);
+            // Opening the request again can't help with either refusal below: what it was asked on is gone, and its
+            // next approval is refused as stale - it is rejected, and asked again (review of system-22).
             if ((await invoiceRepository.creditNotesOf(original.id, companyId, tx)).length !== credits.length) {
-              throw APIError.failedPrecondition(`Invoice ${original.number} was credited a moment ago: open the request again`);
+              throw APIError.failedPrecondition(`Invoice ${original.number} was credited a moment ago: reject the request, and ask again on what is left to credit`);
             }
             // The credits owed, read again under the shipment's lock - also when the first read found none: a
             // Trucking push (or a line below nothing entered) meanwhile changed what is owed, or made a credit
             // owed this note would leave open to come off the next invoice as well.
             const now = await truckingLinesRepository.openCreditDiffs(tx, companyId, original.shipmentId, creditedRows);
             if (!sameCreditsOwed(diffs, now)) {
-              throw APIError.failedPrecondition("Trucking changed the price of this job a moment ago, or a line below zero changed: open the request again");
+              throw APIError.failedPrecondition("Trucking changed the price of this job a moment ago, or a line below zero changed: reject the request, and ask again on what is owed now");
             }
             // The two reads above are both of now: a price changed while the request waited (the approver's page
             // from before it) left them alike, and the lines asked to give what was owed then settled what is owed
@@ -955,13 +978,7 @@ class InvoiceDocumentService {
             // when a document of the job came, or was credited or cancelled, since: an invoice that took the credit off,
             // another invoice's partial credit note that settled it, or an invoice whose rows below nothing are owed again
             // (review of S20-195) - none of them writes the row. This approval's own credit note is written after this.
-            const since = request.requestedAt;
-            if (
-              (await truckingLinesRepository.creditsOwedChangedSince(tx, companyId, original.shipmentId, since)) ||
-              (await invoiceRepository.documentsChangedSince(tx, companyId, original.shipmentId, since))
-            ) {
-              throw APIError.failedPrecondition(STALE_CREDIT_REQUEST);
-            }
+            if (!(await stillAskedOn(tx, request, original.shipmentId, now))) throw APIError.failedPrecondition(STALE_CREDIT_REQUEST);
           },
           afterInsert: async (tx, inserted) => {
             const approved = await creditNoteRequestRepository.approve(tx, companyId, request.id, approver, { id: inserted.id, number: inserted.number });

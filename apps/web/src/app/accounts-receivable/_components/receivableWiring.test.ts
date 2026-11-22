@@ -83,6 +83,11 @@ describe("people by name (mock test run)", () => {
     expect(table).toContain('Holiday Cover: <PersonName email={r.holidayCover} />');
     expect(table).toContain("person(r.issuedBy)");
     expect(table).not.toMatch(/Holiday Cover: \{r\.holidayCover\}|\$\{r\.holidayCover\}|text\(r\.(personInCharge|issuedBy)\)/);
+    // And sorts them by it (review of system-22), with the names the cells read.
+    expect(table).toContain("sorter: byPerson((r) => r.personInCharge, nameOf)");
+    expect(table).toContain("sorter: byPerson((r) => r.issuedBy, nameOf)");
+    expect(table).not.toMatch(/a\.(personInCharge|issuedBy)\.localeCompare/);
+    expect(table).toMatch(/listColumns\(currencyShown, \(email\) => userByEmail\(email, users\)\?\.displayName\.trim\(\) \?\? ""\)/);
     const drawer = source("ReceivableDrawer.tsx");
     expect(drawer).toContain("issued by <PersonName email={r.issuedBy} />");
     expect(drawer).toContain('<PersonName email={r.personInCharge} />');

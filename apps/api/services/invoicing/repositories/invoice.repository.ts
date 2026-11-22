@@ -11,6 +11,7 @@ import {
   type NewInvoiceRecord,
 } from "../schemas/invoice.schema";
 import { nextSequence } from "../lib/invoiceNumber";
+import type { DocumentState } from "../lib/partialCredit";
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 type Reader = typeof db | Tx;
@@ -201,7 +202,8 @@ class InvoiceRepository extends TenantRepository<typeof t> {
    * writes the row - an invoice that took the credit off (+80 handling, −20), a partial credit note of another
    * invoice that settled it, or an invoice credited or cancelled whose rows below nothing are owed again. A new
    * invoice or credit note by its creation; a status change by the document's last write, read only for a document
-   * credited or cancelled (storing an open one's PDF writes it too, and changes nothing owed).
+   * credited or cancelled (storing an open one's PDF writes it too, and changes nothing owed). Read only for a request
+   * asked before what it was asked on was kept with it (documentStatesOf, review of system-22).
    */
   async documentsChangedSince(reader: Reader, companyId: string, shipmentId: string, since: Date): Promise<boolean> {
     const after = since.toISOString();
@@ -218,6 +220,20 @@ class InvoiceRepository extends TenantRepository<typeof t> {
       )
       .limit(1);
     return !!row;
+  }
+
+  /**
+   * The shipment's tax documents - invoices and credit notes - and their status: what a partial credit note request
+   * is asked on beside the credits owed (lib/partialCredit owedWhenAsked), and read again at its approval (review of
+   * system-22). Whether a row below nothing is owed hangs on them, and none of them writes the row: an invoice that
+   * took the credit off, another invoice's partial credit note that settled it, one credited or cancelled whose rows
+   * below nothing are owed again. Told by what they are: a PDF stored late changes neither.
+   */
+  async documentStatesOf(reader: Reader, companyId: string, shipmentId: string): Promise<DocumentState[]> {
+    return reader
+      .select({ id: t.id, status: t.status })
+      .from(t)
+      .where(and(eq(t.companyId, companyId), eq(t.shipmentId, shipmentId), isNull(t.deletedAt)));
   }
 
   /** The credit notes issued against an invoice, oldest first. */

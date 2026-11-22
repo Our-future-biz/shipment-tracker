@@ -210,8 +210,6 @@ export interface OpenCreditDiff {
   currency: string;
   /** What the line comes to (below nothing), in its own currency */
   amount: number;
-  /** When it was last changed (ms): issuing checks it again under the shipment's lock. */
-  version: number;
 }
 
 /** What a partial credit note writes besides its lines when it settles credits owed by Trucking. */
@@ -297,14 +295,52 @@ export function settleTruckingCredit(lines: CreditLineCalc[], diffsOf: (sourceRo
 }
 
 /**
- * Whether the credits owed read for a partial credit note are still what they are: the same lines (each
- * unchanged) for every credited row. Issuing reads them again under the shipment's lock, whatever the
- * first read found - a push or a line entered meanwhile may have made a credit owed the note must settle.
+ * Whether the credits owed read for a partial credit note are still what they are: the same lines, each of
+ * the same amount and currency, for every credited row. Issuing reads them again under the shipment's lock,
+ * whatever the first read found - a push or a line entered meanwhile may have made a credit owed the note must
+ * settle. Told by what they are, not by when they were written (review of system-22): a line moved in the
+ * list, its text, VAT code or Invoice tick changed, is the same credit owed and settles the same - in any order.
  */
 export function sameCreditsOwed(before: ReadonlyMap<string, readonly OpenCreditDiff[]>, now: ReadonlyMap<string, readonly OpenCreditDiff[]>): boolean {
+  const owed = (list: readonly OpenCreditDiff[]) => list.map((d) => `${d.id}|${d.currency}|${cents(d.amount)}`).sort();
   const key = (m: ReadonlyMap<string, readonly OpenCreditDiff[]>) =>
-    JSON.stringify([...m].filter(([, list]) => list.length).sort(([a], [b]) => a.localeCompare(b)).map(([row, list]) => [row, list.map((d) => [d.id, d.version])]));
+    JSON.stringify([...m].filter(([, list]) => list.length).sort(([a], [b]) => a.localeCompare(b)).map(([row, list]) => [row, owed(list)]));
   return key(before) === key(now);
+}
+
+/** A tax document of the job - an invoice or a credit note - and its status. */
+export interface DocumentState {
+  id: string;
+  status: string;
+}
+
+/**
+ * What a partial credit note request was asked on (credit_note_request.owed_when_asked, review of system-22): the
+ * credits owed its approval would settle - of each row the lines asked credit, as truckingLinesRepository
+ * openCreditDiffs reads them - and the job's tax documents with their status, whether a row below nothing is owed
+ * hanging on them. Read with the ask under the invoice's and the shipment's locks, so a Trucking push or an invoice
+ * is in it or comes after it, never both.
+ */
+export interface OwedWhenAsked {
+  /** Per credited row (its id), the credits owed it would settle */
+  credits: [string, OpenCreditDiff[]][];
+  documents: DocumentState[];
+}
+
+export const owedWhenAsked = (credits: ReadonlyMap<string, readonly OpenCreditDiff[]>, documents: readonly DocumentState[]): OwedWhenAsked => ({
+  credits: [...credits].map(([row, list]) => [row, list.map(({ id, ref, currency, amount }) => ({ id, ref, currency, amount }))]),
+  documents: documents.map(({ id, status }) => ({ id, status })),
+});
+
+/**
+ * Whether what is owed on the job is still what the request was asked on (mock test S20-195): the same credits owed
+ * (sameCreditsOwed) and the same documents, each in the same status. Compared by what they are, not by the clock
+ * (review of system-22): a line moved in the list or its text changed, or a credited invoice's PDF stored late,
+ * changes nothing owed; a Trucking push, an invoice or credit note, or one credited or cancelled after the ask does.
+ */
+export function sameOwedAsAsked(asked: OwedWhenAsked, credits: ReadonlyMap<string, readonly OpenCreditDiff[]>, documents: readonly DocumentState[]): boolean {
+  const docs = (list: readonly DocumentState[]) => JSON.stringify(list.map((d) => `${d.id}|${d.status}`).sort());
+  return sameCreditsOwed(new Map(asked.credits), credits) && docs(asked.documents) === docs(documents);
 }
 
 export const WHOLE_INVOICE ="This credits the whole invoice: credit the whole invoice instead - that needs no approval";

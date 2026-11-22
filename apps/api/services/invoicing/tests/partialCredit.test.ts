@@ -7,7 +7,9 @@ import {
   partialCreditTotals,
   planPartialCredit,
   remainingLines,
+  owedWhenAsked,
   sameCreditsOwed,
+  sameOwedAsAsked,
   settleTruckingCredit,
   type CreditLineCalc,
   type OpenCreditDiff,
@@ -164,7 +166,7 @@ describe("settleTruckingCredit (a credit Trucking says is owed, Y1 / P1)", () =>
   const credit = (unitPrice: number, over: Partial<CreditLineCalc> = {}): CreditLineCalc => ({
     sourceSellingCostId: "s1", description: "Freight", qty: -1, unitPrice, unitCurrency: "EUR", net: -unitPrice, vatCode: "S21", vatRate: 21, fxRate: 1, correctsLineId: "l1", ...over,
   });
-  const owed: OpenCreditDiff = { id: "d1", ref: "trucking:consignment:c1:diff:1", currency: "EUR", amount: -50, version: 1 };
+  const owed: OpenCreditDiff = { id: "d1", ref: "trucking:consignment:c1:diff:1", currency: "EUR", amount: -50 };
   const diffsOf = (rowId: string | null) => (rowId === "s1" ? [owed] : []);
   let n = 0;
   const newId = () => `own${++n}`;
@@ -213,7 +215,7 @@ describe("settleTruckingCredit (a credit Trucking says is owed, Y1 / P1)", () =>
   });
 
   it("one line settles the credits owed in turn - its own set's first, then a line below nothing entered by hand - and only what goes beyond them is a credit of its own; the nets add up to the line's", () => {
-    const hand: OpenCreditDiff = { id: "h1", ref: null, currency: "EUR", amount: -20, version: 1 };
+    const hand: OpenCreditDiff = { id: "h1", ref: null, currency: "EUR", amount: -20 };
     const both = (rowId: string | null) => (rowId === "s1" ? [owed, hand] : []);
     const beyond = settleTruckingCredit([credit(80, { net: -2000.01, fxRate: 25 })], both, () => "own");
     expect(beyond.lines.map((l) => [l.unitPrice, l.net, l.sourceSellingCostId])).toEqual([[50, -1250, "d1"], [20, -500, "h1"], [10, -250.01, "own"]]);
@@ -233,14 +235,56 @@ describe("settleTruckingCredit (a credit Trucking says is owed, Y1 / P1)", () =>
   });
 
   it("whether the credits owed are still what they were read: the same lines, each unchanged, for every credited row", () => {
-    const hand: OpenCreditDiff = { id: "h1", ref: null, currency: "EUR", amount: -20, version: 1 };
+    const hand: OpenCreditDiff = { id: "h1", ref: null, currency: "EUR", amount: -20 };
     const read = new Map([["s1", [owed, hand]]]);
     expect(sameCreditsOwed(read, new Map([["s1", [owed, hand]]]))).toBe(true);
     expect(sameCreditsOwed(new Map(), new Map([["s1", []]]))).toBe(true);
-    // One came, one went, one changed.
+    // One came, one went, one changed - its amount, or its currency.
     expect(sameCreditsOwed(new Map(), read)).toBe(false);
     expect(sameCreditsOwed(read, new Map([["s1", [owed]]]))).toBe(false);
-    expect(sameCreditsOwed(read, new Map([["s1", [owed, { ...hand, version: 2 }]]]))).toBe(false);
+    expect(sameCreditsOwed(read, new Map([["s1", [owed, { ...hand, amount: -15 }]]]))).toBe(false);
+    expect(sameCreditsOwed(read, new Map([["s1", [owed, { ...hand, currency: "CZK" }]]]))).toBe(false);
+    // Review of system-22: by what they are, not by when they were written - the lines moved in the list (Duplicate's
+    // new sort order) are the same credits owed; float noise below a cent is no change.
+    expect(sameCreditsOwed(read, new Map([["s1", [hand, owed]]]))).toBe(true);
+    expect(sameCreditsOwed(read, new Map([["s1", [owed, { ...hand, amount: -19.999999999 }]]]))).toBe(true);
+  });
+
+  // Review of system-22: what a request was asked on is kept with it and compared by content at its approval.
+  describe("what a partial credit note request was asked on (owedWhenAsked / sameOwedAsAsked)", () => {
+    const hand: OpenCreditDiff = { id: "h1", ref: null, currency: "EUR", amount: -20 };
+    const documents = [
+      { id: "inv1", status: "issued" },
+      { id: "inv2", status: "credited" },
+    ];
+    const asked = owedWhenAsked(new Map([["s1", [owed, hand]]]), documents);
+
+    it("keeps the credits owed by row and the documents by status, as JSON keeps them", () => {
+      expect(asked).toEqual({ credits: [["s1", [owed, hand]]], documents });
+      expect(JSON.parse(JSON.stringify(asked))).toEqual(asked);
+      // Nothing more than what is compared: a read's other fields stay out.
+      expect(owedWhenAsked(new Map([["s1", [{ ...hand, updatedAt: 1 } as OpenCreditDiff]]]), [{ id: "inv1", status: "issued", pdfKey: "x" } as never])).toEqual({
+        credits: [["s1", [hand]]],
+        documents: [{ id: "inv1", status: "issued" }],
+      });
+    });
+
+    it("is what is owed now while nothing owed changed: the lines in another order, the documents too", () => {
+      expect(sameOwedAsAsked(asked, new Map([["s1", [hand, owed]]]), [...documents].reverse())).toBe(true);
+      expect(sameOwedAsAsked(owedWhenAsked(new Map(), []), new Map(), [])).toBe(true);
+    });
+
+    it("is not, once a credit owed changed, came or went, or a document came or changed its status", () => {
+      // Trucking's 400 → 410 while it waited: the −20 replaced by a −10 (mock test S20-195).
+      expect(sameOwedAsAsked(asked, new Map([["s1", [{ ...owed, id: "d2", amount: -10 }, hand]]]), documents)).toBe(false);
+      expect(sameOwedAsAsked(asked, new Map([["s1", [owed, { ...hand, amount: -10 }]]]), documents)).toBe(false);
+      expect(sameOwedAsAsked(asked, new Map([["s1", [owed]]]), documents)).toBe(false);
+      expect(sameOwedAsAsked(asked, new Map(), documents)).toBe(false);
+      // An invoice that took the credit off, another invoice's credit note, one credited or cancelled since.
+      expect(sameOwedAsAsked(asked, new Map([["s1", [owed, hand]]]), [...documents, { id: "inv3", status: "issued" }])).toBe(false);
+      expect(sameOwedAsAsked(asked, new Map([["s1", [owed, hand]]]), [{ id: "inv1", status: "cancelled" }, documents[1]!])).toBe(false);
+      expect(sameOwedAsAsked(asked, new Map([["s1", [owed, hand]]]), [documents[0]!])).toBe(false);
+    });
   });
 
   it("a line with no credit owed on its row, or in another currency, puts a negative row of its own on the shipment, as before; one difference line is settled once", () => {

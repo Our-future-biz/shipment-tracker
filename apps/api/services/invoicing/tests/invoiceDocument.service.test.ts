@@ -21,6 +21,8 @@ const repo = vi.hoisted(() => ({
   markCancelled: vi.fn(),
   // Whether a document of the job came, or was credited or cancelled, since a partial credit note was asked (none unless a test says so).
   documentsChangedSince: vi.fn(async (): Promise<boolean> => false),
+  // The job's documents and their status, read again at the approval of a request that kept them (none unless a test says so).
+  documentStatesOf: vi.fn(async (): Promise<{ id: string; status: string }[]> => []),
 }));
 const generated = vi.hoisted(() => ({ shipmentIdsWithInvoices: vi.fn() }));
 const requests = vi.hoisted(() => ({ approve: vi.fn(), withdrawForInvoice: vi.fn() }));
@@ -187,6 +189,7 @@ beforeEach(() => {
   trucking.retireNettedSets.mockImplementation(async () => []);
   trucking.creditsOwedChangedSince.mockImplementation(async () => false);
   repo.documentsChangedSince.mockImplementation(async () => false);
+  repo.documentStatesOf.mockImplementation(async () => []);
   clients.shipmentGet.mockResolvedValue({ shipment });
   clients.shipmentReferenceFinal.mockResolvedValue({ jobNumber: shipment.jobNumber });
   // No approved Import Instructions say who pays the duty and VAT, unless a test says so.
@@ -1004,7 +1007,7 @@ describe("partial credit notes", () => {
 
   describe("a credit Trucking says is owed (Y1 / P1)", () => {
     // THC's row is a Trucking set whose price came down by 50 after the invoice: "Price change after invoice −50" on no invoice.
-    const diff = { id: "d1", ref: "trucking:consignment:c1:diff:1", currency: "EUR", amount: -50, version: 1 };
+    const diff = { id: "d1", ref: "trucking:consignment:c1:diff:1", currency: "EUR", amount: -50 };
     const asking = (amount: string) => ({ ...request, lines: [{ ...request.lines[0]!, amount }] });
     beforeEach(() => {
       trucking.openCreditDiffs.mockImplementation(async () => new Map([["s1", [diff]]]));
@@ -1041,10 +1044,20 @@ describe("partial credit notes", () => {
       expect(written[1]!.sourceSellingCostId).toBe(rows[0].id);
     });
 
-    it("refuses when Trucking changed the price meanwhile: the credit owed is not what it was", async () => {
-      trucking.openCreditDiffs.mockImplementationOnce(async () => new Map([["s1", [diff]]])).mockImplementationOnce(async () => new Map([["s1", [{ ...diff, version: 2 }]]]));
-      await expect(invoiceDocumentService.issuePartialCredit(asking("50.00") as never, approver)).rejects.toThrow(/Trucking changed the price/);
+    it("refuses when Trucking changed the price meanwhile: the credit owed is not what it was - rejected and asked again, as approving it again would be stale", async () => {
+      trucking.openCreditDiffs.mockImplementationOnce(async () => new Map([["s1", [diff]]])).mockImplementationOnce(async () => new Map([["s1", [{ ...diff, amount: -40 }]]]));
+      await expect(invoiceDocumentService.issuePartialCredit(asking("50.00") as never, approver)).rejects.toThrow(
+        /^Trucking changed the price of this job a moment ago, or a line below zero changed: reject the request, and ask again on what is owed now$/,
+      );
       expect(requests.approve).not.toHaveBeenCalled();
+    });
+
+    // Review of system-22: told by what they are - credits owed only moved in the list between the two reads settle the same.
+    it("issues when only the order of the credits owed changed between the two reads", async () => {
+      const hand = { id: "h1", ref: null, currency: "EUR", amount: -5 };
+      trucking.openCreditDiffs.mockImplementationOnce(async () => new Map([["s1", [diff, hand]]])).mockImplementationOnce(async () => new Map([["s1", [hand, diff]]]));
+      await invoiceDocumentService.issuePartialCredit(asking("50.00") as never, approver);
+      expect(requests.approve).toHaveBeenCalled();
     });
 
     it("refuses when a credit owed came meanwhile: read again under the lock though the first read found none, never a negative row of its own beside it", async () => {
@@ -1062,10 +1075,11 @@ describe("partial credit notes", () => {
     });
 
     // Mock test S20-195: 20 asked while 20 was owed; Trucking's 400 → 410 while it waited left 10 owed, and the
-    // approval read now twice - alike - so it settled the 10 and put a −10 row of its own beside it.
+    // approval read now twice - alike - so it settled the 10 and put a −10 row of its own beside it. The next three are
+    // a request asked before what was owed was kept with it (no owedWhenAsked): told by the clock, as then.
     it("refuses when Trucking changed the price after the request was asked, though both reads at the approval agree: nothing is issued", async () => {
       const asked = { ...asking("20.00"), requestedAt: new Date("2026-11-21T19:07:00Z") };
-      const now = { ...diff, amount: -10, version: 2 };
+      const now = { ...diff, id: "d2", amount: -10 };
       trucking.openCreditDiffs.mockImplementation(async () => new Map([["s1", [now]]]));
       trucking.creditsOwedChangedSince.mockImplementation(async () => true);
       await expect(invoiceDocumentService.issuePartialCredit(asked as never, approver)).rejects.toThrow(
@@ -1098,11 +1112,68 @@ describe("partial credit notes", () => {
       await invoiceDocumentService.issuePartialCredit(asked as never, approver);
       expect(trucking.creditsOwedChangedSince).toHaveBeenCalledWith({}, COMPANY, SHIPMENT, asked.requestedAt);
       expect(repo.documentsChangedSince).toHaveBeenCalledWith({}, COMPANY, SHIPMENT, asked.requestedAt);
+      expect(repo.documentStatesOf).not.toHaveBeenCalled();
       expect(requests.approve).toHaveBeenCalled();
     });
 
+    // Review of system-22: the clock refused a request on a line only moved in the list (Duplicate, Undo) or a credited
+    // invoice's PDF stored late, and missed a push that waited on the lock through the ask. The ask keeps what was owed
+    // (owedWhenAsked), and the approval compares it with what is owed now, under the same locks.
+    describe("a request that kept what was owed when it was asked", () => {
+      const documents = [
+        { id: "inv1", status: "issued" },
+        { id: "inv0", status: "credited" },
+      ];
+      const keptAsk = (amount: string, owed: unknown[], docs = documents) => ({
+        ...asking(amount),
+        requestedAt: new Date("2026-11-21T19:07:00Z"),
+        owedWhenAsked: { credits: owed.length ? [["s1", owed]] : [], documents: docs },
+      });
+      const stale = /^What is owed on this job changed since this was asked \(a Trucking price, a line below zero, another invoice or credit note\): reject the request/;
+      beforeEach(() => {
+        repo.documentStatesOf.mockImplementation(async () => [...documents].reverse());
+        // By the clock both would refuse (a line moved, a PDF stored since): not asked of such a request.
+        trucking.creditsOwedChangedSince.mockImplementation(async () => true);
+        repo.documentsChangedSince.mockImplementation(async () => true);
+      });
+
+      it("issues while what is owed is what it was asked on, whatever was written since: the clock is not read", async () => {
+        await invoiceDocumentService.issuePartialCredit(keptAsk("50.00", [diff]) as never, approver);
+        expect(repo.documentStatesOf).toHaveBeenCalledWith({}, COMPANY, SHIPMENT);
+        // Read under the shipment's lock, in the issue's transaction.
+        expect(trucking.lock.mock.invocationCallOrder.at(-1)!).toBeLessThan(repo.documentStatesOf.mock.invocationCallOrder[0]!);
+        expect(trucking.creditsOwedChangedSince).not.toHaveBeenCalled();
+        expect(repo.documentsChangedSince).not.toHaveBeenCalled();
+        expect(requests.approve).toHaveBeenCalled();
+        expect(repo.issue.mock.calls[0]![2]).toEqual([expect.objectContaining({ unitPrice: "50.00", sourceSellingCostId: "d1" })]);
+      });
+
+      it("refuses once a credit owed is not what it was asked on - Trucking's 400 → 410 committed after the ask, though both reads at the approval agree (S20-195)", async () => {
+        trucking.openCreditDiffs.mockImplementation(async () => new Map([["s1", [{ ...diff, id: "d2", amount: -10 }]]]));
+        await expect(invoiceDocumentService.issuePartialCredit(keptAsk("20.00", [{ ...diff, amount: -20 }]) as never, approver)).rejects.toThrow(stale);
+        // The same line, another amount: a hand line below zero edited in place.
+        trucking.openCreditDiffs.mockImplementation(async () => new Map([["s1", [{ ...diff, amount: -10 }]]]));
+        await expect(invoiceDocumentService.issuePartialCredit(keptAsk("20.00", [{ ...diff, amount: -20 }]) as never, approver)).rejects.toThrow(stale);
+        // One came since: asked on nothing owed.
+        trucking.openCreditDiffs.mockImplementation(async () => new Map([["s1", [diff]]]));
+        await expect(invoiceDocumentService.issuePartialCredit(keptAsk("20.00", []) as never, approver)).rejects.toThrow(stale);
+        expect(requests.approve).not.toHaveBeenCalled();
+        expect(selling.insertCreditRows).not.toHaveBeenCalled();
+        expect(trucking.settleDiffs).not.toHaveBeenCalled();
+      });
+
+      it("refuses once a document of the job came since, or one changed its status - none of them writes a row", async () => {
+        repo.documentStatesOf.mockImplementationOnce(async () => [...documents, { id: "inv2", status: "issued" }]);
+        await expect(invoiceDocumentService.issuePartialCredit(keptAsk("50.00", [diff]) as never, approver)).rejects.toThrow(stale);
+        repo.documentStatesOf.mockImplementationOnce(async () => [documents[0]!, { id: "inv0", status: "cancelled" }]);
+        await expect(invoiceDocumentService.issuePartialCredit(keptAsk("50.00", [diff], [documents[0]!, { id: "inv0", status: "issued" }]) as never, approver)).rejects.toThrow(stale);
+        expect(requests.approve).not.toHaveBeenCalled();
+        expect(selling.insertCreditRows).not.toHaveBeenCalled();
+      });
+    });
+
     it("a line below nothing entered by hand is a credit owed like Trucking's: the credit note line settles it, no negative row of its own", async () => {
-      const discount = { id: "h1", ref: null, currency: "EUR", amount: -50, version: 1 };
+      const discount = { id: "h1", ref: null, currency: "EUR", amount: -50 };
       trucking.openCreditDiffs.mockImplementation(async () => new Map([["s1", [discount]]]));
       await invoiceDocumentService.issuePartialCredit(asking("50.00") as never, approver);
       const [, , written] = repo.issue.mock.calls[0]!;
@@ -1139,7 +1210,11 @@ describe("partial credit notes", () => {
 
   it("refuses when another credit note of the invoice was issued while this one was worked out", async () => {
     repo.creditNotesOf.mockResolvedValueOnce([]).mockResolvedValueOnce([{ id: "cnA", number: "CN2026CZ00000028-001", gross: "-10.00" }]);
-    await expect(invoiceDocumentService.issuePartialCredit(request as never, approver)).rejects.toThrow(/credited a moment ago/);
+    // Review of system-22: opening it again can't help - that credit note is a document since the ask, so the next
+    // approval is refused as stale: it is rejected, and asked again.
+    await expect(invoiceDocumentService.issuePartialCredit(request as never, approver)).rejects.toThrow(
+      /^Invoice INV2026CZ00000028-001 was credited a moment ago: reject the request, and ask again on what is left to credit$/,
+    );
     expect(requests.approve).not.toHaveBeenCalled();
   });
 

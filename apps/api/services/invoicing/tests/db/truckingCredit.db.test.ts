@@ -12,10 +12,13 @@ import { and, eq, isNull } from "drizzle-orm";
 // (INVOICING_DB_TESTS=1 encore test services/invoicing/tests/db).
 
 import { db } from "../../db/db";
-import { truckingLinesRepository } from "../../repositories/truckingLines.repository";
+import { truckingLinesLock, truckingLinesRepository } from "../../repositories/truckingLines.repository";
 import { masterJobCostRepository } from "../../repositories/masterJobCost.repository";
-import { invoiceRepository } from "../../repositories/invoice.repository";
+import { invoiceRepository, lockInvoiceRow } from "../../repositories/invoice.repository";
 import { sellingCostRepository } from "../../repositories/sellingCost.repository";
+import { creditNoteRequestRepository } from "../../repositories/creditNoteRequest.repository";
+import { stillAskedOn } from "../../services/invoiceDocument.service";
+import type { CreditNoteRequestRecord } from "../../schemas/creditNoteRequest.schema";
 import { buildBillingQueue, countCreditsOwed } from "../../lib/billingQueue";
 import { remainingLines, settleTruckingCredit, type CreditLineCalc } from "../../lib/partialCredit";
 import type { SellingLineWrite } from "../../repositories/sellingCost.repository";
@@ -551,6 +554,110 @@ describe("a partial credit note asked before Trucking changed the price (mock te
     // −20 → +5 in place: today's value is above nothing, but it was owed when the request was asked.
     expect(await sellingCostRepository.writeUnlessInvoiced(discount.id, companyId, shipmentId, { data: { amount: "5.00" } })).toMatchObject({ amount: "5.00" });
     expect(await truckingLinesRepository.creditsOwedChangedSince(db, companyId, shipmentId, asked)).toBe(true);
+  });
+});
+
+describe("a partial credit note request keeps what was owed when it was asked (review of system-22)", () => {
+  /**
+   * A request asked as creditNoteRequestService.ask asks it (requests.create): its time is the database's - its
+   * transaction's start - and what is owed on `creditedRows`, read under the invoice's and the shipment's locks, is kept.
+   */
+  const askOf = async (invoice: { id: string; companyId: string; shipmentId: string; number: string; currency: string; gross: string }, creditedRows: string[]) => {
+    const request = await creditNoteRequestRepository.create(
+      {
+        companyId: invoice.companyId, shipmentId: invoice.shipmentId, invoiceId: invoice.id, invoiceNumber: invoice.number, currency: invoice.currency, lines: [],
+        net: "20.00", vat: "0.00", gross: "20.00", invoiceGross: invoice.gross, reason: "Agreed discount", requestedById: randomUUID(),
+      },
+      { creditedRows },
+    );
+    expect(request?.owedWhenAsked).toBeTruthy();
+    // What is written after the ask is dated after it by the app's clock as well.
+    await new Promise((r) => setTimeout(r, 20));
+    return request!;
+  };
+  /** What the approval sees under its locks, as issuePartialCredit's beforeInsert reads it: whether the request is still asked on what is owed. */
+  const approvalSees = (request: CreditNoteRequestRecord, creditedRows: string[]) =>
+    db.transaction(async (tx) => {
+      await lockInvoiceRow(tx, request.companyId, request.invoiceId);
+      await truckingLinesLock(tx, request.shipmentId);
+      const now = await truckingLinesRepository.openCreditDiffs(tx, request.companyId, request.shipmentId, creditedRows);
+      return stillAskedOn(tx, request, request.shipmentId, now);
+    });
+
+  it("keeps the approval when a line was only moved in the list since the ask (a Duplicate or an Undo renumbers every row below), though the clock would refuse it", async () => {
+    const { companyId, shipmentId } = job();
+    const freight = await sellingRow(companyId, shipmentId, { description: "Ocean freight", sortOrder: 1 });
+    const invoice = await invoiceOf(companyId, shipmentId, [freight]);
+    const discount = await sellingRow(companyId, shipmentId, { description: "Discount", amount: "-20.00", sortOrder: 2 });
+    const handling = await sellingRow(companyId, shipmentId, { description: "Handling", amount: "80.00", sortOrder: 3 });
+    const request = await askOf(invoice, [freight.id]);
+    expect(request.owedWhenAsked!.credits).toEqual([[freight.id, [{ id: discount.id, ref: null, currency: "CZK", amount: -20 }]]]);
+
+    // A Duplicate of the freight: every row below it moves down one - a sort order only (updateSellingCost's
+    // onlyReorders), the one write the invoiced line takes as well.
+    for (const [row, sortOrder] of [[freight, 1], [discount, 3], [handling, 4]] as const) {
+      expect(await sellingCostRepository.updateLine(row.id, companyId, shipmentId, { sortOrder })).toMatchObject({ sortOrder });
+    }
+    // The handling's text changed by hand: nothing owed either.
+    expect(await sellingCostRepository.writeUnlessInvoiced(handling.id, companyId, shipmentId, { data: { description: "Handling at the terminal" } })).toMatchObject({ amount: "80.00" });
+    expect(await truckingLinesRepository.creditsOwedChangedSince(db, companyId, shipmentId, request.requestedAt)).toBe(true);
+    expect(await approvalSees(request, [freight.id])).toBe(true);
+  });
+
+  it("refuses the approval once Trucking pushed a price after the ask, even one whose row is dated before it - the push began first and waited on the lock", async () => {
+    const { companyId, shipmentId, ref } = job();
+    const billed = await sellingRow(companyId, shipmentId, { sourceTruckingRef: ref });
+    const invoice = await invoiceOf(companyId, shipmentId, [billed]);
+    await truckingLinesRepository.replace(companyId, shipmentId, ref, [], push("980.00"));
+    const request = await askOf(invoice, [billed.id]);
+    expect(request.owedWhenAsked!.credits.map(([row, owed]) => [row, owed.map((d) => d.amount)])).toEqual([[billed.id, [-20]]]);
+    expect(await approvalSees(request, [billed.id])).toBe(true);
+
+    // 980 → 990, committed after the ask: the −20 goes, a −10 comes.
+    await truckingLinesRepository.replace(companyId, shipmentId, ref, [], push("990.00"));
+    expect(await approvalSees(request, [billed.id])).toBe(false);
+    // Dated as of its transaction's start, before the ask's: the clock misses it, what is owed does not.
+    const before = new Date(request.requestedAt.getTime() - 1000);
+    await db.update(s).set({ createdAt: before, updatedAt: before }).where(and(eq(s.shipmentId, shipmentId), eq(s.sourceTruckingRef, `${ref}:diff:2`)));
+    await db.update(s).set({ updatedAt: before }).where(and(eq(s.shipmentId, shipmentId), eq(s.sourceTruckingRef, `${ref}:diff:1`)));
+    expect((await truckingLinesRepository.openCreditDiffs(db, companyId, shipmentId, [billed.id])).get(billed.id)!.map((d) => d.amount)).toEqual([-10]);
+    expect(await truckingLinesRepository.creditsOwedChangedSince(db, companyId, shipmentId, request.requestedAt)).toBe(false);
+    expect(await approvalSees(request, [billed.id])).toBe(false);
+  });
+
+  it("keeps the approval when a credited invoice's PDF is stored after the ask (its first download), though the clock would refuse it; an invoice issued since refuses it", async () => {
+    const { companyId, shipmentId } = job();
+    const freight = await sellingRow(companyId, shipmentId, { description: "Ocean freight", amount: "1000.00" });
+    const invoice = await invoiceOf(companyId, shipmentId, [freight]);
+    const handling = await sellingRow(companyId, shipmentId, { description: "Handling", amount: "100.00" });
+    const credited = await invoiceOf(companyId, shipmentId, [handling], "credited");
+    const request = await askOf(invoice, [freight.id]);
+    expect([...request.owedWhenAsked!.documents].sort((a, b) => a.id.localeCompare(b.id))).toEqual(
+      [{ id: invoice.id, status: "issued" }, { id: credited.id, status: "credited" }].sort((a, b) => a.id.localeCompare(b.id)),
+    );
+
+    expect(await invoiceRepository.setPdfIfMissing(credited.id, companyId, `pdf/${credited.id}`, "sha")).toBe(true);
+    expect(await invoiceRepository.documentsChangedSince(db, companyId, shipmentId, request.requestedAt)).toBe(true);
+    expect(await approvalSees(request, [freight.id])).toBe(true);
+
+    // Another invoice of the job issued since - it may have taken a credit owed off: refused, though it wrote no row.
+    const storage = await sellingRow(companyId, shipmentId, { description: "Storage", amount: "50.00" });
+    await invoiceOf(companyId, shipmentId, [storage]);
+    expect(await approvalSees(request, [freight.id])).toBe(false);
+  });
+
+  it("refuses the approval once another invoice of the job was credited after the ask: its rows below nothing are owed again", async () => {
+    const { companyId, shipmentId } = job();
+    const freight = await sellingRow(companyId, shipmentId, { description: "Ocean freight", amount: "1000.00" });
+    const invoice = await invoiceOf(companyId, shipmentId, [freight]);
+    const handling = await sellingRow(companyId, shipmentId, { description: "Handling", amount: "100.00" });
+    const discount = await sellingRow(companyId, shipmentId, { description: "Discount", amount: "-20.00" });
+    const second = await invoiceOf(companyId, shipmentId, [handling, discount]);
+    const request = await askOf(invoice, [freight.id]);
+    expect(request.owedWhenAsked!.credits).toEqual([]);
+    expect(await approvalSees(request, [freight.id])).toBe(true);
+    await db.transaction(async (tx) => expect(await invoiceRepository.markCredited(tx, second.id, companyId)).toBe(true));
+    expect(await approvalSees(request, [freight.id])).toBe(false);
   });
 });
 

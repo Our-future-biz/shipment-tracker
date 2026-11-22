@@ -1,6 +1,8 @@
 import { and, desc, eq, gte, inArray, isNotNull, isNull, ne, or } from "drizzle-orm";
 import { db } from "../db/db";
-import { lockInvoiceRow } from "./invoice.repository";
+import { invoiceRepository, lockInvoiceRow } from "./invoice.repository";
+import { truckingLinesLock, truckingLinesRepository } from "./truckingLines.repository";
+import { owedWhenAsked } from "../lib/partialCredit";
 import { creditNoteRequestTable as t, type CreditNoteRequestRecord, type NewCreditNoteRequestRecord } from "../schemas/creditNoteRequest.schema";
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
@@ -16,13 +18,27 @@ class CreditNoteRequestRepository {
   /**
    * A new request; null when one already waits for this invoice. Under the invoice's row lock (mock council S5-4 /
    * X-3), with `guard` - the check that no change of it waits - run again there, so a change asked at the same
-   * moment is seen: only one of the two gets in.
+   * moment is seen: only one of the two gets in. Then under the shipment's trucking-lines lock too, taken after the
+   * invoice's as an approval takes them, what is owed on the job is kept with it (owedWhenAsked, review of
+   * system-22): the credits owed of `creditedRows` - the rows the lines asked credit - and the job's documents. A
+   * Trucking push or an invoice issued that waited on the lock through the ask comes after it, and its approval is
+   * refused; one before it is in what was asked on.
    */
-  async create(values: NewCreditNoteRequestRecord, guard?: (tx: Tx) => Promise<void>): Promise<CreditNoteRequestRecord | null> {
+  async create(
+    values: Omit<NewCreditNoteRequestRecord, "owedWhenAsked">,
+    ask: { creditedRows: readonly string[]; guard?: (tx: Tx) => Promise<void> },
+  ): Promise<CreditNoteRequestRecord | null> {
     return db.transaction(async (tx) => {
       await lockInvoiceRow(tx, values.companyId, values.invoiceId);
-      await guard?.(tx);
-      const [row] = await tx.insert(t).values(values).onConflictDoNothing().returning();
+      await ask.guard?.(tx);
+      await truckingLinesLock(tx, values.shipmentId);
+      const credits = await truckingLinesRepository.openCreditDiffs(tx, values.companyId, values.shipmentId, [...ask.creditedRows]);
+      const documents = await invoiceRepository.documentStatesOf(tx, values.companyId, values.shipmentId);
+      const [row] = await tx
+        .insert(t)
+        .values({ ...values, owedWhenAsked: owedWhenAsked(credits, documents) })
+        .onConflictDoNothing()
+        .returning();
       return row ?? null;
     });
   }

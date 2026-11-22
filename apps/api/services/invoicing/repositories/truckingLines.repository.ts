@@ -403,7 +403,7 @@ class TruckingLinesRepository {
     const s = invoiceSellingCostTable;
     const below = (
       await reader
-        .select({ id: s.id, ref: s.sourceTruckingRef, qty: s.qty, amount: s.amount, currency: s.currency, updatedAt: s.updatedAt })
+        .select({ id: s.id, ref: s.sourceTruckingRef, qty: s.qty, amount: s.amount, currency: s.currency })
         .from(s)
         .where(and(eq(s.companyId, companyId), eq(s.shipmentId, shipmentId), isNull(s.deletedAt), isNull(s.sourceMasterJobRef), isNull(s.sourceCreditNoteId)))
         .orderBy(asc(s.sortOrder), asc(s.createdAt))
@@ -431,7 +431,7 @@ class TruckingLinesRepository {
       sources.map((r) => ({ ...r, quoteRoad: r.quoteRoad === true })),
       consignmentRows,
     );
-    const owed = (d: (typeof open)[number]): OpenCreditDiff => ({ id: d.id, ref: d.ref, currency: d.currency, amount: valueOf(d), version: d.updatedAt.getTime() });
+    const owed = (d: (typeof open)[number]): OpenCreditDiff => ({ id: d.id, ref: d.ref, currency: d.currency, amount: valueOf(d) });
     for (const rowId of ids) {
       const set = setOf.get(rowId);
       const ofSet = set ? open.filter((d) => isDifferenceOf(d.ref, set)) : [];
@@ -451,6 +451,9 @@ class TruckingLinesRepository {
    * whether a row is owed - one billed on an invoice or settled by a credit note since, or owed again once its
    * invoice was credited or cancelled - writes no row (invoiceRepository.documentsChangedSince reads that). A row
    * on a credit note, or kept by a master job's split, is no credit owed.
+   * Read only for a request asked before what it was asked on was kept with it (credit_note_request.owed_when_asked,
+   * review of system-22): a clock refuses a line only moved in the list, and misses a push that waited on the lock
+   * through the ask - the request's time is its transaction's start, the push's row's too.
    */
   async creditsOwedChangedSince(reader: Reader, companyId: string, shipmentId: string, since: Date): Promise<boolean> {
     const s = invoiceSellingCostTable;

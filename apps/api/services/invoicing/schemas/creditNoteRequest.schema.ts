@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import { pgTable, text, numeric, uuid, timestamp, boolean, index, uniqueIndex, check, jsonb } from "drizzle-orm/pg-core";
 import { defaultTableColumns, defaultTableIndexes, tenantColumns, tenantIndex } from "../../../lib/db/defaults";
 import { invoiceTable } from "./invoice.schema";
+import type { OwedWhenAsked } from "../lib/partialCredit";
 
 export type CreditNoteRequestStatus = "pending" | "approved" | "rejected" | "withdrawn";
 
@@ -58,6 +59,9 @@ export const creditNoteRequestTable = pgTable(
     // The credit note the approval issued.
     creditNoteId: uuid("credit_note_id"),
     creditNoteNumber: text("credit_note_number").notNull().default(""),
+    // What was owed on the job when it was asked (lib/partialCredit owedWhenAsked): the approval is refused when what
+    // is owed now is not it (review of system-22). Null for a request asked before it was kept: told by the clock then.
+    owedWhenAsked: jsonb("owed_when_asked").$type<OwedWhenAsked>(),
   },
   (table) => [
     ...defaultTableIndexes("credit_note_request", table),
