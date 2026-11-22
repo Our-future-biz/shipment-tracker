@@ -5,6 +5,8 @@ import { rowKey } from "@/app/shipments/_lib/rowKey";
 import { Input, Button, AutoComplete, Select, Checkbox, Tooltip } from "antd";
 import { CargoDimensionAdrFields } from "./CargoDimensionAdrFields";
 import { CheckPill, CHECK_PILL_CLASS, type CheckAgainst } from "@/app/shipments/_components/CargoCheck";
+import { useWarehouseSection } from "@/hooks/useWarehouseSection";
+import { HOUSE_BL_KEY, houseBlDeclaredFigures, readHouseBlFigures } from "./warehouse/houseBlFigures";
 import { ContainerTabs } from "@/app/shipments/_components/ContainerTabs";
 import { PlusOutlined } from "@ant-design/icons";
 import { RowActionsMenu } from "@/app/shipments/_components/RowActionsMenu";
@@ -519,6 +521,16 @@ export function CargoDetailsTab({
   // 22 Nov): the Booked Dimensions tile holds all the shipment's Dimensions lines against it. The Dimensions
   // and Description tables are checked as before.
   const bookedDeclared = useMemo<DeclaredFigures | null>(() => bookedDeclaredFigures(shipment.bookedDimensions), [shipment.bookedDimensions]);
+  // A consolidation (owner's answer 22 Nov): its Dimensions - all its lines - are checked against its House B/L's
+  // figures, the Warehouse tab's Bill Of Lading Details; its container is the master's box, whose figures are
+  // the whole box's. Nothing declared ("/ —") until a B/L was read. Its Description likewise.
+  const consolidation = shipment.loadType === "Consolidation";
+  const { data: warehouseJob } = useWarehouseSection(consolidation ? shipment.id : "", "job");
+  const houseBlText = (warehouseJob as Record<string, unknown> | null)?.[HOUSE_BL_KEY];
+  const houseBlDeclared = useMemo(
+    () => (consolidation ? houseBlDeclaredFigures(readHouseBlFigures(typeof houseBlText === "string" ? houseBlText : undefined)) : null),
+    [consolidation, houseBlText],
+  );
 
   // Everything one tab shows: its lines, their totals and how they compare with what the
   // container declares (dimensions always; descriptions once there are any).
@@ -532,10 +544,15 @@ export function CargoDetailsTab({
     const panelDims = dims.map((l, idx) => ({ l, idx })).filter(({ l }) => lineKey(l.containerId) === key);
     const filledDims = panelDims.filter(({ l }) => !dimIsEmpty(l)).length;
     const filledItems = panelItems.filter(({ l }) => !itemIsEmpty(l)).length;
-    const check = checkConsistency(declared, panelDims.map(({ l }) => lineInCm(l)));
-    const descPcs = panelItems.reduce((s, { l }) => s + num(l.pieces), 0);
-    const descKg = panelItems.reduce((s, { l }) => s + num(l.grossWeight), 0);
-    const descCheck = { pcs: compareFigure(descPcs, num(declared.packages), 0), kg: compareFigure(descKg, num(declared.grossWeight), declared.kgDecimals ?? 2) };
+    const check = houseBlDeclared
+      ? checkConsistency(houseBlDeclared, dims.filter((l) => !dimIsEmpty(l)).map(lineInCm))
+      : checkConsistency(declared, panelDims.map(({ l }) => lineInCm(l)));
+    // A consolidation's Description - all its lines - against its House B/L too, as its Dimensions.
+    const descLines = houseBlDeclared ? items : panelItems.map(({ l }) => l);
+    const descDeclared = houseBlDeclared ?? declared;
+    const descPcs = descLines.reduce((s, l) => s + num(l.pieces), 0);
+    const descKg = descLines.reduce((s, l) => s + num(l.grossWeight), 0);
+    const descCheck = { pcs: compareFigure(descPcs, num(descDeclared.packages), 0), kg: compareFigure(descKg, num(descDeclared.grossWeight), descDeclared.kgDecimals ?? 2) };
     const hasDesc = filledItems > 0;
     const hasLines = filledDims > 0 || hasDesc;
     const matched = check.matched && (!hasDesc || (descCheck.pcs.ok && descCheck.kg.ok));
@@ -549,6 +566,8 @@ export function CargoDetailsTab({
   const { check, descCheck } = active;
   // whose figures the pills hold: the tab's container, the container-less shipment's own, or none
   const against: CheckAgainst = active.container ? "Container" : shipmentDeclared ? "Shipment" : "No container";
+  // Under Dimensions and Description alike.
+  const dimsAgainst: CheckAgainst = houseBlDeclared ? "Bill Of Lading" : against;
   // Read-only, the empty line each table keeps to type into is not shown.
   const panelItems = readOnly ? active.panelItems.filter(({ l }) => !itemIsEmpty(l)) : active.panelItems;
   const panelDims = readOnly ? active.panelDims.filter(({ l }) => !dimIsEmpty(l)) : active.panelDims;
@@ -899,9 +918,9 @@ export function CargoDetailsTab({
             {/* The sums of the lines against what is declared, under every table. */}
             {checkStrip(
                 <>
-                  <CheckPill against={against} label="Colli" m={check.pcs} decimals={0} />
-                  <CheckPill against={against} label="Weight" m={check.kg} decimals={check.kg.decimals} unit="kg" />
-                  <CheckPill against={against} label="Volume" m={check.m3} decimals={3} unit="m³" />
+                  <CheckPill against={dimsAgainst} label="Colli" m={check.pcs} decimals={0} />
+                  <CheckPill against={dimsAgainst} label="Weight" m={check.kg} decimals={check.kg.decimals} unit="kg" />
+                  <CheckPill against={dimsAgainst} label="Volume" m={check.m3} decimals={3} unit="m³" />
                 </>,
               )}
             {airWithBoxes && (
@@ -1014,8 +1033,8 @@ export function CargoDetailsTab({
             {/* The tab's dot counts these once the container has description lines. */}
             {checkStrip(
                 <>
-                  <CheckPill against={against} label="Colli" m={descCheck.pcs} decimals={0} />
-                  <CheckPill against={against} label="Weight" m={descCheck.kg} decimals={descCheck.kg.decimals} unit="kg" />
+                  <CheckPill against={dimsAgainst} label="Colli" m={descCheck.pcs} decimals={0} />
+                  <CheckPill against={dimsAgainst} label="Weight" m={descCheck.kg} decimals={descCheck.kg.decimals} unit="kg" />
                   {/* The lines' invoice value total, which nothing declares: a plain pill. Named apart
                       from the job's Invoice Value, the commercial invoices' total (user council c4). */}
                   {descCiv && (

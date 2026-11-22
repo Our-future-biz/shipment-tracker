@@ -1,3 +1,4 @@
+import type { DeclaredFigures } from "@/lib/cargo";
 import type { CargoFigures } from "./RemeasureCompare";
 
 // The Colli, weight and volume of the shipment's own House B/L, as Document Reading read it (owner's answer
@@ -32,4 +33,14 @@ export function readHouseBlFigures(json: string | undefined): HouseBlFigures | n
   } catch {
     return null;
   }
+}
+
+/**
+ * The House B/L's figures as what a consolidation's Dimensions are checked against (owner's answer 22 Nov):
+ * its container is the master's box, whose figures are the whole box, not this house. Nothing declared
+ * while no B/L was read ("/ —"). The weight to 0.1 kg, as kept.
+ */
+export function houseBlDeclaredFigures(f: CargoFigures | null): DeclaredFigures {
+  const text = (n: number | undefined) => (n && n > 0 ? String(n) : "");
+  return { packages: text(f?.colli), grossWeight: text(f?.weightKg), volume: text(f?.volumeCbm), kgDecimals: 1 } as DeclaredFigures;
 }

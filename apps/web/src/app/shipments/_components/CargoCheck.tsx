@@ -9,7 +9,8 @@ import { FIGURE_TOLERANCE, fmtFixed, type FigureCheck } from "@/lib/cargo";
 export const CHECK_PILL_CLASS = "inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs ring-1 ring-inset tabular-nums whitespace-nowrap cursor-default";
 
 // "Booked": the shipment's Booked Dimensions, the lines of the quote it was made from (owner's answer 22 Nov).
-export type CheckAgainst = "Container" | "Shipment" | "Booked" | "No container";
+// "Bill Of Lading": a consolidation's House B/L figures, the Warehouse tab's Bill Of Lading Details (owner's answer 22 Nov).
+export type CheckAgainst = "Container" | "Shipment" | "Booked" | "Bill Of Lading" | "No container";
 
 interface CheckPillProps {
   label: string;
