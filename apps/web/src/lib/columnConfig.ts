@@ -31,6 +31,11 @@ export interface ColumnDef {
 
 // ─── Dropdown Options ─────────────────────────────────────────────────
 
+/** What a Service Name stands for: shown under it where it is picked. */
+export const SERVICE_NAME_HINTS: Record<string, string> = {
+  ISHA: "Import consolidation box from CFS Shanghai, CN",
+};
+
 export const DROPDOWN_OPTIONS: Record<string, string[]> = {
   "Department": ["Operation Department", "Custom Department", "Administration Department", "Road Department"],
   "Customs Status": [
@@ -74,6 +79,9 @@ export const DROPDOWN_OPTIONS: Record<string, string[]> = {
   "Insurance": ["Yes", "Pending", "No"],
   "Credit Check": ["Green", "Yellow", "Red"],
   "Freight Payable At": ["Origin", "Destination"],
+  // A shipment's (and its master job's) service, picked from a fixed list (owner's answer 22 Nov). "Domestic" is
+  // what Trucking's road jobs are made with (roadJob.service); what each one means is SERVICE_NAME_HINTS.
+  "Service Name": ["ISHA", "Domestic"],
   "Validity Status": ["Ok", "Check"],
   "Switch BoL": ["YES", "NO"],
   "House BoL Type": ["OBL", "SWB", "Telex", "OHBL ok", "Direct MBL"],
@@ -212,7 +220,7 @@ export const COLUMNS: ColumnDef[] = [
   { key: "containerNumber", title: "Container Number", width: 150, type: "text", readonly: true, apiField: "containerNumber" },
   { key: "sealNumber", title: "Seal Number", width: 140, type: "text", readonly: true, apiField: "sealNumber" },
   { key: "typeOfPackages", title: "Type Of Packages", width: 150, type: "text", readonly: true, apiField: "typeOfPackages" },
-  { key: "serviceName", title: "Service Name", width: 150, type: "text", apiField: "serviceName" },
+  { key: "serviceName", title: "Service Name", width: 150, type: "dropdown", options: DROPDOWN_OPTIONS["Service Name"], apiField: "serviceName" },
   { key: "invoicingStatus", title: "Invoicing Status", width: 140, type: "dropdown", options: DROPDOWN_OPTIONS["Invoicing Status"], apiField: "invoicingStatus" },
   { key: "personalReference", title: "Personal Reference", width: 150, type: "text", apiField: "personalReference" },
   { key: "bookingNumber", title: "Booking Number", width: 140, type: "text", apiField: "bookingNumber" },

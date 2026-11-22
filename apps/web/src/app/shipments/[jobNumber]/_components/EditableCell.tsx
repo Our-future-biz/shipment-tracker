@@ -9,7 +9,7 @@ import { LockedBox } from "@/components/LockedBox";
 import type { InputRef } from "antd";
 import dayjs from "dayjs";
 import { DEPARTMENT_FIELDS } from "@/lib/shipmentEditRule";
-import { COLUMN_MAP, INCOTERM_FIELDS, geoKindOf, getFilteredStatusOptions, incotermOptionsFor, splitDateTime } from "@/lib/columnConfig";
+import { COLUMN_MAP, INCOTERM_FIELDS, SERVICE_NAME_HINTS, geoKindOf, getFilteredStatusOptions, incotermOptionsFor, splitDateTime } from "@/lib/columnConfig";
 import { GeoFlag, GeoSelect } from "@/components/GeoSelect";
 import { FadeText } from "@/components/FadeText";
 import { UserPicker } from "@/components/UserPicker";
@@ -547,18 +547,21 @@ function EditableCellBody({
           popupMatchSelectWidth={fieldKey === "status" ? STATUS_POPUP_WIDTH : true}
           defaultValue={original || undefined}
           options={options.map((o) => ({ value: o, label: optionLabel(o) }))}
-          // The "Billing" status says what it does (O11 / Q9): one line under its name in the list.
+          // The "Billing" status and each Service Name say what they are: one line under the name in the list.
           optionRender={
-            fieldKey === "status"
-              ? (o) =>
-                  isBillingStatus(String(o.value)) ? (
+            fieldKey === "status" || fieldKey === "serviceName"
+              ? (o) => {
+                  const hint =
+                    fieldKey === "serviceName" ? SERVICE_NAME_HINTS[String(o.value)] : isBillingStatus(String(o.value)) ? BILLING_HINT : "";
+                  return hint ? (
                     <span className="flex flex-col leading-tight py-0.5">
                       <span>{o.label}</span>
-                      <span className="text-[11px] text-slate-500 whitespace-normal">{BILLING_HINT}</span>
+                      <span className="text-[11px] text-slate-500 whitespace-normal">{hint}</span>
                     </span>
                   ) : (
                     o.label
-                  )
+                  );
+                }
               : undefined
           }
           onChange={(v) => commit(v)}
