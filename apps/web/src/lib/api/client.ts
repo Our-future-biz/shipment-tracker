@@ -3354,6 +3354,7 @@ export namespace shipments {
             this.searchContainers = this.searchContainers.bind(this)
             this.searchMasterJobs = this.searchMasterJobs.bind(this)
             this.searchShipments = this.searchShipments.bind(this)
+            this.shipmentByHouseBol = this.shipmentByHouseBol.bind(this)
             this.shipmentCreate = this.shipmentCreate.bind(this)
             this.shipmentDashboard = this.shipmentDashboard.bind(this)
             this.shipmentDelete = this.shipmentDelete.bind(this)
@@ -4231,6 +4232,21 @@ export namespace shipments {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("GET", `/search/shipments`, undefined, {query})
             return await resp.json() as interfaces.SearchShipmentsResponse
+        }
+
+        /**
+         * Documents → Shipments, "Create new shipment": before a reading creates a job, the shipment that has its
+         * House B/L already, shown to the user to write the reading into it or to create a new job anyway.
+         */
+        public async shipmentByHouseBol(params: controllers.ShipmentByHouseBolRequest): Promise<controllers.ShipmentByHouseBolResponse> {
+            // Convert our params into the objects we need for the request
+            const query = makeRecord<string, string | string[]>({
+                houseBol: params.houseBol,
+            })
+
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/shipments/by-house-bol`, undefined, {query})
+            return await resp.json() as controllers.ShipmentByHouseBolResponse
         }
 
         public async shipmentCreate(params: controllers.ShipmentCreateRequest): Promise<controllers.ShipmentCreateResponse> {
@@ -11951,6 +11967,20 @@ export namespace controllers {
          * Where a customer's answer goes; "" = the sender's own address
          */
         replyTo: string
+    }
+
+    export interface ShipmentByHouseBolRequest {
+        /**
+         * The House B/L number as a document reading has it (compared by letters and digits, any case).
+         */
+        houseBol: string
+    }
+
+    export interface ShipmentByHouseBolResponse {
+        /**
+         * The company's live shipment that has this House B/L already (the oldest), or null.
+         */
+        shipment: interfaces.ShipmentItem | null
     }
 
     export interface ShipmentCreateRequest {

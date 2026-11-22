@@ -1,7 +1,8 @@
 import { billOfLadingKey } from "../../../lib/billOfLading";
 import { masterJobRepository } from "../repositories/masterJob.repository";
 import { shipmentRepository } from "../repositories/shipment.repository";
-import type { ReadingMatches } from "../interfaces/interfaces";
+import { shipmentService } from "./shipment.service";
+import type { ReadingMatches, ShipmentItem } from "../interfaces/interfaces";
 
 class ReadingMatchService {
   /**
@@ -20,6 +21,17 @@ class ReadingMatchService {
       return s ? [{ houseBol, shipmentId: s.id, jobNumber: s.jobNumber }] : [];
     });
     return { shipments, masterJob };
+  }
+
+  /**
+   * The company's live shipment that has this House B/L already (the oldest, by billOfLadingKey), whole, or
+   * null. Documents asks it before a reading creates a new shipment: the user is shown that shipment and
+   * writes the reading into it, or creates a new job anyway.
+   */
+  async shipmentOfHouseBol(companyId: string, houseBol: string): Promise<ShipmentItem | null> {
+    if (!billOfLadingKey(houseBol)) return null;
+    const [oldest] = await shipmentRepository.liveByHouseBols(companyId, [houseBol]);
+    return oldest ? shipmentService.getById(oldest.id, companyId) : null;
   }
 }
 

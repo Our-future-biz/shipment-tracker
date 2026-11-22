@@ -43,6 +43,8 @@ import { PreviewButton } from "@/components/PreviewButton";
 import { SectionCard } from "@/components/SectionCard";
 import { BTN, BTN_PRIMARY, CARD, CARD_BAR, CARD_ICON, CARD_TITLE, HINT, LABEL_TEXT, LINK, REF } from "@/styles/ui";
 import { FieldReviewTable } from "./FieldReviewTable";
+import { HouseBolMatchCard } from "./HouseBolMatchCard";
+import { HOUSE_BOL, asksHouseBol, besideShipment, houseBolOf } from "../_lib/houseBolMatch";
 import { QuoteOpenButton, QuoteReview, QuoteTarget } from "./QuoteReading";
 import {
   baseCreatePayload,
@@ -165,6 +167,25 @@ function existingShipmentValue(shipment: ShipmentItem, apiField: string): string
   return kg > 0 ? String(Number((kg / 1000).toFixed(4))) : "";
 }
 
+// What a shipment a Shipments read is written into holds for one of the read's fields (`values`: the read's
+// values by label): seals only where they differ from the containers' on file.
+function shipmentValueFor(target: ShipmentItem, label: string, values: Record<string, string>): string {
+  if (label === SEAL_LABEL) return sealsOnFileThatDiffer(target.containers ?? [], values["Container Number"], values[SEAL_LABEL] ?? "");
+  const apiField = SHIPMENT_FIELD_MAP[label];
+  return apiField ? existingShipmentValue(target, apiField) : "";
+}
+
+// The company's live shipment that has this House B/L already, or null. A lookup that fails is said and
+// answers null: the reading is not held up by it (the user still sees what is written).
+async function shipmentOfHouseBol(houseBol: string, warn: (message: string) => void): Promise<ShipmentItem | null> {
+  try {
+    return (await api.shipments.shipmentByHouseBol({ houseBol })).shipment;
+  } catch (err) {
+    warn(`Could not check whether House B/L ${houseBol} is on a shipment already: ${apiErrorMessage(err)}`);
+    return null;
+  }
+}
+
 // The customer a shipper or consignee read off a document is in the Customer Database: the one
 // whose company name it is exactly. Not asked for the name of the customer the party is linked to
 // already; a lookup that fails links nothing.
@@ -244,6 +265,11 @@ export function DocumentReadingWorkflow() {
   const [targetShipment, setTargetShipment] = useState<ShipmentItem | null>(null);
   // The shipment "Create new shipment" made: a retry after a failed write writes to it, not to another new one.
   const createdShipment = useRef<ShipmentProgress<ShipmentItem> | null>(null);
+  // "Create new shipment": the live shipment that has the House B/L read already. Shown until the user
+  // approves it (the read is written into it) or creates a new job anyway; nothing is written before.
+  const [houseBolMatch, setHouseBolMatch] = useState<ShipmentItem | null>(null);
+  // The House B/L the user chose "Create new job" for: not asked about again unless it is edited to another.
+  const [newJobForHouseBol, setNewJobForHouseBol] = useState("");
   const [committedJobNumber, setCommittedJobNumber] = useState("");
   // A file read into Shipments is also saved to the shipment's documents, named after its
   // document number. The user approves the name and type on Review; until they edit them
@@ -760,6 +786,8 @@ export function DocumentReadingWorkflow() {
     setSplitPreview(null);
     setSplitOverwrite(new Set());
     setSplitDone(null);
+    setHouseBolMatch(null);
+    setNewJobForHouseBol("");
     try {
       if (destination === "shipment") {
         // Each file is read on its own, then all of them are merged into one review. A file that can't
@@ -790,14 +818,11 @@ export function DocumentReadingWorkflow() {
         }
         const merged = mergeReads(reads.map((r) => ({ source: r.file?.name ?? "text", values: r.values })));
         const target = shipmentMode === "existing" ? (targetShipment ?? undefined) : undefined;
+        // A new job's House B/L may be on a shipment already: it is shown on the review to approve or not.
+        const houseBol = (merged.values[HOUSE_BOL] ?? "").trim();
+        if (shipmentMode === "new" && asksHouseBol(houseBol, "")) setHouseBolMatch(await shipmentOfHouseBol(houseBol, (m) => toast.warning(m)));
         setFields(
-          buildFields(merged.values, (label) => {
-            if (label === SEAL_LABEL) {
-              return target ? sealsOnFileThatDiffer(target.containers ?? [], merged.values["Container Number"], merged.values[SEAL_LABEL] ?? "") : "";
-            }
-            const apiField = SHIPMENT_FIELD_MAP[label];
-            return target && apiField ? existingShipmentValue(target, apiField) : "";
-          }).map((f) => {
+          buildFields(merged.values, (label) => (target ? shipmentValueFor(target, label, merged.values) : "")).map((f) => {
             const choices = merged.choices[f.column];
             // Where the files disagree, nothing is written until the user picks or ticks a value.
             return choices ? { ...f, choices, approved: false } : f;
@@ -934,6 +959,26 @@ export function DocumentReadingWorkflow() {
     }
   };
 
+  // ─── House B/L on a shipment already ("Create new shipment") ────
+  // Approved: the read is written into that shipment, as "Add to existing shipment", each field set beside
+  // the shipment's value (one that differs is unticked to be looked at).
+  const approveHouseBolMatch = () => {
+    const match = houseBolMatch;
+    if (!match) return;
+    const values = Object.fromEntries(fields.map((f) => [f.column, f.extractedValue]));
+    setShipmentMode("existing");
+    setTargetShipment(match);
+    createdShipment.current = null;
+    setFields((prev) => besideShipment(prev, (label) => shipmentValueFor(match, label, values)));
+    setHouseBolMatch(null);
+  };
+  // Not that shipment: a new job is created with the House B/L, and it is not asked about again.
+  const createNewJobAnyway = () => {
+    setNewJobForHouseBol(houseBolOf(fields));
+    setHouseBolMatch(null);
+  };
+  const houseBolMatchShown = destination === "shipment" && shipmentMode === "new" ? houseBolMatch : null;
+
   // ─── Commit: shipment ────────────────────────────────────────────
   const commitShipment = async () => {
     const approved = fieldsToLabelValues(fields);
@@ -969,6 +1014,16 @@ export function DocumentReadingWorkflow() {
         // The job number as the write left it: its letters follow a Load Type the read wrote.
         jobNumber = (await updateShipment({ id: targetShipmentId, data })).shipment.jobNumber;
       } else {
+        // Asked again as the review has it now (edited, or a shipment made since the read): a House B/L on a
+        // shipment is shown to approve or not, and no new job is created until the user answers.
+        const houseBol = houseBolOf(fields);
+        if (!createdShipment.current && asksHouseBol(houseBol, newJobForHouseBol)) {
+          const match = await shipmentOfHouseBol(houseBol, (m) => toast.warning(m));
+          if (match) {
+            setHouseBolMatch(match);
+            return toast.warning(`House B/L ${houseBol} is on ${match.jobNumber} already. Approve that shipment or create a new job.`);
+          }
+        }
         let written = "";
         const created = await createAndWrite(
           createdShipment,
@@ -1534,6 +1589,8 @@ export function DocumentReadingWorkflow() {
     setShipmentMode("existing");
     setTargetShipment(null);
     createdShipment.current = null;
+    setHouseBolMatch(null);
+    setNewJobForHouseBol("");
     setCommittedJobNumber("");
     quoteReading.reset();
     setCustomsShipment(null);
@@ -1925,6 +1982,15 @@ export function DocumentReadingWorkflow() {
           }
         >
           {error && <Alert className="mb-3" type="error" showIcon message={error} />}
+          {houseBolMatchShown && (
+            <HouseBolMatchCard
+              houseBol={houseBolOf(fields)}
+              shipment={houseBolMatchShown}
+              disabled={writing}
+              onApprove={approveHouseBolMatch}
+              onCreateNew={createNewJobAnyway}
+            />
+          )}
           {destination === "shipment" && shipmentReadFailures.length > 0 && (
             <Alert
               className="mb-3"
@@ -1989,7 +2055,7 @@ export function DocumentReadingWorkflow() {
             <Button disabled={writing} onClick={() => setStep("upload")}>Back</Button>
             <Button
               type="primary"
-              disabled={approvedCount === 0 || docNameMissing}
+              disabled={approvedCount === 0 || docNameMissing || !!houseBolMatchShown}
               onClick={destination === "customs" ? whileWriting(commitCustoms) : destination === "booking" ? handleCommitBooking : whileWriting(commitShipment)}
               loading={destination === "booking" ? bookingSaving : writing}
             >
