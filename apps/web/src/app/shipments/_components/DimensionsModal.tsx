@@ -482,7 +482,7 @@ export function DimensionsModal({
               {/* The chosen container's figures under the columns they sum. */}
               <tfoot>
                 <tr className="bg-slate-50 [&>td]:border-t-2 [&>td]:border-slate-200">
-                  {total(activeSum.pcs, 0, "PCS")}
+                  {total(activeSum.pcs, 0, "COLLI")}
                   <td />
                   <td />
                   <td />
@@ -502,7 +502,7 @@ export function DimensionsModal({
           <div className="mt-3 flex items-center justify-between gap-4 flex-wrap">
             {activeCheck ? (
               <div className="flex items-center gap-2 flex-wrap">
-                <CheckPill against={against} label="Pcs" m={activeCheck.pcs} decimals={0} />
+                <CheckPill against={against} label="Colli" m={activeCheck.pcs} decimals={0} />
                 <CheckPill against={against} label="Weight" m={activeCheck.kg} decimals={activeCheck.kg.decimals} unit="kg" />
                 <CheckPill against={against} label="Volume" m={activeCheck.m3} decimals={3} unit="m³" />
               </div>
@@ -511,7 +511,7 @@ export function DimensionsModal({
             )}
             {tabs.length > 1 && (
               <span className={`${HINT} tabular-nums whitespace-nowrap`}>
-                All containers <span className="font-semibold text-slate-900">{fmtFixed(totals.pcs, 0)} pcs</span> ·{" "}
+                All containers <span className="font-semibold text-slate-900">{fmtFixed(totals.pcs, 0)} colli</span> ·{" "}
                 <span className="font-semibold text-slate-900">{fmtFixed(totals.kg, 2)} kg</span> ·{" "}
                 <span className="font-semibold text-slate-900">{fmtFixed(totals.m3, 3)} m³</span>
               </span>

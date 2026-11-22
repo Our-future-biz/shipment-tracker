@@ -60,7 +60,7 @@ describe("cargoTotals", () => {
 
 describe("piecesText / weightText / volumeText", () => {
   it("formats each part and leaves out what is missing", () => {
-    expect(piecesText(10)).toBe("10 pcs");
+    expect(piecesText(10)).toBe("10 colli");
     expect(piecesText(0)).toBe("");
     expect(weightText(2644.4)).toBe("2644 kg");
     expect(weightText(18450)).toBe("18450 kg");
@@ -74,10 +74,10 @@ describe("piecesText / weightText / volumeText", () => {
 
 describe("cargoLine", () => {
   it("reads pieces, total weight and total cbm", () => {
-    expect(cargoLine(ship({ cargoDimensions: [dim("10", "60", "50", "115", "264.4", "Cartons")] }))).toBe("10 pcs, 2644 kg, 3.45 cbm");
+    expect(cargoLine(ship({ cargoDimensions: [dim("10", "60", "50", "115", "264.4", "Cartons")] }))).toBe("10 colli, 2644 kg, 3.45 cbm");
   });
   it("leaves out the parts without a value, and is empty with no cargo", () => {
-    expect(cargoLine(ship({ cargoItems: [item("6", "Pallet(s)", "4200")] }))).toBe("6 pcs, 4200 kg");
+    expect(cargoLine(ship({ cargoItems: [item("6", "Pallet(s)", "4200")] }))).toBe("6 colli, 4200 kg");
     expect(cargoLine(ship())).toBe("");
   });
 });

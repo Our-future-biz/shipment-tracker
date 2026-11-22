@@ -77,7 +77,7 @@ export const ConsignmentStatusCards = ({ c, trip, levelLabel, approveMargin, onA
       </SectionCard>
       <SectionCard title={`Load · ${ltl ? TERMS.ltl : TERMS.ftl}`} dense bodyClassName={BODY}>
         <div className="flex flex-col gap-0.5">
-          <Line k="Pieces" v={formatQty(l.pieces)} />
+          <Line k="Colli" v={formatQty(l.pieces)} />
           <Line k={TERMS.palletPlaces} v={formatQty(l.palletPlaces)} />
           <Line k={TERMS.ldm} v={formatQty(l.ldm)} />
           <Line k="Weight" v={`${formatQty(l.weightKg)} kg${c.chargeableKg != null ? ` · chargeable ${formatQty(c.chargeableKg)} kg` : ""}`} />

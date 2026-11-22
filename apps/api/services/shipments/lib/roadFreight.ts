@@ -91,9 +91,9 @@ function typedVolumePerPiece(value: string | null | undefined, row: number, piec
   const volume = decimals ? `${whole}.${decimals}` : whole;
   if (Number(volume) > MAX_VOLUME_PER_PIECE_M3) {
     const each = Number(Number(volume).toPrecision(6));
-    const all = pieces > 1 ? `, ${Number((Number(volume) * pieces).toPrecision(6))} m³ for its ${pieces} pieces together` : "";
+    const all = pieces > 1 ? `, ${Number((Number(volume) * pieces).toPrecision(6))} m³ for its ${pieces} colli together` : "";
     throw APIError.invalidArgument(
-      `Cargo line ${row}: volume per piece cannot be more than ${MAX_VOLUME_PER_PIECE_M3} m³ (${each} m³ for one piece${all}) — check the volume and the pieces`,
+      `Cargo line ${row}: volume per piece cannot be more than ${MAX_VOLUME_PER_PIECE_M3} m³ (${each} m³ for one piece${all}) — check the volume and the colli`,
     );
   }
   return volume;

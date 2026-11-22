@@ -102,7 +102,7 @@ export async function openExceptionInTx(tx: Tx, id: string, companyId: string, b
   const events: GateEvent[] = [
     {
       kind: "exceptionOpened",
-      label: `Exception: ${f.type} ${f.pieces} pc${f.pieces === 1 ? "" : "s"}${m.impRelease ? "" : " — cargo on hold"}`,
+      label: `Exception: ${f.type} ${f.pieces} colli${m.impRelease ? "" : " — cargo on hold"}`,
       at,
       by,
       ...(f.detail ? { detail: f.detail } : {}),
@@ -129,7 +129,7 @@ export async function resolveTallyExceptionsInTx(tx: Tx, id: string, companyId: 
   const events: GateEvent[] = [];
   for (const e of open) {
     const row = await gateExceptionRepository.resolve(tx, e.id, id, companyId, by, note);
-    if (row) events.push({ kind: "exceptionResolved", label: `Exception resolved: ${row.type} ${row.pieces} pc${row.pieces === 1 ? "" : "s"}`, at: new Date().toISOString(), by, detail: note });
+    if (row) events.push({ kind: "exceptionResolved", label: `Exception resolved: ${row.type} ${row.pieces} colli`, at: new Date().toISOString(), by, detail: note });
   }
   if (events.length) await syncLine(tx, id, companyId, !!m.impRelease, events, by);
   return events.length;
@@ -153,7 +153,7 @@ class GateExceptionService {
     const type = (input?.type ?? "").trim();
     if (!(EXCEPTION_TYPES as readonly string[]).includes(type)) throw APIError.invalidArgument(`Type must be one of: ${EXCEPTION_TYPES.join(", ")}`);
     const pieces = input.pieces;
-    if (!Number.isInteger(pieces) || pieces < 1 || pieces > MAX_PIECES) throw APIError.invalidArgument("Pieces must be a whole number of at least 1");
+    if (!Number.isInteger(pieces) || pieces < 1 || pieces > MAX_PIECES) throw APIError.invalidArgument("Colli must be a whole number of at least 1");
     const note = (input.note ?? "").trim();
     if (note.length > MAX_NOTE) throw APIError.invalidArgument(`The note is too long (at most ${MAX_NOTE} characters)`);
     const source = input.source === "survey" || input.source === "tally" ? input.source : "manual";
@@ -165,7 +165,7 @@ class GateExceptionService {
       return {
         movement: await gateMovementService.get(id, companyId),
         outcome: "already_recorded" as const,
-        notice: `Exception (${prev.type} ${prev.pieces} pc${prev.pieces === 1 ? "" : "s"}) was already sent from this phone (${pragueHhmm(prev.createdAt)})`,
+        notice: `Exception (${prev.type} ${prev.pieces} colli) was already sent from this phone (${pragueHhmm(prev.createdAt)})`,
       };
     };
     // A replay is answered before its time is checked (as stamps and surveys are): an exception
@@ -233,7 +233,7 @@ class GateExceptionService {
       }
       const event: GateEvent = {
         kind: "exceptionResolved",
-        label: `Exception resolved: ${row.type} ${row.pieces} pc${row.pieces === 1 ? "" : "s"}`,
+        label: `Exception resolved: ${row.type} ${row.pieces} colli`,
         at: new Date().toISOString(),
         by,
         detail: text,

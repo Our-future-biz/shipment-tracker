@@ -40,7 +40,7 @@ type View = "details" | "status" | "cargo";
 const VIEWS: readonly { key: View; label: string; title: string }[] = [
   { key: "details", label: "Details", title: "Customer, shipper, consignee, trade direction and container numbers" },
   { key: "status", label: "Status", title: "ATD, ATA, customs status, warehouse received, delivered and the last event" },
-  { key: "cargo", label: "Shipment Details", title: "Pieces, packages, weight, volume and cargo stackability" },
+  { key: "cargo", label: "Shipment Details", title: "Colli, packages, weight, volume and cargo stackability" },
 ];
 
 // A figure the API sends formatted ("1,234.5") as a number; 0 for none or for text that is no number.
@@ -157,7 +157,7 @@ export function MasterJobShipments({ masterJob, shipments, onLink, onUnlink }: M
                   </>
                 ) : cargo ? (
                   <>
-                    <ResizableTh sizing={sizing} k="pieces" className={`${RTH} w-[80px] !text-right`}>Pieces</ResizableTh>
+                    <ResizableTh sizing={sizing} k="pieces" className={`${RTH} w-[80px] !text-right`}>Colli</ResizableTh>
                     <ResizableTh sizing={sizing} k="packages" className={RTH}>Packages</ResizableTh>
                     <ResizableTh sizing={sizing} k="weightKg" className={`${RTH} w-[110px] !text-right`}>Weight (kg)</ResizableTh>
                     <ResizableTh sizing={sizing} k="volumeM3" className={`${RTH} w-[110px] !text-right`}>Volume (m³)</ResizableTh>

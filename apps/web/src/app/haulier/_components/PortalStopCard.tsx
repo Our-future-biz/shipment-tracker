@@ -60,7 +60,7 @@ export const PortalStopCard = ({ order, stop, index, busy, onDelivered, onUpload
 
       <div className="mt-2 grid grid-cols-2 gap-1 text-[14px] text-slate-900">
         <div>
-          <Bi text={{ cs: "Kusy", en: "Pieces" }} />: <b>{formatQty(load.pieces)}</b>
+          <Bi text={{ cs: "Kusy", en: "Colli" }} />: <b>{formatQty(load.pieces)}</b>
         </div>
         <div>
           <Bi text={{ cs: "Palet. místa", en: "Pallet places" }} />: <b>{formatQty(load.palletPlaces)}</b>

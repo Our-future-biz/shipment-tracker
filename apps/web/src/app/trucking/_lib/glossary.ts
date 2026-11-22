@@ -82,7 +82,7 @@ export const TERMS = {
 export const GLOSSARY: { term: string; meaning: string; replaces?: string }[] = [
   {
     term: TERMS.consignment,
-    meaning: "One lot of goods we carry for a customer from one pick-up address to one delivery address, with its pieces, weight, pallet places and service level. It may belong to a shipment.",
+    meaning: "One lot of goods we carry for a customer from one pick-up address to one delivery address, with its colli, weight, pallet places and service level. It may belong to a shipment.",
     replaces: "zásilka",
   },
   {
@@ -255,7 +255,7 @@ export const GLOSSARY: { term: string; meaning: string; replaces?: string }[] = 
   },
   {
     term: TERMS.manifest,
-    meaning: "The loading list of a trip: every consignment on it in stop order with pieces, pallet places, LDM, weight and ADR, against the truck's capacity. Printed for the driver and the warehouse.",
+    meaning: "The loading list of a trip: every consignment on it in stop order with colli, pallet places, LDM, weight and ADR, against the truck's capacity. Printed for the driver and the warehouse.",
     replaces: "nakládací list, manifest",
   },
   {

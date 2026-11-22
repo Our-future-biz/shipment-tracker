@@ -187,11 +187,11 @@ function surveyBody(c: Extract<EmailContent, { kind: "survey" }>, files: EmailFi
     out.push("Exceptions (damage / short / over):");
     for (const t of ["Damaged", "Short", "Over"]) {
       const l = byType(t);
-      if (l.length) out.push(`  ${t}: ${plural(sum(l), "piece")} (${l.filter((e) => e.status === "open").length} open, ${l.filter((e) => e.status !== "open").length} resolved)`);
+      if (l.length) out.push(`  ${t}: ${sum(l)} colli (${l.filter((e) => e.status === "open").length} open, ${l.filter((e) => e.status !== "open").length} resolved)`);
     }
     for (const e of c.exceptions) {
       out.push(
-        `  - ${e.type} ${plural(e.pieces, "piece")}${e.container ? ` · ${e.container}` : ""} · ${e.status === "open" ? "open" : "resolved"}` +
+        `  - ${e.type} ${e.pieces} colli${e.container ? ` · ${e.container}` : ""} · ${e.status === "open" ? "open" : "resolved"}` +
           `${e.note ? ` — ${e.note}` : ""}${e.status !== "open" && e.resolutionNote ? ` (resolved: ${e.resolutionNote})` : ""}`,
       );
     }
@@ -205,12 +205,12 @@ function surveyBody(c: Extract<EmailContent, { kind: "survey" }>, files: EmailFi
 const dims = (l: EmailRemeasureLine) => `${group(l.lengthCm, l.lengthCm % 1 ? 1 : 0)} × ${group(l.widthCm, l.widthCm % 1 ? 1 : 0)} × ${group(l.heightCm, l.heightCm % 1 ? 1 : 0)} cm`;
 
 function totalsLine(label: string, t: EmailTotals) {
-  return `${label}: ${plural(t.pieces, "piece")} · ${kg(t.kg)} · ${cbm(t.cbm)}`;
+  return `${label}: ${t.pieces} colli · ${kg(t.kg)} · ${cbm(t.cbm)}`;
 }
 
 function compareLine(label: string, base: EmailTotals, t: EmailTotals): string {
   const parts: string[] = [];
-  parts.push(base.pieces === t.pieces ? "pieces match" : `pieces ${t.pieces - base.pieces > 0 ? "+" : ""}${t.pieces - base.pieces}`);
+  parts.push(base.pieces === t.pieces ? "colli match" : `colli ${t.pieces - base.pieces > 0 ? "+" : ""}${t.pieces - base.pieces}`);
   const k = rel(base.kg, t.kg);
   const c = rel(base.cbm, t.cbm);
   parts.push(k == null ? "weight not comparable" : `weight ${pct(k)}${Math.abs(k) > TOLERANCE + 1e-9 ? " (more than 5 %)" : ""}`);

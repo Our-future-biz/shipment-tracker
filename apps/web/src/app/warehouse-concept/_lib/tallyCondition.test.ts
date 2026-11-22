@@ -12,8 +12,8 @@ describe("tally condition (Q20)", () => {
   it("asks about a count difference on a received tick and about a condition not Good", () => {
     expect(tallyQuestions("received", 6, 6, "Good")).toEqual([]);
     expect(tallyQuestions("received", 6, 6, "Damaged packaging")).toEqual(["Damaged packaging"]);
-    expect(tallyQuestions("received", 6, 5, "Wet")).toEqual(["Short 1 pc against the expected 6", "Wet"]);
-    expect(tallyQuestions("received", 6, 8, "Good")).toEqual(["Over 2 pcs against the expected 6"]);
+    expect(tallyQuestions("received", 6, 5, "Wet")).toEqual(["Short 1 colli against the expected 6", "Wet"]);
+    expect(tallyQuestions("received", 6, 8, "Good")).toEqual(["Over 2 colli against the expected 6"]);
     // A short opens its Short exception itself; its condition is still asked about.
     expect(tallyQuestions("short", 6, 4, "Damaged cargo")).toEqual(["Damaged cargo"]);
     // Nothing of a house not arrived was there to be damaged.
@@ -32,7 +32,7 @@ describe("lastReceipt", () => {
   const ev = (kind: string, detail = "") => ({ kind, at: "2026-11-20T09:00:00Z", by: "Jana", detail });
   it("is the last receipt not voided since", () => {
     expect(lastReceipt([])).toBeNull();
-    expect(lastReceipt([ev("positionReceived", "6 of 6 pcs counted"), ev("gateIn")])?.detail).toBe("6 of 6 pcs counted");
+    expect(lastReceipt([ev("positionReceived", "6 of 6 colli counted"), ev("gateIn")])?.detail).toBe("6 of 6 colli counted");
     expect(lastReceipt([ev("positionReceived"), ev("positionReceiptVoided")])).toBeNull();
   });
 });

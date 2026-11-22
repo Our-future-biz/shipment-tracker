@@ -158,7 +158,7 @@ export const QUOTE_COLUMNS: QuoteColumn[] = [
   { key: "created", title: "Created", width: 110, sortBy: "createdAt", firstSort: "descend", render: (q) => dayOf(q.createdAt) },
   { key: "direction", title: "Trade Direction", width: 130, render: (q) => q.data.direction || EMPTY_CELL },
   { key: "commodity", title: "Cargo Description", width: 180, render: (q) => q.data.commodity || EMPTY_CELL },
-  { key: "packages", title: "Pieces (PCS)", width: 110, render: (q) => (q.data.packages?.length ? computeCargo(q.data).totalPackages : EMPTY_CELL) },
+  { key: "packages", title: "Colli", width: 110, render: (q) => (q.data.packages?.length ? computeCargo(q.data).totalPackages : EMPTY_CELL) },
   // Weight and volume are the package lines added up, or - for a quote without lines - the totals
   // stored for the whole shipment. Pieces are counted from lines only.
   { key: "weight", title: "Total Gross Weight (kg)", width: 180, render: (q) => withUnit(computeCargo(q.data).grossWeight, "kg") },

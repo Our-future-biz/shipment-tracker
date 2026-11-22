@@ -234,7 +234,7 @@ describe("seal numbers read with containers", () => {
 
 describe("fieldName", () => {
   it("names the ports in full and keeps every other label as read", () => {
-    expect(["POL", "POD", "Vessel"].map(fieldName)).toEqual(["Port of Loading", "Port of Discharge", "Vessel"]);
+    expect(["POL", "POD", "PCS", "Vessel"].map(fieldName)).toEqual(["Port of Loading", "Port of Discharge", "COLLI", "Vessel"]);
   });
 });
 

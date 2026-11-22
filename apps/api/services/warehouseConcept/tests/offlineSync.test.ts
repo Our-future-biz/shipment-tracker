@@ -219,7 +219,7 @@ describe("exceptions and photos sent from the offline queue", () => {
 
     const replay = await gateExceptionService.createWithOutcome(id, c, user, exception);
     expect(replay.outcome).toBe("already_recorded");
-    expect(replay.notice).toMatch(/^Exception \(Damaged 2 pcs\) was already sent from this phone/);
+    expect(replay.notice).toMatch(/^Exception \(Damaged 2 colli\) was already sent from this phone/);
     // A replay whose answer was lost comes back after the 12 hours, or with a skewed clock: still "already recorded".
     for (const late of [ago(13 * 60 * MIN), ago(-10 * MIN)]) {
       expect((await gateExceptionService.createWithOutcome(id, c, user, { ...exception, recordedAt: late })).outcome).toBe("already_recorded");
@@ -232,7 +232,7 @@ describe("exceptions and photos sent from the offline queue", () => {
     expect(rows).toHaveLength(2);
     const m = await gateMovementService.get(id, c);
     expect(m.events.filter((e) => e.kind === "exceptionOpened")).toHaveLength(2);
-    expect(m.releaseGates.find((g) => g.g === EXCEPTION_GATE)).toMatchObject({ s: "Blocked", note: "2 open: Damaged 2 pcs, Damaged 2 pcs" });
+    expect(m.releaseGates.find((g) => g.g === EXCEPTION_GATE)).toMatchObject({ s: "Blocked", note: "2 open: Damaged 2 colli, Damaged 2 colli" });
   });
 
   it("returns the photo already stored for a replayed upload", async () => {

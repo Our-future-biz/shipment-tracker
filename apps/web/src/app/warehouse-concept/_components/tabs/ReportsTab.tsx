@@ -187,11 +187,11 @@ function Throughput({ report }: { report: Report }) {
   const bucketColumns: AppGridColumn<Bucket>[] = [
     { key: "label", title: per === "day" ? "Day" : "Week", width: 100, text: (r) => r.label, render: (_, r) => <span className="font-medium text-slate-900">{r.label}</span> },
     { key: "inPositions", title: "Positions in", width: 110, align: "right", text: (r) => String(r.inPositions), render: (_, r) => dim(r.inPositions) },
-    { key: "inPieces", title: "Pieces in", width: 100, align: "right", text: (r) => String(r.inPieces), render: (_, r) => dim(nf(r.inPieces)) },
+    { key: "inPieces", title: "Colli in", width: 100, align: "right", text: (r) => String(r.inPieces), render: (_, r) => dim(nf(r.inPieces)) },
     { key: "inKg", title: "kg in", width: 110, align: "right", text: (r) => String(r.inKg), render: (_, r) => dim(nf(r.inKg)) },
     { key: "inCbm", title: "cbm in", width: 100, align: "right", text: (r) => String(r.inCbm), render: (_, r) => dim(nf(r.inCbm, 1)) },
     { key: "outPositions", title: "Positions out", width: 120, align: "right", text: (r) => String(r.outPositions), render: (_, r) => dim(r.outPositions) },
-    { key: "outPieces", title: "Pieces out", width: 100, align: "right", text: (r) => String(r.outPieces), render: (_, r) => dim(nf(r.outPieces)) },
+    { key: "outPieces", title: "Colli out", width: 100, align: "right", text: (r) => String(r.outPieces), render: (_, r) => dim(nf(r.outPieces)) },
     { key: "outKg", title: "kg out", width: 110, align: "right", text: (r) => String(r.outKg), render: (_, r) => dim(nf(r.outKg)) },
     { key: "outCbm", title: "cbm out", width: 100, align: "right", text: (r) => String(r.outCbm), render: (_, r) => dim(nf(r.outCbm, 1)) },
   ];
@@ -234,7 +234,7 @@ function Throughput({ report }: { report: Report }) {
         <ThroughputChart buckets={report.throughput} measure={measure} />
         <p className={`m-0 mt-2 ${HINT}`}>
           <b className="text-slate-700">How it is measured:</b> in = positions received in the {per} (WH receipt / stripping tally tick); out = positions that left
-          (WH release / export container gate-out). Pieces, weight and volume are the gate figures of the position.
+          (WH release / export container gate-out). Colli, weight and volume are the gate figures of the position.
         </p>
       </Card>
       <Card title={`Per ${per}`} bodyClassName="p-4">
@@ -288,7 +288,7 @@ function Utilisation({ report }: { report: Report }) {
     { key: "avgCbm", title: `Avg ${TERMS.volumeCbm.toLowerCase()}`, width: 130, align: "right", text: (r) => String(r.avgCbm), render: (_, r) => dim(nf(r.avgCbm, 1)) },
     { key: "capacityCbm", title: "Capacity", width: 100, align: "right", text: (r) => String(r.capacityCbm), render: (_, r) => dim(r.capacityCbm) },
     { key: "fill", title: "Fill rate", width: 170, text: (r) => `${r.fill} %`, render: (_, r) => <FillMeter value={r.fill} /> },
-    { key: "avgPieces", title: "Avg pieces", width: 110, align: "right", text: (r) => String(r.avgPieces), render: (_, r) => dim(nf(r.avgPieces, 1)) },
+    { key: "avgPieces", title: "Avg colli", width: 110, align: "right", text: (r) => String(r.avgPieces), render: (_, r) => dim(nf(r.avgPieces, 1)) },
     { key: "verdict", title: "Verdict", width: 130, text: (r) => r.verdict, filterOptions: Object.keys(VERDICT_TONES), render: (_, r) => <StatusTag value={r.verdict} tones={VERDICT_TONES} /> },
   ];
 

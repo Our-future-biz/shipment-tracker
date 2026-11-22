@@ -92,7 +92,7 @@ export function exceptionDraftProblems(d: ExceptionDraft): string[] {
   const out: string[] = [];
   if (d.kind === "FAILED_DELIVERY" && !d.failedReason) out.push("Say why the delivery failed");
   if (d.kind === "WAITING_TIME" && !(d.waitingMinutes && d.waitingMinutes > 0)) out.push("Enter the minutes waited");
-  if (PIECE_KINDS.includes(d.kind) && !(d.pieces && d.pieces > 0)) out.push("Enter the pieces");
+  if (PIECE_KINDS.includes(d.kind) && !(d.pieces && d.pieces > 0)) out.push("Enter the colli");
   if (d.description.trim().length < 3) out.push("Describe what happened");
   return out;
 }

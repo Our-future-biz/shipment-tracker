@@ -56,10 +56,10 @@ describe("damage / short / over exceptions", () => {
   it("puts the cargo on hold until every exception is resolved", async () => {
     const { c, id } = await armedPosition();
     let m = await gateExceptionService.create(id, c, user, { type: "Damaged", pieces: 3, note: "forks through the carton", source: "survey" });
-    expect(line(m)).toMatchObject({ s: "Blocked", note: "1 open: Damaged 3 pcs" });
+    expect(line(m)).toMatchObject({ s: "Blocked", note: "1 open: Damaged 3 colli" });
     expect(m).toMatchObject({ armed: false, openExceptions: 1 });
     expect(m.exceptions[0]).toMatchObject({ type: "Damaged", pieces: 3, status: "open", source: "survey" });
-    expect(m.events.at(-1)).toMatchObject({ kind: "exceptionOpened", label: "Exception: Damaged 3 pcs — cargo on hold" });
+    expect(m.events.at(-1)).toMatchObject({ kind: "exceptionOpened", label: "Exception: Damaged 3 colli — cargo on hold" });
 
     await expect(gateMovementService.stamp(id, c, user, "impRelease")).rejects.toThrow(/On hold/);
     // Even with the line ticked behind the service's back, the open exception still refuses it.
@@ -131,7 +131,7 @@ describe("use remeasured figures for the warehouse", () => {
     await expect(gateMovementService.useRemeasured(id, c, user, section.version - 1)).rejects.toThrow(/changed meanwhile/);
     const m = await gateMovementService.useRemeasured(id, c, user, section.version);
     expect(m).toMatchObject({ colli: 12, weightKg: 1080, measureCbm: 3 });
-    expect(m.events.at(-1)).toMatchObject({ kind: "gateFiguresFromRemeasurement", detail: "pieces 10→12 · kg 1000→1080 · cbm 4→3" });
+    expect(m.events.at(-1)).toMatchObject({ kind: "gateFiguresFromRemeasurement", detail: "colli 10→12 · kg 1000→1080 · cbm 4→3" });
     expect(shipmentUpdate).not.toHaveBeenCalled();
     await gateMovementService.stamp(id, c, user, "impRelease");
     await expect(gateMovementService.useRemeasured(id, c, user, section.version)).rejects.toThrow(/already released/);

@@ -37,12 +37,12 @@ export type ReceiptEvent = GateEvent & { receipt?: ReceiptFacts; outboxId?: stri
  * 0 pieces is refused — cargo that did not come is a Short exception. The web's FloorReceipt says
  * the same.
  */
-export const ZERO_PIECES = "0 pieces counted is not a receipt — if the cargo did not come, record a Short exception instead";
+export const ZERO_PIECES = "0 colli counted is not a receipt — if the cargo did not come, record a Short exception instead";
 
 /** Why these counted pieces are not a receipt, or null (null = not counted, the expected pieces count). */
 export function receiptPiecesRefusal(pieces: number | null): string | null {
   if (pieces === null) return null;
-  if (!Number.isInteger(pieces) || pieces < 0 || pieces > MAX_RECEIPT_PIECES) return "Pieces counted must be a whole number from 1";
+  if (!Number.isInteger(pieces) || pieces < 0 || pieces > MAX_RECEIPT_PIECES) return "Colli counted must be a whole number from 1";
   return pieces === 0 ? ZERO_PIECES : null;
 }
 
@@ -66,7 +66,7 @@ export function receiptDateMoveRefusal(before: string, after: string, role: stri
 
 /** "6 of 6 pcs counted · Damaged packaging · at A-03-2" — the tally's words, for History. */
 export function countedText(pieces: number | null, expected: number, condition: string, location: string): string {
-  return [pieces !== null ? `${pieces} of ${expected} pcs counted` : "", condition, location ? `at ${location}` : ""].filter(Boolean).join(" · ");
+  return [pieces !== null ? `${pieces} of ${expected} colli counted` : "", condition, location ? `at ${location}` : ""].filter(Boolean).join(" · ");
 }
 
 /** A condition other than "Good" (and not blank): the cargo may be damaged — an exception is offered (Q20). */
@@ -95,7 +95,7 @@ export function receiptSuggestions(expected: number, pieces: number | null, cond
 /** The toast text of the suggestions ("" when none). */
 export function suggestionsNotice(s: ReceiptSuggestion[], expected: number, condition: string): string {
   return s
-    .map((x) => (x.type === "Damaged" ? damageNotice(condition) : `${x.type} ${x.pieces} pc${x.pieces === 1 ? "" : "s"} against the expected ${expected} — record an exception?`))
+    .map((x) => (x.type === "Damaged" ? damageNotice(condition) : `${x.type} ${x.pieces} colli against the expected ${expected} — record an exception?`))
     .join(" · ");
 }
 
@@ -112,7 +112,7 @@ export function lastReceiptEvent(events: readonly GateEvent[]): ReceiptEvent | n
 }
 
 /** Loose import cargo waits for its receipt before the WH release. Must match RECEIPT_FIRST on the web (gate-log/_lib/steps.ts). */
-export const RECEIPT_FIRST = "Not received yet — record the receipt first (pieces, condition, location), or the Received in warehouse date";
+export const RECEIPT_FIRST = "Not received yet — record the receipt first (colli, condition, location), or the Received in warehouse date";
 
 /** Operation types that move the cargo in a container (FCL, container yard): never loose cargo. */
 const CONTAINER_OPERATION = /^(FCL|Container yard)/;

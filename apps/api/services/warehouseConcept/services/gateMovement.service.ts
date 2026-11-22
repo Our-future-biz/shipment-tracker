@@ -1115,7 +1115,7 @@ class GateMovementService {
     if (!totals.pieces) throw APIError.failedPrecondition("No remeasured lines are saved for this position");
     const by = await this.userName(userId);
     const fmt = (n: number) => String(Math.round(n * 1000) / 1000);
-    const detail = `pieces ${m.colli}→${totals.pieces} · kg ${fmt(m.weightKg)}→${fmt(totals.weightKg)} · cbm ${fmt(m.measureCbm)}→${fmt(totals.cbm)}`;
+    const detail = `colli ${m.colli}→${totals.pieces} · kg ${fmt(m.weightKg)}→${fmt(totals.weightKg)} · cbm ${fmt(m.measureCbm)}→${fmt(totals.cbm)}`;
     const row = await db.transaction(async (tx) => {
       // The lines must still be the ones the client saw, and stay so until the figures are written.
       const [same] = await tx

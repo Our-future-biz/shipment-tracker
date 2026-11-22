@@ -694,7 +694,7 @@ class ContainerService {
     const outcome = (input?.outcome ?? "").trim() as TallyResult;
     if (!(TALLY_OUTCOMES as readonly string[]).includes(outcome)) throw APIError.invalidArgument(`Outcome must be one of: ${TALLY_OUTCOMES.join(", ")}`);
     const pieces = input.pieces ?? null;
-    if (pieces !== null && (!Number.isInteger(pieces) || pieces < 0 || pieces > MAX_PIECES)) throw APIError.invalidArgument("Pieces counted must be a whole number from 0");
+    if (pieces !== null && (!Number.isInteger(pieces) || pieces < 0 || pieces > MAX_PIECES)) throw APIError.invalidArgument("Colli counted must be a whole number from 0");
     const condition = text(input.condition, 200, "The condition");
     const location = text(input.location, 100, "The location");
     const note = text(input.note, MAX_NOTE, "The note");
@@ -836,8 +836,8 @@ class ContainerService {
       const auto = autoException as TallySuggestion | null;
       const notice = [
         opts.recordedAt ? `Tallied — recorded offline at ${pragueHhmm(at)}` : "",
-        auto ? `Exception recorded: Short ${auto.pieces} pc${auto.pieces === 1 ? "" : "s"} — the cargo is on hold until it is resolved` : "",
-        suggestException ? `${suggestException.type} ${suggestException.pieces} pc${suggestException.pieces === 1 ? "" : "s"} against the expected ${m.colli} — record an exception?` : "",
+        auto ? `Exception recorded: Short ${auto.pieces} colli — the cargo is on hold until it is resolved` : "",
+        suggestException ? `${suggestException.type} ${suggestException.pieces} colli against the expected ${m.colli} — record an exception?` : "",
         // A damaged tick gets the same question a count difference gets (Q20 of the User Council,
         // 20 Nov). Nothing opens by itself: how many pieces are damaged is the person's to say.
         // Not for a house not arrived — nothing of it was there to be damaged.

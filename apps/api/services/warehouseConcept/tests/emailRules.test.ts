@@ -169,8 +169,8 @@ describe("supplier e-mail text", () => {
     expect(text).toContain("Damaged: 2 · Short (lost): 1");
     expect(text).toContain("- 8 × PLT: Wet");
     expect(text).toContain("- 2 × CTN: no remarks");
-    expect(text).toContain("Damaged: 2 pieces (1 open, 0 resolved)");
-    expect(text).toContain("Short: 1 piece (0 open, 1 resolved)");
+    expect(text).toContain("Damaged: 2 colli (1 open, 0 resolved)");
+    expect(text).toContain("Short: 1 colli (0 open, 1 resolved)");
     expect(text).toContain("Photos on file: 3");
     expect(text).toContain("Attached: a.jpg, b.jpg");
     expect(text).toContain("c.jpg: https://files/c");
@@ -187,10 +187,10 @@ describe("supplier e-mail text", () => {
       }),
     );
     expect(text).toContain("1. Qty 10 · 120 × 80 × 100 cm · 110 kg per piece");
-    expect(text).toContain("Remeasured total: 10 pieces · 1,100 kg · 9.600 cbm");
-    expect(text).toContain("Declared (shipment): 10 pieces · 1,000 kg · 9.500 cbm");
-    expect(text).toContain("Compared with the declared figures: pieces match, weight +10.0 % (more than 5 %), volume +1.1 %");
-    expect(text).toContain("Warehouse gate record: 10 pieces · 1,000 kg · 4.200 cbm");
+    expect(text).toContain("Remeasured total: 10 colli · 1,100 kg · 9.600 cbm");
+    expect(text).toContain("Declared (shipment): 10 colli · 1,000 kg · 9.500 cbm");
+    expect(text).toContain("Compared with the declared figures: colli match, weight +10.0 % (more than 5 %), volume +1.1 %");
+    expect(text).toContain("Warehouse gate record: 10 colli · 1,000 kg · 4.200 cbm");
   });
 });
 

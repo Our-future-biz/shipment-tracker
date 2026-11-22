@@ -221,8 +221,8 @@ describe("supplier e-mail — Survey and Remeasurement", () => {
     await emailSupplierService.send(taskId, "remeasurement", "", randomUUID(), c, user);
     const text = mail.calls[0]!.text;
     expect(text).toContain("1. Qty 10 · 120 × 80 × 100 cm · 110 kg per piece");
-    expect(text).toContain("Remeasured total: 10 pieces · 1,100 kg · 9.600 cbm");
-    expect(text).toContain("Declared (shipment): 10 pieces · 1,200 kg · 9.500 cbm");
+    expect(text).toContain("Remeasured total: 10 colli · 1,100 kg · 9.600 cbm");
+    expect(text).toContain("Declared (shipment): 10 colli · 1,200 kg · 9.500 cbm");
     expect(JSON.parse((await sectionData(taskId, c)).remeasurement_sent as string)).toMatchObject({ emailedTo: "ops@supplier.cz" });
   });
 });

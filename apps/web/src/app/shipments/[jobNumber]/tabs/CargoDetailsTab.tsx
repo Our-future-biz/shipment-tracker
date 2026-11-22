@@ -144,7 +144,7 @@ const readFigures = (): Figures => {
 };
 
 // Why "All pieces" shows no total for a line, and its fields wait: the totals are shared out over Pcs.
-const NO_PIECES_HINT = "Type Pcs first — a total is for all the pieces of the line";
+const NO_PIECES_HINT = "Type Colli first — a total is for all the colli of the line";
 
 // A line asked to be deleted from its row's "⋯", with the table it is in.
 type DeleteRequest = { table: "dims"; line: CargoDimensionLine } | { table: "items"; line: CargoItemLine };
@@ -578,7 +578,7 @@ export function CargoDetailsTab({
     if (confirmDelete.table === "dims") {
       const l = confirmDelete.line;
       const size = [l.lengthCm, l.widthCm, l.heightCm].every(Boolean) ? `${l.lengthCm} × ${l.widthCm} × ${l.heightCm} ${unitLabel(l.dimensionUnit)}` : "";
-      const what = [l.pieces && `${l.pieces} pcs`, size].filter(Boolean).join(", ");
+      const what = [l.pieces && `${l.pieces} colli`, size].filter(Boolean).join(", ");
       return `The dimension line${what ? ` (${what})` : ""} will be deleted.`;
     }
     const l = confirmDelete.line;
@@ -653,7 +653,7 @@ export function CargoDetailsTab({
                   {(
                     [
                       ["piece", "Per piece"],
-                      ["total", "All pieces"],
+                      ["total", "All colli"],
                     ] as const
                   ).map(([f, text]) => (
                     <button
@@ -662,7 +662,7 @@ export function CargoDetailsTab({
                       role="radio"
                       aria-checked={figures === f}
                       onClick={() => chooseFigures(f)}
-                      title={f === "piece" ? "Weight and volume of one piece" : "Weight and volume of all the pieces of a line together"}
+                      title={f === "piece" ? "Weight and volume of one piece" : "Weight and volume of all the colli of a line together"}
                       className={[
                         "px-1.5 rounded uppercase tracking-wider cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-indigo-400",
                         figures === f ? "bg-indigo-600 text-white" : "text-slate-500 hover:text-slate-700",
@@ -675,7 +675,7 @@ export function CargoDetailsTab({
                 <span className="col-span-3" />
               </div>
               <div className={`${DIM_BANDS} px-1 ${LABEL_TEXT} border-b border-slate-200 [&>*]:!pt-0 [&>*]:!pb-1.5`}>
-                <span className="text-center truncate">Pcs</span>
+                <span className="text-center truncate">Colli</span>
                 <span className="text-center truncate">Packages</span>
                 <span className="text-center truncate">Length</span>
                 <span className="text-center truncate">Width</span>
@@ -752,7 +752,7 @@ export function CargoDetailsTab({
                     <div className={`${DIM_BANDS} px-1 [&>*]:!py-1`}>
                       {/* Numbers only, like the Dimensions modal: Pcs whole, the rest may take a decimal point; at most 4 digits (weight 5). */}
                       <div>
-                        <Input size="small" className={EDIT_FIELD} aria-label="Pieces" inputMode="numeric" value={l.pieces} onChange={(e) => patchPieces(idx, l, numberInput(e.target.value, false, 4))} onBlur={persistDims} />
+                        <Input size="small" className={EDIT_FIELD} aria-label="Colli" inputMode="numeric" value={l.pieces} onChange={(e) => patchPieces(idx, l, numberInput(e.target.value, false, 4))} onBlur={persistDims} />
                       </div>
                       <div>
                         <Select
@@ -798,10 +798,10 @@ export function CargoDetailsTab({
                           <Input
                             size="small"
                             className={EDIT_FIELD}
-                            aria-label="Weight of all pieces (kg)"
+                            aria-label="Weight of all colli (kg)"
                             inputMode="decimal"
                             disabled={!piecesOf(l)}
-                            placeholder={piecesOf(l) ? undefined : "Pcs first"}
+                            placeholder={piecesOf(l) ? undefined : "Colli first"}
                             title={piecesOf(l) ? undefined : NO_PIECES_HINT}
                             value={typedTotals[rowKey(l)]?.kg ?? totalText(num(l.weightPerPcKg), piecesOf(l), 2)}
                             onChange={(e) => patchTotal(idx, l, "kg", numberInput(e.target.value, true, 6))}
@@ -822,16 +822,16 @@ export function CargoDetailsTab({
                           <Input
                             size="small"
                             className={EDIT_FIELD}
-                            aria-label="Volume of all pieces (m³)"
+                            aria-label="Volume of all colli (m³)"
                             inputMode="decimal"
                             disabled={!piecesOf(l)}
-                            placeholder={piecesOf(l) ? "m³" : "Pcs first"}
+                            placeholder={piecesOf(l) ? "m³" : "Colli first"}
                             status={num(l.volumePerPcM3) > MAX_VOLUME_PER_PIECE_M3 ? "error" : undefined}
                             title={
                               !piecesOf(l)
                                 ? NO_PIECES_HINT
                                 : num(l.volumePerPcM3) > MAX_VOLUME_PER_PIECE_M3
-                                  ? `At most ${MAX_VOLUME_PER_PIECE_M3} m³ per piece: ${piecesOf(l)} pcs hold at most ${fmtNum(MAX_VOLUME_PER_PIECE_M3 * piecesOf(l))} m³`
+                                  ? `At most ${MAX_VOLUME_PER_PIECE_M3} m³ per piece: ${piecesOf(l)} colli hold at most ${fmtNum(MAX_VOLUME_PER_PIECE_M3 * piecesOf(l))} m³`
                                   : undefined
                             }
                             value={typedTotals[rowKey(l)]?.m3 ?? totalText(num(l.volumePerPcM3), piecesOf(l), 3)}
@@ -875,14 +875,14 @@ export function CargoDetailsTab({
             {/* The sums of the lines against what is declared, under every table. */}
             {checkStrip(
                 <>
-                  <CheckPill against={against} label="Pcs" m={check.pcs} decimals={0} />
+                  <CheckPill against={against} label="Colli" m={check.pcs} decimals={0} />
                   <CheckPill against={against} label="Weight" m={check.kg} decimals={check.kg.decimals} unit="kg" />
                   <CheckPill against={against} label="Volume" m={check.m3} decimals={3} unit="m³" />
                 </>,
               )}
             {airWithBoxes && (
               <div className={`mt-2 px-1 ${HINT}`}>
-                Air freight: the lines are checked against the shipment&apos;s Pcs, Total Weight and Total Volume. The container on Container Details is not used here.
+                Air freight: the lines are checked against the shipment&apos;s Colli, Total Weight and Total Volume. The container on Container Details is not used here.
               </div>
             )}
           </div>
@@ -905,7 +905,7 @@ export function CargoDetailsTab({
               <div className={`${DESC_COLS} px-1 pb-1.5 ${LABEL_TEXT} border-b border-slate-200`}>
                 <span className="truncate">Cargo Description</span>
                 <span className="text-center truncate">HS Code</span>
-                <span className="text-center truncate">Pcs</span>
+                <span className="text-center truncate">Colli</span>
                 <span className="text-center truncate">Packages</span>
                 <span className="text-center truncate">Gross Weight (kg)</span>
                 <span className="text-center truncate" title="The line's own invoice value. The job's Invoice Value in Shipment Details and Customs is the total of its commercial invoices.">Line Value</span>
@@ -950,7 +950,7 @@ export function CargoDetailsTab({
                       onChange={(e) => patchItem(idx, { hsCode: e.target.value.replace(/\D/g, "") })}
                       onBlur={persistItems}
                     />
-                    <Input size="small" className="text-center" aria-label="Pieces" value={l.pieces} inputMode="numeric" onChange={(e) => patchItem(idx, { pieces: numberInput(e.target.value, false) })} onBlur={persistItems} />
+                    <Input size="small" className="text-center" aria-label="Colli" value={l.pieces} inputMode="numeric" onChange={(e) => patchItem(idx, { pieces: numberInput(e.target.value, false) })} onBlur={persistItems} />
                     {/* Picked from the list only (typing filters it); free text is not taken. Its empty box says "Select...": a grey "Pallet(s)" looked picked but saved nothing (user council O22). */}
                     <Select
                       size="small"
@@ -990,7 +990,7 @@ export function CargoDetailsTab({
             {/* The tab's dot counts these once the container has description lines. */}
             {checkStrip(
                 <>
-                  <CheckPill against={against} label="Pcs" m={descCheck.pcs} decimals={0} />
+                  <CheckPill against={against} label="Colli" m={descCheck.pcs} decimals={0} />
                   <CheckPill against={against} label="Weight" m={descCheck.kg} decimals={descCheck.kg.decimals} unit="kg" />
                   {/* The lines' invoice value total, which nothing declares: a plain pill. Named apart
                       from the job's Invoice Value, the commercial invoices' total (user council c4). */}

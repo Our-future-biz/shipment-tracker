@@ -84,7 +84,7 @@ export function RemeasuredCard({ shipment, readOnly }: { shipment: ShipmentItem;
   const descriptionNow = acceptance ? descriptionNote(items, ship.colli) : null;
   const container = containers.length === 1 ? (containers[0]!.containerNumber || "The container") : null;
   const containerText = container
-    ? ` ${container === "The container" ? container : `Container ${container}`} takes the same Pieces, Gross Weight and Volume.`
+    ? ` ${container === "The container" ? container : `Container ${container}`} takes the same Colli, Gross Weight and Volume.`
     : containers.length > 1
       ? " The containers' figures are not changed."
       : "";

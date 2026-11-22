@@ -68,7 +68,7 @@ export function containerHoldsRelease(m: Pick<interfaces.GateMovementItem, "visi
 }
 
 /** Loose import cargo waits for its receipt before the pick-up truck and the WH release. */
-export const RECEIPT_FIRST = "Not received yet — record the receipt first (pieces, condition, location), or the Received in warehouse date";
+export const RECEIPT_FIRST = "Not received yet — record the receipt first (colli, condition, location), or the Received in warehouse date";
 
 /**
  * Truly loose import cargo: outbound, no container house, no container number and not an FCL /

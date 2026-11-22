@@ -804,7 +804,7 @@ function MoveReceiptDayEarlier({ m, save }: { m: GateMovement; save: Save }) {
       <ReasonModal
         open={open}
         title="Move the receipt's day earlier"
-        hint="The cargo came earlier than its receipt says. The counted pieces, condition and location stay; the storage clock starts on the new day and the shipment gets it. To move it later, void the receipt. The reason is logged."
+        hint="The cargo came earlier than its receipt says. The counted colli, condition and location stay; the storage clock starts on the new day and the shipment gets it. To move it later, void the receipt. The reason is logged."
         okText="Move earlier"
         minLength={MIN_REASON}
         onClose={() => setOpen(false)}
@@ -902,7 +902,7 @@ function ContainerCard({ m }: { m: GateMovement }) {
           {c.tallyOutcome ? (
             <span className="text-slate-700">
               <Badge tone={TALLY_TONE[c.tallyOutcome] ?? ""}>{TALLY_LABEL[c.tallyOutcome] ?? c.tallyOutcome}</Badge>
-              {c.tallyPieces != null ? ` ${c.tallyPieces} of ${m.colli} pcs` : ""}
+              {c.tallyPieces != null ? ` ${c.tallyPieces} of ${m.colli} colli` : ""}
               {c.tickedAt ? ` · ${formatDateTime(c.tickedAt)}` : ""}
               {c.tickedBy ? ` · ${c.tickedBy}` : ""}
               {/* The condition and location noted at the tick; red when not Good — it may be damaged (Q20). */}

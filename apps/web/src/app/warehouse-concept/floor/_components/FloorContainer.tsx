@@ -243,12 +243,12 @@ function TallyList({ c, report }: { c: WarehouseContainer; report: (res: SubmitR
                 <span className="min-w-0 flex-1">
                   <span className={`block ${REF} text-[16px] font-bold text-slate-900`}>{ref}</span>
                   <span className="block truncate text-[13px] text-slate-500">
-                    {h.customer || "—"} · {nf(h.pieces)} pcs expected
+                    {h.customer || "—"} · {nf(h.pieces)} colli expected
                   </span>
                   {done && (
                     <span className="block text-[13px] text-slate-500">
                       <Badge tone={TALLY_TONE[h.tallyOutcome] ?? ""}>{TALLY_LABEL[h.tallyOutcome] ?? h.tallyOutcome}</Badge>
-                      {h.tallyPieces != null ? ` ${h.tallyPieces} pcs` : ""} {by(h.tickedAt, h.tickedBy)}
+                      {h.tallyPieces != null ? ` ${h.tallyPieces} colli` : ""} {by(h.tickedAt, h.tickedBy)}
                     </span>
                   )}
                   {done && conditionAndLocation(h.tallyCondition, h.tallyLocation) && (
@@ -267,7 +267,7 @@ function TallyList({ c, report }: { c: WarehouseContainer; report: (res: SubmitR
                       {TERMS.reweigh} {ref}
                     </Link>
                   )}
-                  <Stepper label="Pieces counted" value={d.pieces} onChange={(v) => set(h, { pieces: v })} />
+                  <Stepper label="Colli counted" value={d.pieces} onChange={(v) => set(h, { pieces: v })} />
                   {d.pieces !== h.pieces && (
                     <div className="text-[13px] font-semibold text-amber-700">
                       {d.pieces < h.pieces ? "Short" : "Over"} {Math.abs(h.pieces - d.pieces)} — record an exception after the tally (Damage / short / over)
@@ -350,7 +350,7 @@ function StuffList({ c, report }: { c: WarehouseContainer; report: (res: SubmitR
               <span className="min-w-0 flex-1">
                 <span className={`block ${REF} text-[16px] font-bold text-slate-900`}>{ref}</span>
                 <span className="block truncate text-[13px] text-slate-500">
-                  {h.customer || "—"} · {nf(h.pieces)} pcs · {nf(h.weightKg)} kg
+                  {h.customer || "—"} · {nf(h.pieces)} colli · {nf(h.weightKg)} kg
                 </span>
                 {h.stuffedAt && <span className="block text-[13px] text-slate-500">{pending ? "Waiting to send" : `Stuffed ${by(h.stuffedAt, h.stuffedBy)}`}</span>}
               </span>

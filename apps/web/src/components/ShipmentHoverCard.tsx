@@ -56,7 +56,7 @@ const plain = (n: number, decimals: number) => n.toLocaleString("en-US", { maxim
 
 /** "10 pcs", "" for no pieces. */
 export function piecesText(pcs: number): string {
-  return pcs > 0 ? `${plain(pcs, 2)} pcs` : "";
+  return pcs > 0 ? `${plain(pcs, 2)} colli` : "";
 }
 
 /** "2644 kg" (whole kg; below 10 kg up to 2 decimals), "" for none. */

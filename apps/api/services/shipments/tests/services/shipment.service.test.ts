@@ -3501,7 +3501,7 @@ describe("accepting the warehouse's remeasurement", () => {
     vi.mocked(cargoDimensionRepository.listByShipmentId).mockResolvedValue([dimRow(), dimRow({ pieces: "1", adrUn: "1993", adrClass: "3" })] as never);
     const one = job([full]);
     const byHand =
-      "Dangerous goods or several containers are on these lines and the warehouse's lines don't match them line for line (the same number of lines, the same pieces on each, no two lines of other cargo with the same pieces): update Cargo Details by hand";
+      "Dangerous goods or several containers are on these lines and the warehouse's lines don't match them line for line (the same number of lines, the same colli on each, no two lines of other cargo with the same colli): update Cargo Details by hand";
     await expect(shipmentService.acceptRemeasurement(SHIPMENT, MANAGER, one)).rejects.toMatchObject({ code: "failed_precondition", message: byHand });
     // An FCL job's lines in two containers.
     vi.mocked(containerRepository.listByShipmentId).mockResolvedValue([container(A), container(B)] as never);

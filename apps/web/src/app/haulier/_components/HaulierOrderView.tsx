@@ -78,7 +78,7 @@ export const HaulierOrderView = ({ token }: HaulierOrderViewProps) => {
         <PortalCard title={<Bi text={{ cs: "Zboží", en: "Goods" }} />}>
           <div className="grid grid-cols-2 gap-2 text-[14px] text-slate-900">
             <div>
-              <Bi text={{ cs: "Kusy", en: "Pieces" }} />: <b>{formatQty(load.pieces)}</b>
+              <Bi text={{ cs: "Kusy", en: "Colli" }} />: <b>{formatQty(load.pieces)}</b>
             </div>
             <div>
               <Bi text={{ cs: "Palet. místa", en: "Pallet places" }} />: <b>{formatQty(load.palletPlaces)}</b>

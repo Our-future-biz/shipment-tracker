@@ -95,7 +95,7 @@ export const RateCalculatorForm = ({ form, onChange, customer, laneOnly = false 
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-        <Quantity label="Pieces" value={form.pieces} precision={0} onChange={(v) => set("pieces", v)} />
+        <Quantity label="Colli" value={form.pieces} precision={0} onChange={(v) => set("pieces", v)} />
         <Quantity label={TERMS.palletPlaces} value={form.palletPlaces} precision={0} onChange={(v) => set("palletPlaces", v)} />
         <Quantity label={TERMS.ldm} value={form.ldm} step={0.1} precision={1} onChange={(v) => set("ldm", v)} />
         <Quantity label="Weight (kg)" value={form.weightKg} step={10} onChange={(v) => set("weightKg", v)} />

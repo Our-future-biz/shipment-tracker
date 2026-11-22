@@ -16,7 +16,7 @@ describe("the customer's tracking page (user council E10)", () => {
 
   it("says what travels: pieces with their package type, and the weight", () => {
     expect(cargoText({ pieces: "3", packageType: "Pallets", weightKg: "1,200" })).toBe("3 Pallets · 1,200 kg");
-    expect(cargoText({ pieces: "3", packageType: "", weightKg: "" })).toBe("3 ks / pcs");
+    expect(cargoText({ pieces: "3", packageType: "", weightKg: "" })).toBe("3 ks / colli");
     expect(cargoText({ pieces: "", packageType: "Pallets", weightKg: "450" })).toBe("450 kg");
     expect(cargoText({ pieces: "", packageType: "", weightKg: "" })).toBe("");
   });

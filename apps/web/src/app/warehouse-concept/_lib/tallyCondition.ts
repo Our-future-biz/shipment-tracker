@@ -20,7 +20,7 @@ export function tallyQuestions(outcome: string, expected: number, counted: numbe
   const out: string[] = [];
   if (outcome === "received" && counted !== null && expected > 0 && counted !== expected) {
     const n = Math.abs(expected - counted);
-    out.push(`${counted < expected ? "Short" : "Over"} ${n} pc${n === 1 ? "" : "s"} against the expected ${expected}`);
+    out.push(`${counted < expected ? "Short" : "Over"} ${n} colli against the expected ${expected}`);
   }
   if (outcome !== "not_arrived" && conditionNotGood(condition)) out.push(condition.trim());
   return out;

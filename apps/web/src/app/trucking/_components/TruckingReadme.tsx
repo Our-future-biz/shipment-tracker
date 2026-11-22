@@ -329,7 +329,7 @@ export const TruckingReadme = () => (
       <ul>
         <li>
           <b>{TERMS.avizace}</b> — needed for B2C deliveries and for delivery stops that ask for it. The consignment page shows whether it is needed;{" "}
-          <b>Delivery notice text…</b> prepares the message in Czech and English (consignee, address, date and window, ref, pieces / pallets / kg, tail-lift and B2C
+          <b>Delivery notice text…</b> prepares the message in Czech and English (consignee, address, date and window, ref, colli / pallets / kg, tail-lift and B2C
           notes — never the {TERMS.pickupPin}) with Copy buttons; nothing is e-mailed. <b>Record delivery notice…</b> keeps the{" "}
           <b>{TERMS.avizaceRecord.toLowerCase()}</b>: how, who, the agreed window and a note. Until it is recorded, the {TERMS.deliveryRun.toLowerCase()} or{" "}
           {TERMS.ftl} trip shows a warning on the Trips and Planning tabs — never a block. Consignments → <b>Delivery notice pending</b> lists them.

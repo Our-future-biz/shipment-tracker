@@ -94,7 +94,7 @@ export function WarehouseTab({ shipment }: { shipment: ShipmentItem }) {
             <div className={COLS2}>
               <div>
                 <Row label="Container #" value={shipment.containerNumber} />
-                <Row label="Colli / PCS" value={shipment.pcs} />
+                <Row label="Colli" value={shipment.pcs} />
                 <Row label="Load type" value={loadTypeLabel(shipment.loadType, shipment.freightMode)} />
                 <Row label="Customs procedure" value={rowData["customsProcedure"]} />
               </div>
@@ -166,7 +166,7 @@ function DangerousGoodsDialog({ shipment, open, onClose }: { shipment: ShipmentI
           <thead>
             <tr>
               {inContainers && <th scope="col" className={TH}>Container</th>}
-              <th scope="col" className={TH}>Pieces</th>
+              <th scope="col" className={TH}>Colli</th>
               <th scope="col" className={TH}>Package</th>
               <th scope="col" className={TH}>UN number</th>
               <th scope="col" className={TH}>Class</th>

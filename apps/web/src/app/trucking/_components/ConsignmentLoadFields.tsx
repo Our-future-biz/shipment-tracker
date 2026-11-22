@@ -16,7 +16,7 @@ interface ConsignmentLoadFieldsProps {
 const PACKING_GROUPS: LoadInput["adrPackingGroup"][] = ["", "I", "II", "III"];
 type NumberKey = "pieces" | "palletPlaces" | "ldm" | "weightKg" | "cbm";
 const MEASURES: { key: NumberKey; label: string; step: number }[] = [
-  { key: "pieces", label: "Pieces", step: 1 },
+  { key: "pieces", label: "Colli", step: 1 },
   { key: "palletPlaces", label: TERMS.palletPlaces, step: 1 },
   { key: "ldm", label: TERMS.ldm, step: 0.1 },
   { key: "weightKg", label: "Weight kg", step: 10 },

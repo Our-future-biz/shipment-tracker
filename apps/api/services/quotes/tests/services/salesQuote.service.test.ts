@@ -2201,7 +2201,7 @@ describe("the warehouse inquiry of pieces of 12.5 t or more", () => {
       priceEurPerPiece: null,
     });
     expect(write.entries).toEqual([
-      { kind: "warehouse_inquiry", at: NOW.toISOString(), user: "martin@forwarder.cz", userId: U_MARTIN, comment: "Warehouse asked about 2 pieces of 12.5 t or more - two press frames" },
+      { kind: "warehouse_inquiry", at: NOW.toISOString(), user: "martin@forwarder.cz", userId: U_MARTIN, comment: "Warehouse asked about 2 colli of 12.5 t or more - two press frames" },
     ]);
     // The question is in the quote's chat too, from the one who asked.
     expect(chat.createForCompany).toHaveBeenCalledWith(martin.companyID, {
@@ -2209,7 +2209,7 @@ describe("the warehouse inquiry of pieces of 12.5 t or more", () => {
       quoteNumber: REF,
       authorId: U_MARTIN,
       authorName: "martin@forwarder.cz",
-      message: "Warehouse asked about 2 pieces of 12.5 t or more - two press frames",
+      message: "Warehouse asked about 2 colli of 12.5 t or more - two press frames",
       mentionedUserIds: [],
     });
   });
@@ -2254,14 +2254,14 @@ describe("the warehouse inquiry of pieces of 12.5 t or more", () => {
     });
     expect(write.drop).toEqual(["marginApproval"]);
     expect(write.serverKeys?.warehouseInquiry).toMatchObject({ status: "approved", priceEurPerPiece: 400, comment: "crane booked", decidedById: U_MANAGER, decidedByName: "marie@forwarder.cz", answerSeenAt: null });
-    expect(write.entries[0]).toMatchObject({ kind: "warehouse_inquiry", comment: "Warehouse approved 2 pieces of 12.5 t or more: EUR 400 per piece - crane booked" });
+    expect(write.entries[0]).toMatchObject({ kind: "warehouse_inquiry", comment: "Warehouse approved 2 colli of 12.5 t or more: EUR 400 per piece - crane booked" });
     expect(item).toMatchObject({ quoteNumber: REF, quoteStatus: "draft", inquiry: { status: "pending" } });
     // The answer is in the quote's chat too, from the manager; refused answers posted nothing.
     expect(chat.createForCompany).toHaveBeenCalledTimes(1);
     expect(chat.createForCompany).toHaveBeenCalledWith(manager.companyID, expect.objectContaining({
       threadRef: REF,
       authorId: U_MANAGER,
-      message: "Warehouse approved 2 pieces of 12.5 t or more: EUR 400 per piece - crane booked",
+      message: "Warehouse approved 2 colli of 12.5 t or more: EUR 400 per piece - crane booked",
     }));
   });
 
@@ -2291,7 +2291,7 @@ describe("the warehouse inquiry of pieces of 12.5 t or more", () => {
     expect(repository.writeLifecycle).not.toHaveBeenCalled();
     stored = withData({ warehouseInquiry: { ...pending, status: "rejected", comment: "too heavy for our crane" } });
     await expect(salesQuoteService.transition(martin, REF, { to: "ready_to_send" })).rejects.toMatchObject({
-      message: "The warehouse rejected the pieces of 12.5 t or more (too heavy for our crane) — change the cargo or ask the warehouse again",
+      message: "The warehouse rejected the colli of 12.5 t or more (too heavy for our crane) — change the cargo or ask the warehouse again",
     });
     // Approved, with its fee on the buying (and sold well above the LCL floor): the quote may go.
     fxRatesOn.mockResolvedValue(sheet([{ currency: "EUR", rate: 25 }]));
@@ -2309,8 +2309,8 @@ describe("the warehouse inquiry of pieces of 12.5 t or more", () => {
       stored = withData({ sellingLines: [fee(2000)], buyingLines: [{ type: "Ocean freight", description: "LCL", currency: "EUR", amount: 100 }], ...data });
       await expect(salesQuoteService.transition(martin, REF, { to: "ready_to_send" })).rejects.toMatchObject({ code: "failed_precondition", message });
     };
-    await refused({}, "Pieces of 12.5 t or more have no handling rate — ask the warehouse first (Inquire Warehouse in the heavy pieces)");
-    await refused({ warehouseInquiry: { ...approved, pieces: 1 }, buyingLines: [fee(400)] }, "The warehouse approved 1 piece of 12.5 t or more, the quote has 2 — ask the warehouse again");
+    await refused({}, "Colli of 12.5 t or more have no handling rate — ask the warehouse first (Inquire Warehouse in the heavy pieces)");
+    await refused({ warehouseInquiry: { ...approved, pieces: 1 }, buyingLines: [fee(400)] }, "The warehouse approved 1 colli of 12.5 t or more, the quote has 2 — ask the warehouse again");
     const missing = "The warehouse's approved Heavy Cargo Handling Fee (EUR 800) is missing from the buying, lowered or no longer in EUR — put it back, or ask the warehouse again";
     await refused({ warehouseInquiry: approved }, missing);
     await refused({ warehouseInquiry: approved, buyingLines: [fee(500)] }, missing);

@@ -144,8 +144,8 @@ describe("refresh from shipment", () => {
     const third = await warehouseImportService.refreshFromShipment(id, c, user);
     expect(third.movement).toMatchObject({ colli: 12, containerNumber: "MSCU1234567" });
     expect(third.changed).toEqual(["container"]);
-    expect(third.differs).toEqual(["pieces: gate 12, shipment 10"]);
-    expect(third.movement.events.at(-1)!.detail).toMatch(/kept \(differs from shipment\) — pieces: gate 12, shipment 10/);
+    expect(third.differs).toEqual(["colli: gate 12, shipment 10"]);
+    expect(third.movement.events.at(-1)!.detail).toMatch(/kept \(differs from shipment\) — colli: gate 12, shipment 10/);
   });
 
   it("is only for records linked to a shipment", async () => {

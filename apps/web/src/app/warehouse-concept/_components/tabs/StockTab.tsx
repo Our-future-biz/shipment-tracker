@@ -339,7 +339,7 @@ function StockOnHand() {
           fields={auto ? autoStockFields : stockFields(positions)}
           note={
             auto
-              ? `Automatic line: it follows the gate record (pieces, weight, volume, received date, customs) — opened at the receipt and closed when the position leaves${editing.line?.closedReason ? ` (${editing.line.closedReason})` : ""}. Only the location, On hold / Allocated, the consol and the marks are changed here.`
+              ? `Automatic line: it follows the gate record (colli, weight, volume, received date, customs) — opened at the receipt and closed when the position leaves${editing.line?.closedReason ? ` (${editing.line.closedReason})` : ""}. Only the location, On hold / Allocated, the consol and the marks are changed here.`
               : "Manual line, for odd cases: pick the position it belongs to. Received cargo gets its automatic line from the gate — do not add a manual line for it (it would be counted twice)."
           }
           initial={
@@ -684,7 +684,7 @@ const bondedFields = (positions: { value: string; label: string }[]): FieldDef[]
   { name: "weightKg", label: TERMS.weightKg, type: "number" },
   { name: "customsValue", label: "Customs value", placeholder: "CZK 412 000" },
   { name: "discharge", label: "Discharge", placeholder: "2026-08-06 · 40 00 release", section: "Discharge" },
-  { name: "balance", label: "Balance (pieces)", type: "number" },
+  { name: "balance", label: "Balance (colli)", type: "number" },
 ];
 
 // An automatic entry follows the gate record; a missing MRN or discharge reference is filled in here.
@@ -757,7 +757,7 @@ function Bonded() {
         deadline from the receipt (UCC art. 149) — amber with 10 days left or fewer, red when overdue.
       </Callout>
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-        <Kpi label="Under customs control" value={open.length} sub={`${nf(open.reduce((s, b) => s + b.balance, 0))} pieces`} tone="amber" />
+        <Kpi label="Under customs control" value={open.length} sub={`${nf(open.reduce((s, b) => s + b.balance, 0))} colli`} tone="amber" />
         <Kpi
           label="Deadline ≤ 10 days"
           value={open.filter((b) => b.customsClock.state === "warning").length}

@@ -56,7 +56,7 @@ describe("receipt of loose import cargo (Q19)", () => {
     expect(res.movement.receivedAt).not.toBeNull();
     expect(res.movement.lifecycle.stage).toBe("in_warehouse");
     const ev = res.movement.events.find((e) => e.kind === "positionReceived");
-    expect(ev?.detail).toBe("10 of 10 pcs counted · Good · at a-03-2");
+    expect(ev?.detail).toBe("10 of 10 colli counted · Good · at a-03-2");
     expect((await lineOf(c, id))[0]).toMatchObject({ location: "A-03-2", status: "Available" });
     const owed = await outboxOf(id);
     expect(owed).toEqual([expect.objectContaining({ kind: "received", stamp: "receipt", payload: expect.objectContaining({ warehouseReference: ref }) })]);
@@ -116,7 +116,7 @@ describe("receipt of loose import cargo (Q19)", () => {
     expect(res.movement.loadInDate).toBe("2026-01-02");
     expect(res.movement.receivedAt).toBe(new Date("2026-01-01T23:00:00.000Z").toISOString());
     expect(res.movement.storage).toMatchObject({ startDate: "2026-01-02", startSource: "receipt" });
-    expect(res.movement.events.find((e) => e.kind === "positionReceived")?.detail).toBe("10 of 10 pcs counted · Good · at A-1 · Received in warehouse 2026-01-02 kept");
+    expect(res.movement.events.find((e) => e.kind === "positionReceived")?.detail).toBe("10 of 10 colli counted · Good · at A-1 · Received in warehouse 2026-01-02 kept");
     expect((await outboxOf(id))[0]!.payload).toMatchObject({ warehouseReceivedDate: "2026-01-02" });
   });
 
@@ -129,7 +129,7 @@ describe("receipt of loose import cargo (Q19)", () => {
       { type: "Short", pieces: 2 },
       { type: "Damaged", pieces: null },
     ]);
-    expect(res.notice).toMatch(/Short 2 pcs against the expected 10 — record an exception\? · Damaged packaging — record a Damaged exception\?/);
+    expect(res.notice).toMatch(/Short 2 colli against the expected 10 — record an exception\? · Damaged packaging — record a Damaged exception\?/);
     const again = await positionReceiptService.record(id, c, user, "user", req);
     expect(again.outcome).toBe("already_done");
     expect((await gateMovementService.get(id, c)).events.filter((e) => e.kind === "positionReceived")).toHaveLength(1);

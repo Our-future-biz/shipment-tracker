@@ -80,7 +80,7 @@ export function QuoteInquiries() {
             <tr>
               <th className={HEAD}>Quote</th>
               <th className={HEAD}>Service · route</th>
-              <th className={`${HEAD} !text-right`}>Pieces ≥ 12.5 t</th>
+              <th className={`${HEAD} !text-right`}>Colli ≥ 12.5 t</th>
               <th className={HEAD}>Note from Sales</th>
               <th className={HEAD}>Asked</th>
               <th className={HEAD}>Answer</th>
@@ -164,7 +164,7 @@ export function QuoteInquiries() {
                                 className="!w-[180px]"
                                 placeholder="e.g. 650"
                               />
-                              {price !== null && <span className={`ml-2 ${HINT}`}>= EUR {nf(price * i.pieces, 2)} for {i.pieces} piece{i.pieces === 1 ? "" : "s"}</span>}
+                              {price !== null && <span className={`ml-2 ${HINT}`}>= EUR {nf(price * i.pieces, 2)} for {i.pieces} colli</span>}
                             </label>
                             <label className="block flex-1 min-w-[240px]">
                               <span className={`block ${LABEL_TEXT} mb-1`}>Comment for Sales (optional)</span>

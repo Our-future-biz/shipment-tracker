@@ -240,10 +240,10 @@ describe("pcsAfterText", () => {
   const item = (pieces: string) => ({ containerId: null, cargoDescription: "Shoes", hsCode: "", pieces, packageType: "Cartons", grossWeight: "", commercialInvoiceValue: "", currency: "" });
 
   it("says plainly that the job's Pcs follow the description lines with no container", () => {
-    expect(pcsAfterText([item("20")], 0, 18)).toBe("the job's Pcs stays 20: with no container it follows the description lines");
-    expect(pcsAfterText([item("20")], 1, 18)).toBe("Pcs becomes 18");
-    expect(pcsAfterText([item("")], 0, 18)).toBe("Pcs becomes 18");
-    expect(pcsAfterText([item("18")], 0, 18)).toBe("Pcs becomes 18");
+    expect(pcsAfterText([item("20")], 0, 18)).toBe("the job's Colli stays 20: with no container it follows the description lines");
+    expect(pcsAfterText([item("20")], 1, 18)).toBe("Colli becomes 18");
+    expect(pcsAfterText([item("")], 0, 18)).toBe("Colli becomes 18");
+    expect(pcsAfterText([item("18")], 0, 18)).toBe("Colli becomes 18");
   });
 });
 

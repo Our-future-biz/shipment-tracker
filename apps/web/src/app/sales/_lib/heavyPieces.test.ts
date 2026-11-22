@@ -61,13 +61,13 @@ describe("the surcharge", () => {
 
   it("asks the warehouse for a piece of 12.5 t or more; a figure typed for it is no surcharge", () => {
     const heavy: QuoteHeavyPieces = { anyOver2t: true, pieces: { "12500": 1 } };
-    expect(heavyPiecesProblems(heavy)).toEqual(["Inquire Warehouse about the pieces of 12,500 kg and more"]);
+    expect(heavyPiecesProblems(heavy)).toEqual(["Inquire Warehouse about the colli of 12,500 kg and more"]);
     expect(heavyTotal({ ...heavy, surcharge: { "12500": 900 } })).toBe(0);
     expect(changedBands({ ...heavy, surcharge: { "12500": 900 } })).toEqual([]);
   });
 
   it("needs at least one piece once the answer is yes; no needs nothing", () => {
-    expect(heavyPiecesProblems({ anyOver2t: true, pieces: {} })).toEqual(["Enter how many pieces are over 2 t"]);
+    expect(heavyPiecesProblems({ anyOver2t: true, pieces: {} })).toEqual(["Enter how many colli are over 2 t"]);
     expect(heavyPiecesProblems({ anyOver2t: false })).toEqual([]);
     expect(heavyTotal({ anyOver2t: false, pieces: { "2000": 3 } })).toBe(0);
   });
@@ -130,9 +130,9 @@ describe("the warehouse inquiry (pieces of 12.5 t or more)", () => {
   it("saves the pieces only once the warehouse approved that many", () => {
     expect(warehouseStanding(heavy(), null)).toBe("ask");
     expect(warehouseStanding(heavy(), inquiry({ status: "pending", decidedAt: null, priceEurPerPiece: null }))).toBe("pending");
-    expect(heavyPiecesProblems(heavy(), inquiry({ status: "pending" }))).toEqual(["The warehouse has not answered yet - the pieces can be saved once it approves"]);
+    expect(heavyPiecesProblems(heavy(), inquiry({ status: "pending" }))).toEqual(["The warehouse has not answered yet - the colli can be saved once it approves"]);
     expect(heavyPiecesProblems(heavy(), inquiry({ status: "rejected", comment: "too heavy" }))).toEqual([
-      "The warehouse rejected the pieces of 12,500 kg and more - change the pieces or ask again",
+      "The warehouse rejected the colli of 12,500 kg and more - change the colli or ask again",
     ]);
     expect(heavyPiecesProblems(heavy(), inquiry())).toEqual([]);
     // Approved for 2 pieces, but there are 3 now: asked again.

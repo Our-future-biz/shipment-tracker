@@ -101,7 +101,7 @@ export function avizaceTemplate(c: Pick<TruckingConsignmentRecord, "ref" | "deli
   const goods = (lang: "cs" | "en") =>
     lang === "cs"
       ? `${formatNumber(l.pieces, "cs", 0)} ks, ${formatNumber(l.palletPlaces, "cs")} pal. míst, ${formatNumber(l.weightKg, "cs", 1)} kg`
-      : `${formatNumber(l.pieces, "en", 0)} pcs, ${formatNumber(l.palletPlaces, "en")} pallet places, ${formatNumber(l.weightKg, "en", 1)} kg`;
+      : `${formatNumber(l.pieces, "en", 0)} colli, ${formatNumber(l.palletPlaces, "en")} pallet places, ${formatNumber(l.weightKg, "en", 1)} kg`;
   const cs = [
     "Dobrý den,",
     "",
@@ -204,8 +204,8 @@ export function cleanException(input: ExceptionInput) {
   if (!EXCEPTION_CAUSES.includes(cause)) throw bad("The cause must be CUSTOMER, HAULIER, US or UNKNOWN");
   const description = text(input.description, "The description", MAX_NOTE);
   if (!description && (kind === "OTHER" || failedReason === "OTHER")) throw bad("Describe what happened");
-  const pieces = wholeOrNull(input.pieces, "Pieces", 1);
-  if ((kind === "DAMAGE" || kind === "SHORTAGE" || kind === "OVERAGE") && pieces === null) throw bad(`Give the pieces ${kind === "DAMAGE" ? "damaged" : kind === "SHORTAGE" ? "missing" : "over"}`);
+  const pieces = wholeOrNull(input.pieces, "Colli", 1);
+  if ((kind === "DAMAGE" || kind === "SHORTAGE" || kind === "OVERAGE") && pieces === null) throw bad(`Give the colli ${kind === "DAMAGE" ? "damaged" : kind === "SHORTAGE" ? "missing" : "over"}`);
   const waitingMinutes = kind === "WAITING_TIME" ? wholeOrNull(input.waitingMinutes, "The waiting minutes", 1) : null;
   if (kind === "WAITING_TIME" && waitingMinutes === null) throw bad("Give how many minutes the truck waited");
   if (input.legId !== null && input.legId !== undefined && (typeof input.legId !== "string" || !isUuid(input.legId))) throw bad("Unknown leg");

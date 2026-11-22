@@ -273,7 +273,7 @@ export function CustomsShipmentInfo({ shipment }: { shipment: ShipmentItem }) {
       </DetailCard>
       <DetailCard icon={<InboxOutlined />} title="Cargo" columns={[[]]} shipment={shipment} onCommit={noCommit}>
         <LinesTable
-          head={["Cargo Description", "HS Code", "Pieces", "Package Type", "Gross Weight (kg)", "Invoice Value"]}
+          head={["Cargo Description", "HS Code", "Colli", "Package Type", "Gross Weight (kg)", "Invoice Value"]}
           rows={cargo}
           empty="No cargo lines yet — they are entered in the shipment's Cargo Details."
         />

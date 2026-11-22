@@ -376,7 +376,7 @@ export function ContainerDetailsTab({
               <span className="truncate">Container Number</span>
               <span className="text-center truncate">Seal Number</span>
               <span className="text-center truncate">Container Type</span>
-              <span className="text-center truncate">Pcs</span>
+              <span className="text-center truncate">Colli</span>
               <span className="text-center truncate">Packages</span>
               <span className="text-center truncate">Gross Weight (kg)</span>
               <span className="text-center truncate">Volume (m³)</span>

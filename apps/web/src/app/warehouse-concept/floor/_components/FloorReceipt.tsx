@@ -24,7 +24,7 @@ import { FloorBack } from "./FloorBack";
 // does). Needs a connection (the server receives the cargo and writes to the shipment).
 
 /** The server's ZERO_PIECES (positionReceipt.ts): a receipt of 0 pieces is refused (owner's answer R29). */
-export const ZERO_PIECES_RECEIPT = "0 pieces counted is not a receipt — if the cargo did not come, record a Short exception instead";
+export const ZERO_PIECES_RECEIPT = "0 colli counted is not a receipt — if the cargo did not come, record a Short exception instead";
 
 export function FloorReceipt({
   m,
@@ -74,7 +74,7 @@ export function FloorReceipt({
         <div className={`${REF} text-[16px] font-bold text-slate-900`}>{ref}</div>
         <div className="text-[14px] text-slate-700">{m.customer || "—"}</div>
         <div className="text-[13px] text-slate-500">
-          Expected {nf(m.colli)} pcs{m.packing ? ` ${m.packing}` : ""} · {nf(m.weightKg)} kg — loose cargo, no container
+          Expected {nf(m.colli)} colli{m.packing ? ` ${m.packing}` : ""} · {nf(m.weightKg)} kg — loose cargo, no container
         </div>
       </FloorCard>
 
@@ -84,7 +84,7 @@ export function FloorReceipt({
             {done.suggestExceptions.map((s) => (
               <li key={s.type} className="py-0.5">
                 <span className="font-semibold">{s.type}</span>
-                {s.type === "Damaged" ? ` — ${condition}` : ` ${s.pieces} pc${s.pieces === 1 ? "" : "s"} against the expected ${nf(m.colli)}`}
+                {s.type === "Damaged" ? ` — ${condition}` : ` ${s.pieces} colli against the expected ${nf(m.colli)}`}
               </li>
             ))}
           </ul>
@@ -109,7 +109,7 @@ export function FloorReceipt({
                 </button>
               </>
             )}
-            <Stepper label="Pieces counted" value={pieces} onChange={setPieces} />
+            <Stepper label="Colli counted" value={pieces} onChange={setPieces} />
             {/* Nothing counted is not a receipt (R29): the server refuses it too. */}
             {pieces === 0 && <div className="text-[13px] font-semibold text-red-600">{ZERO_PIECES_RECEIPT}</div>}
             {diff && pieces > 0 && (
@@ -139,7 +139,7 @@ export function FloorReceipt({
               </div>
             )}
             <button type="button" className={bigPrimary} disabled={record.isPending || weighFirst || pieces === 0 || !q.online || !!m.archivedAt} onClick={send}>
-              {record.isPending ? "Recording…" : `Record receipt — ${nf(pieces)} pcs`}
+              {record.isPending ? "Recording…" : `Record receipt — ${nf(pieces)} colli`}
             </button>
           </div>
         </div>

@@ -146,7 +146,7 @@ export function shipmentCargoFigures(s: { cargoDimensions?: CargoDimensionLine[]
 export const ALREADY_ACCEPTED = "These remeasured lines were already accepted: the warehouse has saved nothing new since";
 
 export const ACCEPT_BY_HAND =
-  "Dangerous goods or several containers are on these lines and the warehouse's lines don't match them line for line (the same number of lines, the same pieces on each, no two lines of other cargo with the same pieces): update Cargo Details by hand";
+  "Dangerous goods or several containers are on these lines and the warehouse's lines don't match them line for line (the same number of lines, the same colli on each, no two lines of other cargo with the same colli): update Cargo Details by hand";
 
 // What a line hands on to the remeasured line in its place: its container, packing and dangerous goods.
 const handedOn = (l: CargoDimensionLine) =>
@@ -243,8 +243,8 @@ export function descriptionNote(items: readonly CargoItemLine[], pieces: number)
  */
 export function pcsAfterText(items: readonly CargoItemLine[], containerCount: number, pieces: number): string {
   const described = items.reduce((s, i) => s + num(i.pieces), 0);
-  if (containerCount > 0 || !(described > 0) || described === pieces) return `Pcs becomes ${pieces > 0 ? pieces.toLocaleString("en-US") : "—"}`;
-  return `the job's Pcs stays ${described.toLocaleString("en-US")}: with no container it follows the description lines`;
+  if (containerCount > 0 || !(described > 0) || described === pieces) return `Colli becomes ${pieces > 0 ? pieces.toLocaleString("en-US") : "—"}`;
+  return `the job's Colli stays ${described.toLocaleString("en-US")}: with no container it follows the description lines`;
 }
 
 /** "5 colli · 250.0 kg · 34.650 CBM" */

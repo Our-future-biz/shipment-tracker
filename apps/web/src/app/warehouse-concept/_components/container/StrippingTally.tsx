@@ -125,12 +125,12 @@ export function StrippingTally({ c, api, manager }: { c: WarehouseContainer; api
           message={
             suggestion.type === "Damaged"
               ? `${suggestion.h.positionRef || suggestion.h.gateRef}: ticked off ${suggestion.condition ? suggestion.condition.toLowerCase() : "not in good condition"}`
-              : `${suggestion.h.positionRef || suggestion.h.gateRef}: ${suggestion.type.toLowerCase()} ${suggestion.pieces} pc${suggestion.pieces === 1 ? "" : "s"} against the expected ${suggestion.h.pieces}`
+              : `${suggestion.h.positionRef || suggestion.h.gateRef}: ${suggestion.type.toLowerCase()} ${suggestion.pieces} colli against the expected ${suggestion.h.pieces}`
           }
           description={
             suggestion.type === "Damaged" ? (
               <span className="inline-flex flex-wrap items-center gap-2">
-                Record a Damaged exception? Damaged pieces
+                Record a Damaged exception? Damaged colli
                 <InputNumber
                   size="small"
                   min={1}
@@ -138,7 +138,7 @@ export function StrippingTally({ c, api, manager }: { c: WarehouseContainer; api
                   value={suggestion.pieces}
                   onChange={(v) => setSuggestions((all) => all.map((x) => (x === suggestion ? { ...x, pieces: Math.max(1, Number(v) || 1) } : x)))}
                   className="!w-[80px]"
-                  aria-label="Damaged pieces"
+                  aria-label="Damaged colli"
                 />
                 While it is open the cargo is on hold.
               </span>
@@ -149,7 +149,7 @@ export function StrippingTally({ c, api, manager }: { c: WarehouseContainer; api
           action={
             <div className="flex flex-col gap-1.5">
               <button type="button" className={btnPrimary} onClick={() => recordException(suggestion)} disabled={createException.isPending}>
-                Record {suggestion.type.toLowerCase()} — {suggestion.pieces} pc{suggestion.pieces === 1 ? "" : "s"}
+                Record {suggestion.type.toLowerCase()} — {suggestion.pieces} colli
               </button>
               <button type="button" className={btnDefault} onClick={() => setSuggestions((all) => all.filter((x) => x !== suggestion))}>
                 Not now
@@ -201,13 +201,13 @@ export function StrippingTally({ c, api, manager }: { c: WarehouseContainer; api
                       </td>
                       <td className={TD}>{h.customer || <span className={EMPTY}>—</span>}</td>
                       <td className={`${TD} text-right tabular-nums`}>
-                        {nf(h.pieces)} pcs
+                        {nf(h.pieces)} colli
                         <div className="text-[11px] text-slate-400">{nf(h.weightKg)} kg</div>
                       </td>
                       {done ? (
                         <>
                           <td className={`${TD} tabular-nums ${h.tallyPieces != null && h.tallyPieces !== h.pieces ? "!text-amber-700 font-semibold" : ""}`}>
-                            {h.tallyPieces != null ? `${nf(h.tallyPieces)} pcs` : <span className={EMPTY}>—</span>}
+                            {h.tallyPieces != null ? `${nf(h.tallyPieces)} colli` : <span className={EMPTY}>—</span>}
                           </td>
                           <td className={TD}>{h.tallyCondition || <span className={EMPTY}>—</span>}</td>
                           <td className={TD}>{h.tallyLocation || <span className={EMPTY}>—</span>}</td>
@@ -223,7 +223,7 @@ export function StrippingTally({ c, api, manager }: { c: WarehouseContainer; api
                               disabled={!!inputsBlocked}
                               onChange={(v) => setDraft(h, { pieces: v == null ? null : Number(v) })}
                               className="!w-[90px]"
-                              aria-label={`${ref}: pieces counted`}
+                              aria-label={`${ref}: colli counted`}
                             />
                           </td>
                           <td className={TD}>
@@ -347,7 +347,7 @@ export function StrippingTally({ c, api, manager }: { c: WarehouseContainer; api
       <ReasonModal
         open={!!reasonFor}
         title={reasonFor ? `${TALLY_LABEL[reasonFor.outcome]} — ${reasonFor.h.positionRef || reasonFor.h.gateRef}` : ""}
-        hint={`The house is not received; the reason, the count and who are logged. ${reasonFor?.outcome === "short" ? "Enter the pieces counted in the list first." : ""}`}
+        hint={`The house is not received; the reason, the count and who are logged. ${reasonFor?.outcome === "short" ? "Enter the colli counted in the list first." : ""}`}
         okText={reasonFor ? `Mark ${TALLY_LABEL[reasonFor.outcome]!.toLowerCase()}` : "Save"}
         onClose={() => setReasonFor(null)}
         onSubmit={(reason) => tally(reasonFor!.h, reasonFor!.outcome, reason)}
@@ -423,7 +423,7 @@ function AddHouses({
             {candidates.map((m) => (
               <div key={m.id} className="py-1 border-b border-slate-100 last:border-b-0">
                 <Checkbox checked={picked.includes(m.id)} onChange={(e) => setPicked((p) => (e.target.checked ? [...p, m.id] : p.filter((x) => x !== m.id)))}>
-                  <span className="tabular-nums font-semibold">{m.positionRef || m.gateRef}</span> · {m.customer || "—"} · {nf(m.colli)} pcs · {nf(m.weightKg)} kg
+                  <span className="tabular-nums font-semibold">{m.positionRef || m.gateRef}</span> · {m.customer || "—"} · {nf(m.colli)} colli · {nf(m.weightKg)} kg
                 </Checkbox>
               </div>
             ))}

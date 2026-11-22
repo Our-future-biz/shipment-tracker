@@ -94,7 +94,7 @@ function dimensionLine(d: Item): string {
   const volume = num(d.volumePerPcM3) || num(d.volumePerPkg);
   const adr = text(d.adrUn) ? `ADR UN${text(d.adrUn)}${text(d.adrClass) ? ` cl. ${text(d.adrClass)}` : ""}` : "";
   return join([
-    size ? [pieces && `${pieces} ×`, size].filter(Boolean).join(" ") : pieces && `${pieces} pcs`,
+    size ? [pieces && `${pieces} ×`, size].filter(Boolean).join(" ") : pieces && `${pieces} colli`,
     weight && `${weight} kg/pc`,
     volume && `${volume} m³/pc`,
     text(d.packageType),

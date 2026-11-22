@@ -292,12 +292,12 @@ function throughputKpi(receivedIn: Row[], leftIn: Row[], days: number): Warehous
     unit: "positions in",
     n: receivedIn.length + leftIn.length,
     measured:
-      "In = positions received in the period (at the receipt, as in Dwell time); out = positions that left in the period. Pieces, weight and volume are the gate figures of the position.",
+      "In = positions received in the period (at the receipt, as in Dwell time); out = positions that left in the period. Colli, weight and volume are the gate figures of the position.",
     notMeasured: "",
     breakdown: [
       part("Positions out", leftIn.length, "positions", leftIn.length, 0),
-      part("Pieces in", pieces(receivedIn), "pcs", receivedIn.length, 0),
-      part("Pieces out", pieces(leftIn), "pcs", leftIn.length, 0),
+      part("Colli in", pieces(receivedIn), "colli", receivedIn.length, 0),
+      part("Colli out", pieces(leftIn), "colli", leftIn.length, 0),
       part("Weight in", kg(receivedIn), "kg", receivedIn.length, 0),
       part("Weight out", kg(leftIn), "kg", leftIn.length, 0),
       part("Volume in", cbm(receivedIn), "cbm", receivedIn.length),
@@ -434,7 +434,7 @@ function exceptionKpi(exceptions: KpiException[], received: number, inPeriod: (d
     notMeasured: received ? "" : `No position received in this period${inP.length ? ` (${inP.length} exception(s) recorded)` : ""}`,
     breakdown: EXCEPTION_TYPES.flatMap((t) => {
       const of = inP.filter((e) => e.type === t);
-      return [part(t, per100(of.length), "per 100", of.length), part(`${t} pieces`, sum(of, (e) => e.pieces), "pcs", of.length, 0)];
+      return [part(t, per100(of.length), "per 100", of.length), part(`${t} colli`, sum(of, (e) => e.pieces), "colli", of.length, 0)];
     }),
   };
 }

@@ -467,7 +467,7 @@ export function GateJobView({ id }: { id: string }) {
               {/* Loose import cargo is received first: by its receipt on the phone, or the typed date at the desk (Q19). */}
               {!archived && mainSteps.some((x) => x.state === "blocked" && x.needs === "receipt") && (
                 <>
-                  <Link href={floorReceiptHref(m.id)} className={btnPrimary} title="Count the pieces, note the condition and location on the phone">
+                  <Link href={floorReceiptHref(m.id)} className={btnPrimary} title="Count the colli, note the condition and location on the phone">
                     {TERMS.receipt} (phone)
                   </Link>
                   <button type="button" className={btnDefault} onClick={showReceivedDate} title="Type the day it was received, on Overview → Storage">

@@ -201,7 +201,7 @@ describe("KPIs from stamps", () => {
     const k = kpi(r, "exceptionRate");
     expect(k).toMatchObject({ value: 50, n: 2 });
     expect(k.breakdown.find((p) => p.label === "Damaged")).toMatchObject({ value: 25, n: 1 });
-    expect(k.breakdown.find((p) => p.label === "Damaged pieces")!.value).toBe(2);
+    expect(k.breakdown.find((p) => p.label === "Damaged colli")!.value).toBe(2);
     const o = kpi(r, "outboxHealth");
     expect(o).toMatchObject({ value: 3 });
     expect(o.breakdown.find((p) => p.label === "Oldest pending")!.value).toBe(3);

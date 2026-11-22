@@ -61,7 +61,7 @@ describe("avizace", () => {
     expect(t.cs).toContain("hydraulickým čelem");
     expect(t.cs).toContain("soukromou adresu");
     expect(t.en).toContain("19 Oct 2026, 08:00–12:00");
-    expect(t.en).toContain("12 pcs, 4 pallet places, 1,250.5 kg");
+    expect(t.en).toContain("12 colli, 4 pallet places, 1,250.5 kg");
     expect(t.en).toContain("tail lift");
     expect(t).toMatchObject({ subject: "Avizace doručení / Delivery notice TCZ2026000007", to: "+420 777 222 333" });
     expect(JSON.stringify(t)).not.toMatch(/PIN/i);
@@ -135,7 +135,7 @@ describe("delivery exceptions", () => {
 
   it("checks what each kind needs", () => {
     expect(cleanException(input())).toMatchObject({ kind: "DAMAGE", cause: "UNKNOWN", pieces: 2, currency: "CZK", amount: null });
-    expect(() => cleanException(input({ pieces: null }))).toThrow(/pieces/);
+    expect(() => cleanException(input({ pieces: null }))).toThrow(/colli/);
     expect(() => cleanException(input({ kind: "FAILED_DELIVERY", pieces: null }))).toThrow(/reason/);
     expect(cleanException(input({ kind: "FAILED_DELIVERY", failedReason: "ABSENT", pieces: null })).failedReason).toBe("ABSENT");
     expect(() => cleanException(input({ kind: "WAITING_TIME", pieces: null }))).toThrow(/minutes/);

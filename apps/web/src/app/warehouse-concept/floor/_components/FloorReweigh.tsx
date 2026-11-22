@@ -70,7 +70,7 @@ export function FloorReweigh({ m, onBack, onDone = onBack }: { m: GateMovement; 
       <FloorCard>
         <div className={`${REF} text-[16px] font-bold text-slate-900`}>{m.positionRef || m.gateRef}</div>
         <div className="text-[14px] text-slate-700">{m.customer || "—"}</div>
-        <div className="text-[13px] text-slate-500">Declared {m.weightKg > 0 ? `${nf(m.weightKg)} kg` : "—"} (gate figure){m.colli ? ` · ${nf(m.colli)} pcs` : ""}</div>
+        <div className="text-[13px] text-slate-500">Declared {m.weightKg > 0 ? `${nf(m.weightKg)} kg` : "—"} (gate figure){m.colli ? ` · ${nf(m.colli)} colli` : ""}</div>
       </FloorCard>
 
       {r && (

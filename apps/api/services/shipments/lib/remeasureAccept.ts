@@ -89,7 +89,7 @@ export function parseRemeasuredLines(raw: string): RemeasuredLine[] {
     return line;
   });
   const counted = lines.map((l, i) => ({ l, line: i + 1 })).filter(({ l }) => cargoNum(l.pieces) > 0);
-  if (counted.length === 0) throw new Error("The warehouse has saved no remeasured lines with pieces: there is nothing to accept");
+  if (counted.length === 0) throw new Error("The warehouse has saved no remeasured lines with colli: there is nothing to accept");
   for (const { l, line } of counted) {
     const problem = unmeasuredProblem(l, line);
     if (problem) throw new Error(problem);
@@ -126,7 +126,7 @@ export const figuresOf = (lines: readonly FigureLine[]): AcceptedFigures => roun
 const carriesAdr = (l: CargoDimensionLine) => !!(l.adrUn?.trim() || l.adrClass?.trim() || l.adrPackingGroup || l.adrLimitedQuantity);
 
 export const ACCEPT_BY_HAND =
-  "Dangerous goods or several containers are on these lines and the warehouse's lines don't match them line for line (the same number of lines, the same pieces on each, no two lines of other cargo with the same pieces): update Cargo Details by hand";
+  "Dangerous goods or several containers are on these lines and the warehouse's lines don't match them line for line (the same number of lines, the same colli on each, no two lines of other cargo with the same colli): update Cargo Details by hand";
 
 // What a line hands on to the remeasured line in its place (acceptedDimensionLines): its container,
 // packing and dangerous goods.

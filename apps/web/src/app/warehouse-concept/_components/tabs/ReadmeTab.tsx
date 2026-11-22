@@ -88,7 +88,7 @@ export function ReadmeTab() {
           </li>
           <li>
             <b>Refresh from shipment</b> (Actions in the job, anyone, logged) copies the shipment&rsquo;s data onto a linked record again; the log shows each old and new value. Operation and customs mode
-            are mapped again only before the first stamp. After a stamp, pieces, weight, measure, packing, container and seal the gate may have corrected are
+            are mapped again only before the first stamp. After a stamp, colli, weight, measure, packing, container and seal the gate may have corrected are
             only filled when blank — a different value is kept and shown as &ldquo;differs from shipment&rdquo;.
           </li>
           <li>The tiles above the grid filter it (open consol outbound / inbound containers, open road positions), and so does the FCL / LCL switch.</li>
@@ -157,7 +157,7 @@ export function ReadmeTab() {
           </li>
           <li>
             <b>{TERMS.outbound}</b> (import cargo going out): {TERMS.gateInTruck} → {TERMS.whRelease} → {TERMS.gateOut}. {TERMS.whRelease} stamps the gate-out at the
-            same time. Loose import cargo (no container, it came by truck) is received first: {TERMS.receipt} (pieces counted, condition, location — or the
+            same time. Loose import cargo (no container, it came by truck) is received first: {TERMS.receipt} (colli counted, condition, location — or the
             typed &ldquo;Received in warehouse&rdquo; date) → {TERMS.gateInTruck} → {TERMS.whRelease} → {TERMS.gateOut}.
           </li>
         </ul>
@@ -341,7 +341,7 @@ export function ReadmeTab() {
         <ul>
           <li>
             Opened for one position: the header (reference, {TERMS.jobNo}, customer, status, customs, days in the warehouse and free time, chargeable W/M), the cargo
-            comparison — declared on the shipment, received at the gate, remeasured — with the differences beyond the tolerance (any piece, or more than 5 % on
+            comparison — declared on the shipment, received at the gate, remeasured — with the differences beyond the tolerance (any colli difference, or more than 5 % on
             weight or volume), the remeasured lines, notes, &ldquo;Mark as sent&rdquo; with its history, the exceptions and the release readiness.
           </li>
           <li>
@@ -362,7 +362,7 @@ export function ReadmeTab() {
         <ul>
           <li>
             <b>{TERMS.importContainer}</b> (outbound cargo): {TERMS.containerGateIn} → (start stripping) → the <b>{TERMS.strippingTally}</b>: count each house
-            (pieces, condition, location) and <b>Tick received</b> — that is its receipt: the free time starts that day and the shipment gets the received date
+            (colli, condition, location) and <b>Tick received</b> — that is its receipt: the free time starts that day and the shipment gets the received date
             and the WCZ reference. A house not (fully) there is marked {TERMS.short.toLowerCase()} / {TERMS.notArrived.toLowerCase()} with a reason; a count that
             differs offers a Short / Over exception. Stripping is complete when every house is accounted for; then the {TERMS.containerGateOut}. The WH release of
             a house waits for its tick-off.

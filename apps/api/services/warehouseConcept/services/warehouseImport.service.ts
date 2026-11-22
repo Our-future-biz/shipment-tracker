@@ -124,7 +124,7 @@ const FIELD_LABELS: Record<string, string> = {
   customerRef: "customer ref",
   customerContact: "customer contact",
   shipmentOwner: "shipment owner",
-  colli: "pieces",
+  colli: "colli",
   packing: "packing",
   weightKg: "weight",
   measureCbm: "measure",

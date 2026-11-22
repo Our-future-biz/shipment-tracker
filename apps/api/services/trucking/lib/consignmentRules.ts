@@ -125,7 +125,7 @@ export function cleanLoad(l: LoadInput): LoadInput {
   if (adr && !adrClass) throw bad("ADR goods need the ADR class");
   if (!PACKING_GROUPS.includes(adrPackingGroup)) throw bad("The packing group must be I, II or III");
   const load: LoadInput = {
-    pieces: number(l.pieces ?? 0, "Pieces"),
+    pieces: number(l.pieces ?? 0, "Colli"),
     palletPlaces: number(l.palletPlaces ?? 0, "Pallet places"),
     ldm: number(l.ldm ?? 0, "Loading metres"),
     weightKg: number(l.weightKg ?? 0, "The weight"),

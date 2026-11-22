@@ -92,7 +92,7 @@ const OPERATIONS_APPROVALS_TEXT = "Documents, Customs Offices and releases · an
 // A warehouse answer as the bell says it.
 const answerTitle = (a: WarehouseInquiryItem) => `Warehouse ${a.inquiry.status === "approved" ? "approved" : "rejected"} ${a.quoteNumber}`;
 const answerText = (a: WarehouseInquiryItem) => {
-  const what = `${a.inquiry.pieces} piece${a.inquiry.pieces === 1 ? "" : "s"} of 12.5 t or more${a.customerName ? ` · ${a.customerName}` : ""}`;
+  const what = `${a.inquiry.pieces} colli of 12.5 t or more${a.customerName ? ` · ${a.customerName}` : ""}`;
   return a.inquiry.status === "approved"
     ? `${what}: EUR ${a.inquiry.priceEurPerPiece ?? 0} per piece${a.inquiry.comment ? ` — ${a.inquiry.comment}` : ""}`
     : `${what}: ${a.inquiry.comment}`;

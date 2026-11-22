@@ -218,7 +218,7 @@ export function StuffingPlan({ c, api }: { c: WarehouseContainer; api: Api }) {
                     <span className="tabular-nums font-semibold text-slate-900">{m.positionRef || m.gateRef}</span>
                     <span className="text-slate-500"> · {m.customer || "—"}</span>
                     <span className="block text-[11px] text-slate-500 tabular-nums">
-                      {m.pod || "—"} · ETD {formatDate(m.etd) || "—"} · {nf(m.colli)} pcs · {nf(m.weightKg)} kg · {nf(m.measureCbm, 2)} cbm
+                      {m.pod || "—"} · ETD {formatDate(m.etd) || "—"} · {nf(m.colli)} colli · {nf(m.weightKg)} kg · {nf(m.measureCbm, 2)} cbm
                       {m.needsReweigh && !m.reweigh ? " · not re-weighed" : ""}
                     </span>
                   </Checkbox>
@@ -230,7 +230,7 @@ export function StuffingPlan({ c, api }: { c: WarehouseContainer; api: Api }) {
             <div className="text-[11px] text-slate-500">With the chosen positions</div>
             <FillBar totals={projected} />
             <div className="text-[11px] text-slate-700 tabular-nums">
-              {nf(projected.pieces)} pcs · {nf(projected.kg)} kg · {nf(projected.cbm, 2)} cbm
+              {nf(projected.pieces)} colli · {nf(projected.kg)} kg · {nf(projected.cbm, 2)} cbm
             </div>
             {projected.overCapacity && <div className="text-[11px] font-semibold text-red-600">Over the capacity of a {c.equipment || "container of this type"} — check before stuffing.</div>}
             <button type="button" className={`${btnPrimary} self-start`} disabled={!picked.length || api.addPositions.isPending} onClick={add}>

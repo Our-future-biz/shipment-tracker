@@ -16,7 +16,7 @@ import { EMPTY, LABEL_TEXT, TH } from "@/styles/ui";
 // notes from the one "Save changes" bar.
 
 const INPUT: Record<LineField, { label: string; suffix: string; step: number; precision?: number }> = {
-  pieces: { label: "Qty", suffix: "pcs", step: 1, precision: 0 },
+  pieces: { label: "Qty", suffix: "colli", step: 1, precision: 0 },
   lengthCm: { label: "L", suffix: "cm", step: 0.1 },
   widthCm: { label: "W", suffix: "cm", step: 0.1 },
   heightCm: { label: "H", suffix: "cm", step: 0.1 },
@@ -161,7 +161,7 @@ export function RemeasureLines({ draft, readOnly }: RemeasureLinesProps) {
       </div>
       <div className="flex flex-wrap items-baseline gap-8 mt-3 pt-3 border-t border-slate-200">
         {[
-          ["Total pieces", totals.pieces ? String(totals.pieces) : "—"],
+          ["Total colli", totals.pieces ? String(totals.pieces) : "—"],
           ["Total weight", totals.kg > 0 ? `${totals.kg.toFixed(1)} kg` : "—"],
           ["Total volume", totals.cbm > 0 ? `${totals.cbm.toFixed(3)} cbm` : "—"],
         ].map(([k, v]) => (

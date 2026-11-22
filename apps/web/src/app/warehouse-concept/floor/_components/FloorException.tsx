@@ -59,7 +59,7 @@ export function FloorException({ m, onBack, prefill }: { m: GateMovement; onBack
       const res = await q.submit({
         kind: "exception",
         movement: m,
-        label: `${form.type} ${form.pieces} pc${form.pieces === 1 ? "" : "s"}`,
+        label: `${form.type} ${form.pieces} colli`,
         payload: {
           exception: {
             type: form.type,
@@ -97,7 +97,7 @@ export function FloorException({ m, onBack, prefill }: { m: GateMovement; onBack
                 on={form.type === o.type && form.container === o.container && form.surveyPhase === o.surveyPhase}
                 onClick={() => setForm(o)}
               >
-                {o.type} — {o.pieces} pc{o.pieces === 1 ? "" : "s"}
+                {o.type} — {o.pieces} colli
                 {o.container ? ` · ${o.container}` : ""}
               </Chip>
             ))}
@@ -114,7 +114,7 @@ export function FloorException({ m, onBack, prefill }: { m: GateMovement; onBack
               </Chip>
             ))}
           </div>
-          <Stepper label="Pieces" min={1} value={form.pieces} onChange={(v) => setForm({ ...form, pieces: v })} />
+          <Stepper label="Colli" min={1} value={form.pieces} onChange={(v) => setForm({ ...form, pieces: v })} />
           {m.containers.length > 0 && (
             <div className="flex flex-wrap gap-2" role="group" aria-label="Container">
               <Chip on={form.container === ""} onClick={() => setForm({ ...form, container: "" })}>
@@ -160,7 +160,7 @@ export function FloorException({ m, onBack, prefill }: { m: GateMovement; onBack
           <ul className="m-0 list-none p-0 text-[14px]">
             {open.map((e) => (
               <li key={e.id} className="border-b border-slate-100 py-1.5 last:border-b-0">
-                <span className="font-semibold">{e.type}</span> {e.pieces} pc{e.pieces === 1 ? "" : "s"}
+                <span className="font-semibold">{e.type}</span> {e.pieces} colli
                 {e.container ? ` · ${e.container}` : ""} · {formatDateTime(e.createdAt)}
                 {e.createdBy ? ` · ${e.createdBy}` : ""}
               </li>

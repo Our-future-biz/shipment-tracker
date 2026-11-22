@@ -77,7 +77,7 @@ const ExceptionCard = ({
         <Fact k="Cause" v={CAUSE_LABELS[e.cause]} />
         <Fact k="Decision" v={DECISION_LABELS[e.decision]} />
         {e.amount != null && <Fact k="Amount" v={formatMoney(e.amount, e.currency)} />}
-        {e.pieces != null && <Fact k="Pieces" v={e.pieces} />}
+        {e.pieces != null && <Fact k="Colli" v={e.pieces} />}
         {e.waitingMinutes != null && <Fact k="Waited" v={`${e.waitingMinutes} min`} />}
         {legText && <Fact k="Leg" v={legText} />}
         {e.decidedAt && <Fact k="Decided" v={`${businessDateTime(e.decidedAt)}${e.decidedBy ? ` · ${e.decidedBy}` : ""}`} />}
@@ -152,7 +152,7 @@ export const ConsignmentExceptionsTab = ({ c, onCreate, onAction }: ConsignmentE
             <thead>
               <tr>
                 <th className={TH}>Kind</th>
-                <th className={TH}>Pieces</th>
+                <th className={TH}>Colli</th>
                 <th className={TH}>Note</th>
                 <th className={TH}>Status</th>
                 <th className={TH}>Recorded</th>

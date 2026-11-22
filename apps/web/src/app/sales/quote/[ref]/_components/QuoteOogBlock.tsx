@@ -111,7 +111,7 @@ export function QuoteOogBlock({ value, types, onChange, missing }: QuoteOogBlock
               </div>
             )}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <Measure label="Overall length" hint="All pieces combined" value={o.length} onChange={(v) => onChange({ length: v })} />
+              <Measure label="Overall length" hint="All colli combined" value={o.length} onChange={(v) => onChange({ length: v })} />
               <Measure label="Width" hint="The widest piece" value={o.width} onChange={(v) => onChange({ width: v })} />
               <Measure label="Height" hint="The highest piece" value={o.height} onChange={(v) => onChange({ height: v })} />
             </div>

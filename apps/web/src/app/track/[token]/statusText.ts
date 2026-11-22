@@ -114,7 +114,7 @@ export function cargoText(s: Pick<Status, "pieces" | "packageType" | "weightKg">
   const pieces = s.pieces.trim();
   const type = s.packageType.trim();
   const weight = s.weightKg.trim() ? `${s.weightKg.trim()} kg` : "";
-  return [pieces ? `${pieces} ${type || "ks / pcs"}` : "", weight].filter(Boolean).join(" · ");
+  return [pieces ? `${pieces} ${type || "ks / colli"}` : "", weight].filter(Boolean).join(" · ");
 }
 
 /**

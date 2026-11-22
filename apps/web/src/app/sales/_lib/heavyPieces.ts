@@ -102,11 +102,11 @@ export function heavyPiecesProblems(heavy: QuoteHeavyPieces, inquiry?: QuoteWare
   if (!heavy.anyOver2t) return [];
   const problems: string[] = [];
   const total = HEAVY_BANDS.reduce((n, band) => n + (heavy.pieces?.[band.key] ?? 0), 0);
-  if (total <= 0) problems.push("Enter how many pieces are over 2 t");
+  if (total <= 0) problems.push("Enter how many colli are over 2 t");
   const standing = warehouseStanding(heavy, inquiry);
-  if (standing === "ask") problems.push("Inquire Warehouse about the pieces of 12,500 kg and more");
-  if (standing === "pending") problems.push("The warehouse has not answered yet - the pieces can be saved once it approves");
-  if (standing === "rejected") problems.push("The warehouse rejected the pieces of 12,500 kg and more - change the pieces or ask again");
+  if (standing === "ask") problems.push("Inquire Warehouse about the colli of 12,500 kg and more");
+  if (standing === "pending") problems.push("The warehouse has not answered yet - the colli can be saved once it approves");
+  if (standing === "rejected") problems.push("The warehouse rejected the colli of 12,500 kg and more - change the colli or ask again");
   if (changedBands(heavy).length > 0 && !heavy.reason?.trim()) problems.push("Give the reason for the changed surcharge");
   return problems;
 }

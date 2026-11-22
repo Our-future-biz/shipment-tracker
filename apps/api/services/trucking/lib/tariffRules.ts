@@ -260,7 +260,7 @@ export function cleanRateRequest(r: RateRequest): RateRequest {
     pickupDate: r.pickupDate,
     pickupTime,
     scope: oneOf(r.scope, SCOPES, "The scope"),
-    pieces: measure(r.pieces ?? 0, "Pieces"),
+    pieces: measure(r.pieces ?? 0, "Colli"),
     palletPlaces: measure(r.palletPlaces ?? 0, "Pallet places"),
     ldm: measure(r.ldm ?? 0, "Loading metres"),
     weightKg: measure(r.weightKg ?? 0, "The weight"),

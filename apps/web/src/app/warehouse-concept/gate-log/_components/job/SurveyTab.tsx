@@ -117,8 +117,8 @@ export function SurveyTab({ m, saveSurvey }: SurveyTabProps) {
       <div>Customer ${escapeHtml(m.customer || "—")} · Container ${escapeHtml(container || "position level")}</div>
       <table class="kv">
         ${row("Survey pass", draft.phase)}
-        ${row("Damaged pieces", pieces > 0 ? `${draft.damaged} of ${pieces}` : `${draft.damaged} (pieces unknown)`)}
-        ${row("Lost / missing pieces", pieces > 0 ? `${draft.lost} of ${pieces}` : `${draft.lost} (pieces unknown)`)}
+        ${row("Damaged colli", pieces > 0 ? `${draft.damaged} of ${pieces}` : `${draft.damaged} (colli unknown)`)}
+        ${row("Lost / missing colli", pieces > 0 ? `${draft.lost} of ${pieces}` : `${draft.lost} (colli unknown)`)}
       </table>
       <table><thead><tr><th>Number</th><th>Outer packing</th><th>Visual condition</th><th>Inner content</th></tr></thead><tbody>${lines}</tbody></table>
       <table class="kv">
@@ -179,11 +179,11 @@ export function SurveyTab({ m, saveSurvey }: SurveyTabProps) {
           <div className={`${LABEL_TEXT} mb-2`}>Survey result</div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
-              <div className={`${HINT} mb-1`}>Damaged pieces</div>
+              <div className={`${HINT} mb-1`}>Damaged colli</div>
               <PieceInput value={draft.damaged} max={pieces} onSave={(v) => persist({ ...draft, damaged: v })} />
             </div>
             <div>
-              <div className={`${HINT} mb-1`}>Lost / missing pieces</div>
+              <div className={`${HINT} mb-1`}>Lost / missing colli</div>
               <PieceInput value={draft.lost} max={pieces} onSave={(v) => persist({ ...draft, lost: v })} />
             </div>
             <div>
@@ -426,7 +426,7 @@ function PieceInput({ value, max, onSave }: PieceInputProps) {
           if (capped !== value) onSave(capped);
         }}
       />
-      <span className={HINT}>{known ? `of ${max} piece${max === 1 ? "" : "s"}` : "pieces unknown"}</span>
+      <span className={HINT}>{known ? `of ${max} colli` : "colli unknown"}</span>
     </span>
   );
 }

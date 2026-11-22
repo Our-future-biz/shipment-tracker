@@ -210,11 +210,11 @@ function FloorSurveyForm({ m, phase, targets, container, onContainer, stored, sa
         </div>
       )}
 
-      <FloorCard title="Pieces">
+      <FloorCard title="Colli">
         <div className="flex flex-col gap-3">
           <Stepper label="Damaged" value={draft.damaged} max={pieces} onChange={(v) => setDraft({ ...draft, damaged: v })} />
           <Stepper label="Lost / missing" value={draft.lost} max={pieces} onChange={(v) => setDraft({ ...draft, lost: v })} />
-          {pieces > 0 && <div className="text-[13px] text-slate-500">Of {pieces} pieces on the position.</div>}
+          {pieces > 0 && <div className="text-[13px] text-slate-500">Of {pieces} colli on the position.</div>}
         </div>
       </FloorCard>
 

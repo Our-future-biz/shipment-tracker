@@ -115,7 +115,7 @@ export function CargoComparison({
   // A row's label, in the first column.
   const rowHead = `text-left px-2 py-2 border-b border-slate-100 ${LABEL_TEXT}`;
   return (
-    <Card title="Cargo comparison" extra={`Tolerance: any piece difference, or more than ${TOLERANCE * 100} % on weight / volume`}>
+    <Card title="Cargo comparison" extra={`Tolerance: any colli difference, or more than ${TOLERANCE * 100} % on weight / volume`}>
       <div className="overflow-x-auto">
         <table className="w-full min-w-[620px] border-collapse">
           <thead>

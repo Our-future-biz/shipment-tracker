@@ -58,7 +58,7 @@ export function ExceptionList({ m, onResolve }: { m: GateMovement; onResolve?: (
               <div className="flex flex-wrap items-center gap-2">
                 <Badge tone={TYPE_TONE[e.type as keyof typeof TYPE_TONE] ?? ""}>{e.type}</Badge>
                 <span className="font-semibold text-slate-900 tabular-nums">
-                  {e.pieces} pc{e.pieces === 1 ? "" : "s"}
+                  {e.pieces} colli
                 </span>
                 {e.container && <span className={`${REF} text-slate-500`}>{e.container}</span>}
                 <Badge tone={open ? "r" : "g"}>{open ? "Open — on hold" : "Resolved"}</Badge>
@@ -142,7 +142,7 @@ export function ExceptionsPanel({
               className={btnInline}
               onClick={() => setPrefill({ type: o.type, pieces: o.pieces, container: survey!.container, surveyPhase: survey!.phase })}
             >
-              Record {o.type.toLowerCase()} — {o.pieces} pc{o.pieces === 1 ? "" : "s"}
+              Record {o.type.toLowerCase()} — {o.pieces} colli
             </button>
           ))}
         </div>
@@ -255,8 +255,8 @@ function CreateExceptionModal({
           <Select value={type} onChange={setType} options={EXCEPTION_TYPES.map((t) => ({ value: t, label: t }))} />
         </label>
         <label className="flex flex-col gap-1">
-          <span className={LABEL_TEXT}>Pieces</span>
-          <InputNumber min={1} precision={0} value={pieces} onChange={(v) => setPieces(v == null ? null : Number(v))} suffix="pcs" className="!w-full" />
+          <span className={LABEL_TEXT}>Colli</span>
+          <InputNumber min={1} precision={0} value={pieces} onChange={(v) => setPieces(v == null ? null : Number(v))} suffix="colli" className="!w-full" />
         </label>
         {m.containers.length > 0 && (
           <label className="flex flex-col gap-1 col-span-2">
@@ -312,7 +312,7 @@ function ResolveModal({
   return (
     <Modal
       open={!!exception}
-      title={`Resolve ${exception?.type.toLowerCase() ?? ""} — ${exception?.pieces ?? 0} pcs`}
+      title={`Resolve ${exception?.type.toLowerCase() ?? ""} — ${exception?.pieces ?? 0} colli`}
       okText="Resolve"
       okButtonProps={{ disabled: !note.trim() }}
       confirmLoading={saving}

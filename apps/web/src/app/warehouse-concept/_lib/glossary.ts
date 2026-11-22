@@ -16,7 +16,7 @@ export const TERMS = {
   whRelease: "WH release",
   released: "Released",
   warehouseStatus: "Warehouse status",
-  pieces: "Pieces",
+  pieces: "Colli",
   weightKg: "Weight kg",
   volumeCbm: "Volume cbm",
   plate: "Plate",
@@ -89,7 +89,7 @@ export const GLOSSARY: { term: string; meaning: string; replaces?: string }[] = 
   { term: TERMS.whRelease, meaning: "The stamp that releases outbound cargo. It also stamps the gate-out." },
   { term: TERMS.released, meaning: "Warehouse status after the WH release stamp. Used only as a status." },
   { term: TERMS.warehouseStatus, meaning: "Expected, In Warehouse, Released or Refused. It moves only through the stamps, Refuse and the supervisor override.", replaces: "Shipment status" },
-  { term: TERMS.pieces, meaning: "Number of pieces (packages).", replaces: "Colli, Pcs, Total pieces" },
+  { term: TERMS.pieces, meaning: "Number of pieces / packages.", replaces: "Pcs, Pieces, Total pieces" },
   { term: TERMS.weightKg, meaning: "Gross weight in kilograms.", replaces: "Gross kg, Gross weight" },
   { term: TERMS.volumeCbm, meaning: "Volume in cubic metres.", replaces: "Measure, CBM, Total volume (m³)" },
   { term: TERMS.plate, meaning: "The truck's licence plate.", replaces: "SPZ, License plate, Plate number" },
@@ -113,7 +113,7 @@ export const GLOSSARY: { term: string; meaning: string; replaces?: string }[] = 
   {
     term: "Free time / storage",
     meaning:
-      "One calculation everywhere in the warehouse. The clock starts at the receipt — the gate-in for inbound cargo; for outbound cargo the tick-off at the stripping tally of its container; outbound cargo in no container (it came by truck) at its receipt — pieces counted, condition, location — or the typed “Received in warehouse” date — and stops when the cargo leaves — the WH release (or gate-out) of outbound cargo, the gate-out of the export container inbound cargo was stuffed in (or its WH release). An inbound truck's gate-out is only the delivering truck leaving and does not stop it. Calendar days in Prague time; the receipt day is day 1. After the free days (7 unless set on the record) storage is CZK 22 per W/M a day, at least CZK 120. Expiring = 2 free days left or fewer. Only a manager sets more than 7 free days. When the storage of outbound cargo becomes chargeable, the release gate “Storage settled” goes back to Pending (logged) unless someone ticked it by hand.",
+      "One calculation everywhere in the warehouse. The clock starts at the receipt — the gate-in for inbound cargo; for outbound cargo the tick-off at the stripping tally of its container; outbound cargo in no container (it came by truck) at its receipt — colli counted, condition, location — or the typed “Received in warehouse” date — and stops when the cargo leaves — the WH release (or gate-out) of outbound cargo, the gate-out of the export container inbound cargo was stuffed in (or its WH release). An inbound truck's gate-out is only the delivering truck leaving and does not stop it. Calendar days in Prague time; the receipt day is day 1. After the free days (7 unless set on the record) storage is CZK 22 per W/M a day, at least CZK 120. Expiring = 2 free days left or fewer. Only a manager sets more than 7 free days. When the storage of outbound cargo becomes chargeable, the release gate “Storage settled” goes back to Pending (logged) unless someone ticked it by hand.",
   },
   {
     term: "Exception / On hold",
@@ -161,22 +161,22 @@ export const GLOSSARY: { term: string; meaning: string; replaces?: string }[] = 
   {
     term: TERMS.strippingTally,
     meaning:
-      "Import container, after its gate-in: each house is counted (pieces, condition, location) and ticked off. Stripping is complete when every house is ticked received, or marked short / not arrived with a reason.",
+      "Import container, after its gate-in: each house is counted (colli, condition, location) and ticked off. Stripping is complete when every house is ticked received, or marked short / not arrived with a reason.",
   },
   {
     term: TERMS.tickOff,
     meaning:
-      "Ticking a house off at the stripping tally receives it: its “Received in warehouse” date is the day of the tick (Prague time), its free time starts, and its shipment gets the warehouse received date and the WCZ reference. LCL cargo is re-weighed first. A count that differs from the expected pieces offers a Short / Over exception. Only a manager can void a tick, with a reason.",
+      "Ticking a house off at the stripping tally receives it: its “Received in warehouse” date is the day of the tick (Prague time), its free time starts, and its shipment gets the warehouse received date and the WCZ reference. LCL cargo is re-weighed first. A count that differs from the expected colli offers a Short / Over exception. Only a manager can void a tick, with a reason.",
   },
   {
     term: `${TERMS.short} / ${TERMS.notArrived}`,
     meaning:
-      "A house that is not (fully) in the container: recorded at the tally with a reason. It stays in the container's list and is not received. The tally opens a Short exception with the reason as its note (not arrived: every piece; short: the pieces missing from the count); voiding the tally resolves it.",
+      "A house that is not (fully) in the container: recorded at the tally with a reason. It stays in the container's list and is not received. The tally opens a Short exception with the reason as its note (not arrived: every piece; short: the colli missing from the count); voiding the tally resolves it.",
   },
   {
     term: TERMS.stuffingPlan,
     meaning:
-      "Export container: which inbound positions go into it, in order — picked from the positions in the warehouse (received, not on hold, not in another container), with pieces, weight and volume against the capacity of the container type. Over capacity is a warning.",
+      "Export container: which inbound positions go into it, in order — picked from the positions in the warehouse (received, not on hold, not in another container), with colli, weight and volume against the capacity of the container type. Over capacity is a warning.",
   },
   {
     term: `${TERMS.stuffed} / ${TERMS.closeContainer}`,

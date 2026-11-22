@@ -15,7 +15,7 @@ export type OpenException = { type: string; pieces: number };
 
 /** The line's note while exceptions are open, e.g. "2 open: Damaged 3 pcs, Short 1 pc". */
 export function openExceptionsNote(open: OpenException[]): string {
-  const parts = open.map((e) => `${e.type} ${e.pieces} pc${e.pieces === 1 ? "" : "s"}`);
+  const parts = open.map((e) => `${e.type} ${e.pieces} colli`);
   return `${open.length} open: ${parts.join(", ")}`.slice(0, 500);
 }
 

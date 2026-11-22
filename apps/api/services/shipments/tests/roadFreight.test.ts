@@ -157,7 +157,7 @@ describe("normalizeCargoDimension", () => {
     it("says, when refused, what one piece and what all the line's pieces hold - a volume typed for all pieces is stored per piece", () => {
       // 5,000 m³ typed for 2 pieces in Cargo Details' "All pieces" is 2,500 m³ a piece.
       const refused = () => normalizeCargoDimension({ ...unsized("2500"), pieces: "2" }, 3);
-      expect(refused).toThrow("Cargo line 3: volume per piece cannot be more than 1000 m³ (2500 m³ for one piece, 5000 m³ for its 2 pieces together) — check the volume and the pieces");
+      expect(refused).toThrow("Cargo line 3: volume per piece cannot be more than 1000 m³ (2500 m³ for one piece, 5000 m³ for its 2 colli together) — check the volume and the colli");
       expect(() => normalizeCargoDimension({ ...unsized("1200.123456789"), pieces: "" }, 1)).toThrow("(1200.12 m³ for one piece) — check");
     });
 

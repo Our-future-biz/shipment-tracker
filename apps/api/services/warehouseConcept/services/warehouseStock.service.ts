@@ -137,7 +137,7 @@ function stockLineFields(input: WarehouseStockLineInput) {
   checkOneOf(input.status, STOCK_STATUSES, "Status");
   checkOneOf(input.customs, STOCK_CUSTOMS, "Customs");
   for (const [key, label] of [
-    ["pieces", "Pieces"],
+    ["pieces", "Colli"],
     ["weightKg", "Gross weight"],
     ["cbm", "Volume"],
     ["freeDays", "Free days"],
@@ -243,7 +243,7 @@ function bondedFields(input: WarehouseBondedEntryInput) {
   const { movementId: _m, ...rest } = input;
   input = rest;
   checkDate(input.entryDate, "Entry date");
-  checkNotNegative(input.pieces, "Pieces");
+  checkNotNegative(input.pieces, "Colli");
   checkNotNegative(input.weightKg, "Gross weight");
   checkNotNegative(input.balance, "Balance");
   return { ...input, ...(input.mrn !== undefined ? { mrn: input.mrn.trim().toUpperCase() } : {}) };
@@ -301,7 +301,7 @@ class WarehouseStockService {
     if (!cur) throw notFound("Stock line");
     let patch: Partial<typeof warehouseStockLineTable.$inferInsert>;
     if (cur.source === "auto") {
-      const labels: Record<string, string> = { job: "House job", customer: "Customer", shipper: "Shipper", pod: "Port of Discharge", pieces: "Pieces", packageType: "Package", weightKg: "Gross weight", cbm: "Volume", receivedAt: "Received date", freeDays: "Free days", customs: "Customs" };
+      const labels: Record<string, string> = { job: "House job", customer: "Customer", shipper: "Shipper", pod: "Port of Discharge", pieces: "Colli", packageType: "Package", weightKg: "Gross weight", cbm: "Volume", receivedAt: "Received date", freeDays: "Free days", customs: "Customs" };
       for (const [key, label] of Object.entries(labels)) {
         const v = (input as Record<string, unknown>)[key];
         if (v !== undefined && v !== null && v !== (cur as Record<string, unknown>)[key]) throw APIError.failedPrecondition(`${label} ${FOLLOWS_GATE}`);
@@ -426,7 +426,7 @@ class WarehouseStockService {
   async recordMovement(companyId: string, userId: string, input: WarehouseStockMovementInput, now = new Date()) {
     checkOneOf(input.type, MOVEMENT_TYPES, "Movement type");
     if (input.at && !DATETIME.test(input.at)) throw APIError.invalidArgument("Time must be YYYY-MM-DDTHH:MM");
-    checkNotNegative(input.pieces, "Pieces");
+    checkNotNegative(input.pieces, "Colli");
     const row = await stockMovementRepository.createForCompany(companyId, {
       ...input,
       // Prague time, as the automatic rows (warehouseStockPlan) and the times people type: the
@@ -475,7 +475,7 @@ class WarehouseStockService {
     if (!cur) throw notFound("Bonded entry");
     let patch: Partial<typeof warehouseBondedEntryTable.$inferInsert>;
     if (cur.source === "auto") {
-      const labels: Record<string, string> = { job: "House job", consignee: "Consignee", procedure: "Procedure", entryDate: "Entry date", pieces: "Pieces", weightKg: "Gross weight", customsValue: "Customs value", discharge: "Discharge", balance: "Balance" };
+      const labels: Record<string, string> = { job: "House job", consignee: "Consignee", procedure: "Procedure", entryDate: "Entry date", pieces: "Colli", weightKg: "Gross weight", customsValue: "Customs value", discharge: "Discharge", balance: "Balance" };
       for (const [key, label] of Object.entries(labels)) {
         const v = (input as Record<string, unknown>)[key];
         if (v !== undefined && v !== null && v !== (cur as Record<string, unknown>)[key]) throw APIError.failedPrecondition(`${label} ${FOLLOWS_GATE}`);

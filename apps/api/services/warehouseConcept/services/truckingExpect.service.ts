@@ -81,7 +81,7 @@ export interface ExpectArrivalResult {
 
 // Why a position made for a cancelled trip is kept after all (removePosition refused it).
 const KEPT: ErrCode[] = [ErrCode.PermissionDenied, ErrCode.NotFound, ErrCode.FailedPrecondition];
-const FIGURE_TEXT: Record<string, string> = { colli: "pieces", weightKg: "kg", measureCbm: "cbm" };
+const FIGURE_TEXT: Record<string, string> = { colli: "colli", weightKg: "kg", measureCbm: "cbm" };
 
 /** Event on a gate record whose position was made for a trip (detail = the trip ref). */
 export const CREATED_FOR_TRIP = "createdForTrip";
@@ -228,7 +228,7 @@ class TruckingExpectService {
       // stamped — marked on the trip's IN leg, so its cancel can clear them again.
       const figures: string[] = [];
       if (!hasStamp(m)) {
-        if (!m.colli && positive(input.pieces)) figures.push(`pieces ${(patch.colli = Math.round(positive(input.pieces)))}`);
+        if (!m.colli && positive(input.pieces)) figures.push(`colli ${(patch.colli = Math.round(positive(input.pieces)))}`);
         if (!m.weightKg && positive(input.weightKg)) figures.push(`kg ${(patch.weightKg = Math.round(positive(input.weightKg) * 1000) / 1000)}`);
         if (!m.measureCbm && positive(input.cbm)) figures.push(`cbm ${(patch.measureCbm = Math.round(positive(input.cbm) * 1000) / 1000)}`);
         if (figures.length) {

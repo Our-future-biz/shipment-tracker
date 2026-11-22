@@ -99,14 +99,16 @@ export const INVOICE_FIELD_LABELS: Record<string, string> = {
   service_type: "Suggested Category",
 };
 
-// The review names the two ports in full. The AI reads and returns them as "POL" and "POD"
+// The review names the two ports in full, and the number of pieces COLLI (the app's term for it, owner's
+// answer 22 Nov). The AI reads and returns them as "POL", "POD" and "PCS"
 // (apps/api/services/extraction/lib/fields.ts), and those keys stay as they are.
 const FIELD_NAMES = new Map([
   ["POL", "Port of Loading"],
   ["POD", "Port of Discharge"],
+  ["PCS", "COLLI"],
 ]);
 
-/** A field read from a document as the review shows it: the ports by their full names, any other by its label. */
+/** A field read from a document as the review shows it: the ports by their full names, PCS as COLLI, any other by its label. */
 export const fieldName = (label: string): string => FIELD_NAMES.get(label) ?? label;
 
 // The vision model still returns legacy codes (FCL/LCL/IMP/EXP). Translate them

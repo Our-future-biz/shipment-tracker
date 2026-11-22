@@ -40,7 +40,7 @@ describe("a job's history", () => {
     const dims =
       '[{"containerId":null,"pieces":"1","lengthCm":"120","widthCm":"80","heightCm":"100","dimensionUnit":"cm","weightPerPcKg":"300","volumePerPcM3":"","packageType":"","stackable":"","adrUn":null,"adrLimitedQuantity":false}]';
     expect(historyValue(dims)).toBe("1 × 120×80×100 cm, 300 kg/pc");
-    expect(historyValue('[{"pieces":"20","lengthCm":"","widthCm":"","heightCm":"","weightPerPcKg":"150","packageType":"Pallet(s)"}]')).toBe("20 pcs, 150 kg/pc, Pallet(s)");
+    expect(historyValue('[{"pieces":"20","lengthCm":"","widthCm":"","heightCm":"","weightPerPcKg":"150","packageType":"Pallet(s)"}]')).toBe("20 colli, 150 kg/pc, Pallet(s)");
     const containers =
       `[{"id":"0ca1","containerNumber":"GCXU2218720","sealNumber":"LKAB74987","type":"20' DC","teu":"1","packages":"","packageType":"Cartons","grossWeight":"","volume":"7.74"},` +
       `{"id":"0ca2","containerNumber":"","type":"40' HC","teu":"2","packages":"","packageType":"","grossWeight":"","volume":""}]`;
@@ -63,7 +63,7 @@ describe("a job's history", () => {
   });
 
   it("rounds a figure nobody typed to three decimals, in a list and alone (x5)", () => {
-    expect(historyValue('[{"pieces":"11","lengthCm":"","weightPerPcKg":"745.454545455"}]')).toBe("11 pcs, 745.455 kg/pc");
+    expect(historyValue('[{"pieces":"11","lengthCm":"","weightPerPcKg":"745.454545455"}]')).toBe("11 colli, 745.455 kg/pc");
     expect(historyValue("745.454545455", "totalWeightTons")).toBe("745.455");
     expect(historyValue("12.5000", "totalVolumeCbm")).toBe("12.5");
     expect(historyValue("24.335", "totalVolumeCbm")).toBe("24.335");

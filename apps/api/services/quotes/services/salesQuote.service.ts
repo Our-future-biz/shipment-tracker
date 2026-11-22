@@ -995,7 +995,7 @@ class SalesQuoteService {
   // without a new version of the document, so the editor the question was asked from goes on.
   async inquireWarehouse(actor: Actor, quoteNumber: string, request: WarehouseInquiryRequest): Promise<SalesQuoteItem> {
     const pieces = request.pieces;
-    if (!Number.isInteger(pieces) || pieces < 1 || pieces > MAX_INQUIRY_PIECES) throw APIError.invalidArgument(`Pieces must be a whole number from 1 to ${MAX_INQUIRY_PIECES}`);
+    if (!Number.isInteger(pieces) || pieces < 1 || pieces > MAX_INQUIRY_PIECES) throw APIError.invalidArgument(`Colli must be a whole number from 1 to ${MAX_INQUIRY_PIECES}`);
     const grossWeightKg = request.grossWeightKg;
     if (!Number.isFinite(grossWeightKg) || grossWeightKg < 0) throw APIError.invalidArgument("The gross weight must be a number of kg");
     const note = (request.note ?? "").trim();
@@ -1003,7 +1003,7 @@ class SalesQuoteService {
     const at = new Date();
     const people = await companyPeople(actor);
     const ctx = contextOf(actor, at, people);
-    const comment = `Warehouse asked about ${pieces} piece${pieces === 1 ? "" : "s"} of 12.5 t or more${note ? ` - ${note}` : ""}`;
+    const comment = `Warehouse asked about ${pieces} colli of 12.5 t or more${note ? ` - ${note}` : ""}`;
     const written = await salesQuoteRepository.withLockedQuote(actor.companyID, quoteNumber, async (quote, tx) => {
       if (pricingClosed(quote)) {
         throw APIError.failedPrecondition("A quote that was sent cannot ask the warehouse - revise it");
@@ -1060,7 +1060,7 @@ class SalesQuoteService {
       }
       price = Math.round(price * 100) / 100;
     } else if (comment.length < MIN_REJECT_REASON) {
-      throw APIError.invalidArgument("Say why the warehouse rejects the pieces");
+      throw APIError.invalidArgument("Say why the warehouse rejects the colli");
     }
     const at = new Date();
     const people = await companyPeople(actor);
@@ -1085,7 +1085,7 @@ class SalesQuoteService {
         answerSeenAt: null,
       };
       await quoteInquiryRepository.recordWarehouse(warehouseRow(quote, decided), tx);
-      const what = `${inquiry.pieces} piece${inquiry.pieces === 1 ? "" : "s"} of 12.5 t or more`;
+      const what = `${inquiry.pieces} colli of 12.5 t or more`;
       line = request.approve ? `Warehouse approved ${what}: EUR ${price} per piece${comment ? ` - ${comment}` : ""}` : `Warehouse rejected ${what}: ${comment}`;
       // Approved on a quote still open for pricing: the fee goes to Pricing at once - a new version
       // of the document, and a margin approval given before no longer holds.

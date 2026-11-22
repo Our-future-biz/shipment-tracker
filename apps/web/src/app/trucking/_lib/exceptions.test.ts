@@ -45,7 +45,7 @@ describe("new exception", () => {
     expect(exceptionDraftProblems({ ...base, kind: "FAILED_DELIVERY" })).toEqual(["Say why the delivery failed"]);
     expect(exceptionDraftProblems({ ...base, kind: "FAILED_DELIVERY", failedReason: "CLOSED" })).toEqual([]);
     expect(exceptionDraftProblems({ ...base, kind: "WAITING_TIME" })).toEqual(["Enter the minutes waited"]);
-    expect(exceptionDraftProblems({ ...base, kind: "DAMAGE" })).toEqual(["Enter the pieces"]);
+    expect(exceptionDraftProblems({ ...base, kind: "DAMAGE" })).toEqual(["Enter the colli"]);
     expect(exceptionDraftProblems({ ...base, kind: "OTHER", description: "" })).toEqual(["Describe what happened"]);
   });
 

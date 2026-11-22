@@ -78,8 +78,8 @@ export const ExceptionCreateModal = ({ c, freeMinutes, onClose, onCreate }: Exce
             </TruckingField>
           )}
           {counted && (
-            <TruckingField label="Pieces">
-              <InputNumber aria-label="Pieces" min={1} precision={0} value={pieces} onChange={(v) => setPieces(v ?? null)} className="w-full" />
+            <TruckingField label="Colli">
+              <InputNumber aria-label="Colli" min={1} precision={0} value={pieces} onChange={(v) => setPieces(v ?? null)} className="w-full" />
             </TruckingField>
           )}
           {waiting && (

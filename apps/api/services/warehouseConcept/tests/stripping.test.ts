@@ -108,7 +108,7 @@ describe("import stripping tally", () => {
     const short = await containerService.tally(box.id, c, user, "user", a.id, { outcome: "short", pieces: 7, reason: "3 cartons missing" });
     // The tally opens the Short exception itself (Council Outlay 5, decision 11): nothing to suggest.
     expect(short.suggestException).toBeNull();
-    expect(short.notice).toMatch(/Exception recorded: Short 3 pcs/);
+    expect(short.notice).toMatch(/Exception recorded: Short 3 colli/);
     const held = await gateMovementService.get(a.id, c);
     expect(held.exceptions).toEqual([expect.objectContaining({ type: "Short", pieces: 3, note: "3 cartons missing", source: "tally", container: "MSKU 611 902-7", status: "open" })]);
     expect(short.container.status).toBe("Stripping");

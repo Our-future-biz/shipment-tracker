@@ -106,7 +106,7 @@ export function WarehouseTab({ shipment, readOnly = false, pickupReadOnly = !rea
             <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6">
               <div>
                 <Row label="Container #" value={shipment.containerNumber} />
-                <Row label="Colli / PCS" value={shipment.pcs} />
+                <Row label="Colli" value={shipment.pcs} />
                 <Row label="Load type" value={loadTypeLabel(shipment.loadType, shipment.freightMode)} />
                 <Row label="Customs procedure" value={rowData["customsProcedure"]} />
               </div>
@@ -157,7 +157,7 @@ const DIM_FIELDS = ["pieces", "lengthCm", "widthCm", "heightCm", "weightPerPcKg"
 type DimField = (typeof DIM_FIELDS)[number];
 // Input rules per column: qty is a whole number of pieces, the rest are cm / kg with one decimal step.
 const DIM_INPUT: Record<DimField, { suffix: string; step: number; precision?: number }> = {
-  pieces: { suffix: "pcs", step: 1, precision: 0 },
+  pieces: { suffix: "colli", step: 1, precision: 0 },
   lengthCm: { suffix: "cm", step: 0.1 },
   widthCm: { suffix: "cm", step: 0.1 },
   heightCm: { suffix: "cm", step: 0.1 },

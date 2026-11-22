@@ -67,7 +67,7 @@ function InquiryCell({ pieces, inquiry, onAsk }: { pieces: number; inquiry?: Quo
       <span className="inline-block text-right">
         <span className="font-semibold text-amber-600">Waiting for the warehouse</span>
         {who(inquiry.requestedById, inquiry.requestedByName, inquiry.requestedAt)}
-        {inquiry.pieces !== pieces && <span className="block text-[11px] text-amber-600">asked about {inquiry.pieces} piece{inquiry.pieces === 1 ? "" : "s"}</span>}
+        {inquiry.pieces !== pieces && <span className="block text-[11px] text-amber-600">asked about {inquiry.pieces} colli</span>}
       </span>
     );
   }
@@ -77,7 +77,7 @@ function InquiryCell({ pieces, inquiry, onAsk }: { pieces: number; inquiry?: Quo
       return (
         <span className="inline-flex flex-col items-end gap-1 text-right">
           <span className="text-[11px] text-amber-600">
-            Approved for {inquiry.pieces} piece{inquiry.pieces === 1 ? "" : "s"}, not {pieces}
+            Approved for {inquiry.pieces} colli, not {pieces}
           </span>
           {ask("Ask again")}
         </span>
@@ -180,7 +180,7 @@ export function QuoteHeavyPiecesDialogs({ open, grossWeight, initial, onCancel, 
           </>
         }
       >
-        <p className="m-0 text-[13px] text-slate-700">No saves the cargo as it is. Yes asks how many pieces there are by weight.</p>
+        <p className="m-0 text-[13px] text-slate-700">No saves the cargo as it is. Yes asks how many colli there are by weight.</p>
       </SalesDialog>
     );
   }
@@ -191,15 +191,15 @@ export function QuoteHeavyPiecesDialogs({ open, grossWeight, initial, onCancel, 
         open={open}
         size="reading"
         onClose={onCancel}
-        title="Pieces over 2 t"
-        subtitle="How many pieces of each weight the shipment has. The extra handling is charged per piece; change it only with a reason."
+        title="Colli over 2 t"
+        subtitle="How many colli of each weight the shipment has. The extra handling is charged per piece; change it only with a reason."
         footer={
           <>
             <Button onClick={() => setStep("ask")}>Back</Button>
             <Button
               type="primary"
               disabled={waitsForWarehouse}
-              title={waitsForWarehouse ? "Pieces of 12,500 kg and more are saved once the warehouse approves them" : undefined}
+              title={waitsForWarehouse ? "Colli of 12,500 kg and more are saved once the warehouse approves them" : undefined}
               onClick={savePieces}
             >
               Save
@@ -211,7 +211,7 @@ export function QuoteHeavyPiecesDialogs({ open, grossWeight, initial, onCancel, 
           <thead>
             <tr>
               <th className={TH}>Weight per piece</th>
-              <th className={`${TH} w-[110px]`}>Pieces</th>
+              <th className={`${TH} w-[110px]`}>Colli</th>
               <th className={`${TH} !text-right w-[150px]`}>Rate</th>
               <th className={`${TH} !pl-4 w-[190px]`}>Extra handling (EUR)</th>
             </tr>
@@ -233,7 +233,7 @@ export function QuoteHeavyPiecesDialogs({ open, grossWeight, initial, onCancel, 
                       className="!w-[90px]"
                       min={0}
                       precision={0}
-                      aria-label={`Pieces of ${band.label}`}
+                      aria-label={`Colli of ${band.label}`}
                       value={pieces || null}
                       placeholder="0"
                       onChange={(v) => setPieces(band.key, v)}
@@ -276,11 +276,11 @@ export function QuoteHeavyPiecesDialogs({ open, grossWeight, initial, onCancel, 
                     <td colSpan={4} className="pb-3">
                       <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
                         <div className="text-[12px] font-semibold text-amber-800">
-                          Ask the warehouse about {pieces} piece{pieces === 1 ? "" : "s"} of 12,500 kg or more ({fmtQuantity(grossWeight)} kg in all)
+                          Ask the warehouse about {pieces} colli of 12,500 kg or more ({fmtQuantity(grossWeight)} kg in all)
                         </div>
                         <div className="text-[11px] text-amber-700 mb-2">
                           A warehouse manager approves with the extra handling per piece, or rejects; the answer comes to your notifications. Once approved, the fee is put to
-                          Pricing by itself (buying, and selling EUR {HEAVY_CARGO_MARKUP_EUR} above it) and the quote can be sent. Until then the pieces cannot be saved.
+                          Pricing by itself (buying, and selling EUR {HEAVY_CARGO_MARKUP_EUR} above it) and the quote can be sent. Until then the colli cannot be saved.
                         </div>
                         <Input.TextArea
                           rows={2}
@@ -318,7 +318,7 @@ export function QuoteHeavyPiecesDialogs({ open, grossWeight, initial, onCancel, 
           </tfoot>
         </table>
         <p className="mt-2 mb-0 text-[11px] text-slate-400">
-          Posted to Pricing as a buying and a selling line of the same amount. The warehouse&apos;s fee for pieces of 12,500 kg and more is a line of its own, &quot;Heavy
+          Posted to Pricing as a buying and a selling line of the same amount. The warehouse&apos;s fee for colli of 12,500 kg and more is a line of its own, &quot;Heavy
           Cargo Handling Fee&quot;, put there by its approval.
         </p>
         {waitsForWarehouse && !asking && (

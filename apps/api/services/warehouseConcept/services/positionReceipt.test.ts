@@ -61,7 +61,7 @@ describe("receipt rules", () => {
   });
 
   it("words the count as the tally does", () => {
-    expect(countedText(6, 6, "Damaged packaging", "A-03-2")).toBe("6 of 6 pcs counted · Damaged packaging · at A-03-2");
+    expect(countedText(6, 6, "Damaged packaging", "A-03-2")).toBe("6 of 6 colli counted · Damaged packaging · at A-03-2");
     expect(countedText(null, 6, "", "")).toBe("");
   });
 
@@ -81,7 +81,7 @@ describe("receipt rules", () => {
       { type: "Short", pieces: 1 },
       { type: "Damaged", pieces: null },
     ]);
-    expect(suggestionsNotice(s, 10, "Damaged cargo")).toBe("Short 1 pc against the expected 10 — record an exception? · Damaged cargo — record a Damaged exception?");
+    expect(suggestionsNotice(s, 10, "Damaged cargo")).toBe("Short 1 colli against the expected 10 — record an exception? · Damaged cargo — record a Damaged exception?");
   });
 
   it("reads the receipt that counts from the events (a void takes it back)", () => {
