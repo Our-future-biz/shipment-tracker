@@ -63,11 +63,6 @@ const BY_KIND: Record<string, HistoryCategory> = {
   shipmentMayNeedCorrecting: "shipment",
   customsFromShipment: "shipment",
   refreshedFromShipment: "shipment",
-  // Edits by hand on the record, one line per field with what it was (mock test): the customs procedure, MRN and
-  // customs status; a transport leg's company, plate, driver, phone or gate time; a checklist icon.
-  customsEdited: "records",
-  transportLegEdited: "records",
-  checklistEdited: "records",
 };
 
 /** The category of an event kind; unknown kinds are record events. */
@@ -75,6 +70,9 @@ export function categoryOf(kind: string): HistoryCategory {
   if (BY_KIND[kind]) return BY_KIND[kind]!;
   if (/^pickupPin|^pin/i.test(kind)) return "release";
   if (/^shipmentUpdate/.test(kind)) return "shipment";
+  // Among them the edits by hand on the record, one line per field with what it was (mock test): the customs
+  // procedure, MRN and customs status (customsEdited); a transport leg's company, plate, driver, phone or gate time
+  // (transportLegEdited); a checklist icon (checklistEdited).
   return "records";
 }
 

@@ -42,6 +42,16 @@ describe("legEditEvents", () => {
     expect(e).toMatchObject({ label: "IN leg gate time: 2026-11-21 09:30", detail: "was after lunch" });
     expect(legEditEvents([leg("IN", { gateTime: "2026-11-21T08:30:00.000Z" })], [leg("IN")], AT, "Eva")[0]).toMatchObject({ label: "IN leg gate time: cleared", detail: "was 2026-11-21 09:30" });
   });
+
+  // Review of system-22: a gate time stored as "…T08:30:00Z" and sent back as "…T08:30:00.000Z" logged
+  // "IN leg gate time: 2026-11-21 09:30 / was 2026-11-21 09:30".
+  it("logs nothing for a gate time sent back as the same instant written another way", () => {
+    expect(legEditEvents([leg("IN", { gateTime: "2026-11-21T08:30:00Z" })], [leg("IN", { gateTime: "2026-11-21T08:30:00.000Z" })], AT, "Eva")).toEqual([]);
+    expect(legEditEvents([leg("IN", { gateTime: "2026-11-21T09:30:00+01:00" })], [leg("IN", { gateTime: "2026-11-21T08:30:00.000Z" })], AT, "Eva")).toEqual([]);
+    // Another instant, or free text against a time, is a change.
+    expect(legEditEvents([leg("IN", { gateTime: "2026-11-21T08:30:00Z" })], [leg("IN", { gateTime: "2026-11-21T08:45:00.000Z" })], AT, "Eva")).toHaveLength(1);
+    expect(legEditEvents([leg("IN", { gateTime: "2026-11-21T08:30:00Z" })], [leg("IN", { gateTime: "after lunch" })], AT, "Eva")).toHaveLength(1);
+  });
 });
 
 describe("checkEditEvents", () => {

@@ -30,15 +30,19 @@ export function madeAlreadyNumbers(existing: readonly (MadeAlready | null)[]): s
 // A B/L number as two are compared (as the server's billOfLadingKey): letters and digits, upper case.
 const bolKey = (ref: string | undefined) => (ref ?? "").toUpperCase().replace(/[^A-Z0-9]/g, "");
 
-/** The Master B/L the houses read name, when every house that names one names the same; "" otherwise. */
+/**
+ * The Master B/L the houses read name, when every house names one and the same; "" otherwise. Review of
+ * system-22: a house naming none no longer leaves it to the others (one misread B/L was "named by every House
+ * B/L" and took every house to its consolidation). The server's copy (extraction pipeline) has the same rule.
+ */
 export function housesMasterBol(houses: readonly Record<string, string>[]): string {
-  const named = houses.map((h) => (h[MASTER_BOL] ?? "").trim()).filter((b) => bolKey(b));
-  return named.length > 0 && new Set(named.map(bolKey)).size === 1 ? (named[0] ?? "") : "";
+  const named = houses.map((h) => (h[MASTER_BOL] ?? "").trim());
+  return named.length > 0 && named.every((b) => bolKey(b)) && new Set(named.map(bolKey)).size === 1 ? (named[0] ?? "") : "";
 }
 
 /**
  * The Master B/L of the houses the review shows ("Master B/L from the houses"), ticked to be filed like a read
- * one: only when no Master B/L number was read, and the houses agree on one ("" when two differ).
+ * one: only when no Master B/L number was read, and every house names the same one ("" when one names none or two differ).
  */
 export function housesMasterBolShown(info: Record<string, string> | null, houses: readonly Record<string, string>[]): string {
   return bolKey(info?.[MASTER_BOL]) ? "" : housesMasterBol(houses);
@@ -58,4 +62,36 @@ export function masterBolToFile(
 ): string {
   if (!bolKey(info?.[MASTER_BOL])) return housesTicked ? housesMasterBol(houses) : "";
   return ticked[MASTER_BOL] ? (info?.[MASTER_BOL] ?? "").trim() : "";
+}
+
+/**
+ * Of the Master B/L a new master job is asked for (`filed`, masterBolToFile's answer): the one taken from the
+ * houses, kept with the batch's master job for its summary; "" when it is the one read from a Master B/L page.
+ */
+export function housesMblFiled(info: Record<string, string> | null, filed: string): string {
+  return bolKey(info?.[MASTER_BOL]) ? "" : filed.trim();
+}
+
+/**
+ * The summary's line on the houses' Master B/L the batch's master job was made with or found by (kept when it
+ * was, review of system-22: worked out again from every house loaded at the end, a later batch naming another
+ * B/L dropped it from a master job made with it).
+ */
+export function housesMblNote(filed: string | undefined): string {
+  return filed ? `Master B/L ${filed} taken from the House B/Ls` : "";
+}
+
+/**
+ * The Master B/Ls the houses loaded name other than `filed` (the one taken from the houses), each once, as read
+ * first: a later batch's houses under another consolidation (review of system-22). None when none was filed.
+ */
+export function otherHousesMbls(filed: string, houses: readonly Record<string, string>[]): string[] {
+  if (!bolKey(filed)) return [];
+  const others = new Map<string, string>();
+  for (const h of houses) {
+    const bol = (h[MASTER_BOL] ?? "").trim();
+    const key = bolKey(bol);
+    if (key && key !== bolKey(filed) && !others.has(key)) others.set(key, bol);
+  }
+  return [...others.values()];
 }

@@ -814,6 +814,27 @@ describe("gate movement flow", () => {
     expect(events).toEqual([["MRN: 26CZ5100002222C3", "was 26CZ5100001111B2"]]);
   });
 
+  it("rewrites the Customs line against the customs status under the lock, as History judges the edit (review of system-22)", async () => {
+    const c = company();
+    const m = await gateMovementService.create(c, user, { gateRef: "WCZ2026112103", visit: "výdej", handling: "Export", mrn: "26CZ4" });
+    expect(m.customsStatus).toBe("Waiting For Commercial Paperwork");
+    // Customs released by another save between this save's load and its transaction.
+    const transaction = db.transaction.bind(db);
+    const spy = vi.spyOn(db, "transaction").mockImplementationOnce(async (run) => {
+      const released = m.releaseGates.map((g) => (g.g === "Customs" ? { g: "Customs", s: "OK" as const, note: "released" } : g));
+      await gateMovementRepository.update(m.id, c, { customsStatus: "Customs Cleared/Released", releaseGates: released });
+      return transaction(run as never);
+    });
+    // The status as this save loaded it, sent back: it puts it back over the released one.
+    const saved = await gateMovementService.update(m.id, c, user, { customsStatus: "Waiting For Commercial Paperwork" }).finally(() => spy.mockRestore());
+    const edits = saved.events.filter((e) => e.kind === "customsEdited").map((e) => [e.label, e.detail]);
+    expect(edits).toEqual([["Customs status: Waiting For Commercial Paperwork", "was Customs Cleared/Released"]]);
+    // The Customs line follows the status written, judged as stored under the lock, not as loaded before it:
+    // no OK left from the released status.
+    expect(saved.customsStatus).toBe("Waiting For Commercial Paperwork");
+    expect(saved.releaseGates.find((g) => g.g === "Customs")).toMatchObject({ s: "Pending" });
+  });
+
   it("verifies the PIN without revealing it and locks after three misses", async () => {
     const c = company();
     const m = await gateMovementService.create(c, user, { gateRef: "WCZ2026091604", visit: "výdej", pin: "4471" });

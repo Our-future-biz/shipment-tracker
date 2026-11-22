@@ -829,6 +829,8 @@ class GateMovementService {
     // gates (as the customs follow does), so a line changed meanwhile — the "No open exceptions"
     // hold of an exception created or resolved since the load, or the Pick-up PIN line — is kept.
     // (Domestic positions have no Customs line: setCustomsLineSql leaves them as they are.)
+    // Judged here on the record loaded, for the refusal below; the line itself is rewritten by the status as
+    // stored under the row lock (see the transaction).
     const customsChanged = input.customsStatus !== undefined && input.customsStatus !== m.customsStatus;
     // The grid's carrier / driver / plate follow the leg the cargo moves on at this gate.
     if (patch.transportLegs) {
@@ -938,6 +940,10 @@ class GateMovementService {
       // changes them, field by field with what they were (mock test: History logged none of them) - as
       // stored under the lock, not as loaded before it (mock test run F3, m3).
       const before = locked ?? m;
+      // The Customs line is rewritten against the same stored status as its History line (review of system-22:
+      // judged on the load, a status released meanwhile and sent back as loaded was logged as changed, and its
+      // OK line kept).
+      const customsLineChanged = input.customsStatus !== undefined && input.customsStatus !== before.customsStatus;
       const editEvents: GateEvent[] = [
         ...customsEditEvents(before, patch, clockAt, editBy),
         ...(patch.transportLegs ? legEditEvents(normalizeLegs(before.transportLegs), patch.transportLegs, clockAt, editBy) : []),
@@ -982,7 +988,7 @@ class GateMovementService {
         ]);
       }
       if (customerBefore !== undefined) await dockSlotRepository.followCustomer(tx, companyId, id, customerBefore, patch.customer!);
-      if (customsChanged) await gateMovementRepository.conditionalUpdate(id, companyId, { releaseGates: setCustomsLineSql(customsLine(input.customsStatus!)) }, undefined, undefined, tx);
+      if (customsLineChanged) await gateMovementRepository.conditionalUpdate(id, companyId, { releaseGates: setCustomsLineSql(customsLine(input.customsStatus!)) }, undefined, undefined, tx);
       if (clockEvents.length || linkEvents.length || editEvents.length) await gateMovementRepository.appendEvents(id, companyId, [...linkEvents, ...clockEvents, ...editEvents], tx);
       // Figures, customs mode / status, the received date or the operation type may change the
       // stock line and the bonded entry (in this transaction, after the row is updated and locked).

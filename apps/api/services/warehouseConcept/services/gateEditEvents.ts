@@ -34,12 +34,26 @@ const shown = (v: string | null | undefined) => (v ?? "").trim();
 const now = (v: string) => v || "cleared";
 const was = (v: string) => `was ${v || "—"}`;
 
+// A gate time typed as an ISO time, as the instant it names; null for free text.
+function gateInstant(v: string): Date | null {
+  const s = shown(v);
+  if (!/^\d{4}-\d{2}-\d{2}T/.test(s)) return null;
+  const d = new Date(s);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
 // A gate time typed as an ISO time reads as the Prague day and time; free text as typed.
 function gateTimeText(v: string): string {
-  const s = shown(v);
-  if (!/^\d{4}-\d{2}-\d{2}T/.test(s)) return s;
-  const d = new Date(s);
-  return Number.isNaN(d.getTime()) ? s : pragueStamp(d).replace("T", " ");
+  const d = gateInstant(v);
+  return d ? pragueStamp(d).replace("T", " ") : shown(v);
+}
+
+// Two gate times are the same when they name the same instant, however written (review of system-22: one stored
+// as "…T08:30:00Z" and sent back as "…T08:30:00.000Z" logged "gate time: 09:30 / was 09:30"); free text as typed.
+function sameGateTime(a: string, b: string): boolean {
+  const ia = gateInstant(a);
+  const ib = gateInstant(b);
+  return ia && ib ? ia.getTime() === ib.getTime() : shown(a) === shown(b);
 }
 
 /** One line per customs field the save changes (`patch`: the fields as they will be stored; left out: not changed). */
@@ -61,7 +75,7 @@ export function legEditEvents(before: GateTransportLeg[], after: GateTransportLe
     for (const { key, label } of LEG_LABELS) {
       const a = shown(old?.[key]);
       const b = shown(leg[key]);
-      if (a === b) continue;
+      if (key === "gateTime" ? sameGateTime(a, b) : a === b) continue;
       const text = key === "gateTime" ? gateTimeText : (v: string) => v;
       out.push({ kind: LEG_EDITED, label: `${leg.leg} leg ${label}: ${now(text(b))}`, at, by, detail: was(text(a)) });
     }

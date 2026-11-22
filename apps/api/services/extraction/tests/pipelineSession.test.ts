@@ -182,10 +182,16 @@ describe("the master job of a pre-alert with no Master B/L page", () => {
   const hal = { companyId: "c1", userId: "hal" };
 
   it("takes the Master B/L the houses agree on, none when they name none or differ", () => {
-    expect(housesMasterBol([{ "Master BoL Number": " MEDU123 " }, { "Master BoL Number": "medu-123" }, {}])).toBe("MEDU123");
+    expect(housesMasterBol([{ "Master BoL Number": " MEDU123 " }, { "Master BoL Number": "medu-123" }])).toBe("MEDU123");
     expect(housesMasterBol([{ "Master BoL Number": "MEDU123" }, { "Master BoL Number": "MEDU999" }])).toBe("");
     expect(housesMasterBol([{ "Master BoL Number": " " }, {}])).toBe("");
     expect(housesMasterBol([])).toBe("");
+  });
+
+  // Review of system-22: one house's B/L (a misread one, say) filed every house under another consolidation.
+  it("takes none while a house read names none", () => {
+    expect(housesMasterBol([{ "Master BoL Number": "X" }, {}])).toBe("");
+    expect(housesMasterBol([{ "Master BoL Number": "MEDU123" }, { "Master BoL Number": " " }, { "Master BoL Number": "MEDU123" }])).toBe("");
   });
 
   it("names the live master job of the houses' common Master B/L on the batch's answer, asked again on a repeat", async () => {
@@ -208,6 +214,35 @@ describe("the master job of a pre-alert with no Master B/L page", () => {
     expect(readingMatches).toHaveBeenLastCalledWith({ houseBols: [], masterBol: "MEDU123" });
     expect((await extractHblBatch(sessionId, 0, hal)).existingMasterJob).toEqual({ id: "mj9", number: "MCZCONSOL99990009" });
     expect(extractFromPages).toHaveBeenCalledTimes(2);
+    readingMatches.mockReset();
+  });
+
+  // Review of system-22: the web holds the houses of batch 0 when it takes the master job, so batch 0 is
+  // answered from its own houses - also when asked again once a later batch naming another B/L was read.
+  it("answers each batch from its own houses, batch 0 asked again after a later batch naming another B/L", async () => {
+    readingMatches.mockImplementation(async ({ masterBol }) => ({
+      shipments: [],
+      masterJob: masterBol === "MEDU123" ? { id: "mj9", mczNumber: "MCZCONSOL99990009" } : masterBol === "MEDU999" ? { id: "mj8", mczNumber: "MCZCONSOL99990008" } : null,
+    }));
+    vi.mocked(classifyPages).mockResolvedValueOnce([
+      { page: 1, type: "HBL", ref: "H1" },
+      { page: 2, type: "HBL", ref: "H2" },
+      { page: 3, type: "HBL", ref: "H3" },
+      { page: 4, type: "HBL", ref: "H4" },
+    ]);
+    const { sessionId } = await prepare([pdf(4)], hal);
+    vi.mocked(extractFromPages).mockReset();
+    vi.mocked(extractFromPages)
+      .mockResolvedValueOnce({ "House BoL Number": "H1", "Master BoL Number": "MEDU123" })
+      .mockResolvedValueOnce({ "House BoL Number": "H2", "Master BoL Number": "MEDU123" })
+      .mockResolvedValueOnce({ "House BoL Number": "H3", "Master BoL Number": "MEDU123" })
+      .mockResolvedValueOnce({ "House BoL Number": "H4", "Master BoL Number": "MEDU999" });
+    await extractMbl(sessionId, hal);
+    expect((await extractHblBatch(sessionId, 0, hal)).existingMasterJob).toEqual({ id: "mj9", number: "MCZCONSOL99990009" });
+    expect((await extractHblBatch(sessionId, 1, hal)).existingMasterJob).toEqual({ id: "mj8", number: "MCZCONSOL99990008" });
+    // The reading started again in the same session: batch 0 still names its houses' master job.
+    expect((await extractHblBatch(sessionId, 0, hal)).existingMasterJob).toEqual({ id: "mj9", number: "MCZCONSOL99990009" });
+    expect(extractFromPages).toHaveBeenCalledTimes(4);
     readingMatches.mockReset();
   });
 

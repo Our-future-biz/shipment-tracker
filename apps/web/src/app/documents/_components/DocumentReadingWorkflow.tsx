@@ -94,7 +94,17 @@ import { documentNumber, numberedFileName, savedDocumentName, suggestedDocumentT
 import { mergeReads } from "../_lib/mergeReads";
 import { readEachFile, readFileProblem } from "../_lib/fileReads";
 import { createAndWrite, type ShipmentProgress } from "../_lib/resumeShipment";
-import { houseRefusedAsMade, housesMadeAlready, housesMasterBolShown, madeAlreadyNumbers, masterBolToFile, type MadeAlready } from "../_lib/preAlertMadeAlready";
+import {
+  houseRefusedAsMade,
+  housesMadeAlready,
+  housesMasterBolShown,
+  housesMblFiled,
+  housesMblNote,
+  madeAlreadyNumbers,
+  masterBolToFile,
+  otherHousesMbls,
+  type MadeAlready,
+} from "../_lib/preAlertMadeAlready";
 import { missingWm, splitLines, type SplitMethod } from "../_lib/masterInvoice";
 import { MasterInvoiceShipments, type MasterInvoiceShipment } from "./MasterInvoiceShipments";
 import { InvoiceLinesPreview, InvoiceLinesTable } from "./InvoiceLinesTable";
@@ -288,8 +298,10 @@ export function DocumentReadingWorkflow() {
   // The master job "Create new Master Job" made for the batch: the server creates it under its next
   // free number before the batch's first shipment (or its MBL filed alone), and every house of the
   // batch, and a retry after a failure, goes to it. The number shown before then is only a preview:
-  // linking a house by it would join whatever master job has that number by then.
-  const [batchJob, setBatchJob] = useState<{ id: string; mczNumber: string } | null>(null);
+  // linking a house by it would join whatever master job has that number by then. `housesMbl`: the Master B/L
+  // taken from the houses it was made with or found by, kept for the summary (review of system-22: worked out
+  // again at the end from every house loaded, a later batch naming another B/L dropped it).
+  const [batchJob, setBatchJob] = useState<{ id: string; mczNumber: string; housesMbl?: string } | null>(null);
   // The shipment made from each House B/L of the batch (by its place in the batch) until it is
   // linked: a retry after a failed write or link carries on with it instead of creating another
   // shipment, which would be left behind with a job number used.
@@ -312,6 +324,9 @@ export function DocumentReadingWorkflow() {
   // No Master B/L number read: the one the houses agree on is shown ticked, and filed only while it stays so (mock test run F3, m1).
   const [housesMblTicked, setHousesMblTicked] = useState(true);
   const [masterShipments, setMasterShipments] = useState<Record<string, string>[]>([]);
+  // The houses of the first batch: the server looked for the master job of their Master B/L on that batch's
+  // answer, so the review shows and files the same one, whatever later batches name (review of system-22).
+  const [firstHouses, setFirstHouses] = useState<Record<string, string>[]>([]);
   const [masterIdx, setMasterIdx] = useState(0);
   const [masterFields, setMasterFields] = useState<ExtractedField[]>([]);
   const [masterCreatedJobs, setMasterCreatedJobs] = useState<string[]>([]);
@@ -354,15 +369,29 @@ export function DocumentReadingWorkflow() {
   // A new master job's number is only a preview until the server has created it.
   const mczShown = masterMode === "new" && !batchJob ? `${newMcz} (will be assigned)` : activeMcz;
   // No Master B/L number read: the one the houses agree on, shown in the review like a read one before anything is
-  // created (mock test run F3, m1: it was filed, and its master job taken, unseen). Two houses naming two: none.
-  const housesMbl = masterMode === "new" ? housesMasterBolShown(mblInfo, masterShipments) : "";
+  // created (mock test run F3, m1: it was filed, and its master job taken, unseen). A house naming none, or two
+  // naming two: none. Of the first batch's houses, as the server's answer (review of system-22).
+  const housesMbl = masterMode === "new" ? housesMasterBolShown(mblInfo, firstHouses) : "";
   // Its tick stays as it was once a master job is made with it, or a house is filed under the one found by it.
   const housesMblLocked = masterCreatedJobs.length > 0 || (!!batchJob && batchJob.id !== mblMasterJob?.id);
   // The master job found by it is taken only while it is ticked: unticked, a new one is made without the B/L.
   const toggleHousesMbl = () => {
     const ticked = !housesMblTicked;
     setHousesMblTicked(ticked);
-    if (mblMasterJob) setBatchJob(ticked ? { id: mblMasterJob.id, mczNumber: mblMasterJob.number } : null);
+    if (mblMasterJob) setBatchJob(ticked ? { id: mblMasterJob.id, mczNumber: mblMasterJob.number, housesMbl } : null);
+  };
+  // The houses' Master B/L the batch goes under (made with or found by it, else still ticked to be), and the
+  // other ones later batches' houses name: said on the batch line (review of system-22).
+  const housesMblInUse = batchJob ? (batchJob.housesMbl ?? "") : housesMblTicked ? housesMbl : "";
+  const laterHousesMbls = otherHousesMbls(housesMblInUse, masterShipments);
+  // A new master job, by its Master B/L: the master job that has it already is the one filed to. One taken
+  // from the houses is kept with it, for the summary.
+  const newBatchJob = async () => {
+    const masterBolNumber = masterBolToFile(mblInfo, mblTicked, firstHouses, housesMblTicked);
+    const { masterJob } = await createMasterJob.mutateAsync({ masterBolNumber: masterBolNumber || undefined });
+    const job = { id: masterJob.id, mczNumber: masterJob.mczNumber, housesMbl: housesMblFiled(mblInfo, masterBolNumber) || undefined };
+    setBatchJob(job);
+    return job;
   };
   // Load Type is chosen once per master job; a different one on the MBL can't be filed.
   const mblLoadTypeLocked =
@@ -591,8 +620,9 @@ export function DocumentReadingWorkflow() {
   // A master job is named only once it exists (picked, created or found): a new one's number is a
   // preview until then (mock test run F3: "Master Job MCZ…" named one that was never made).
   const masterJobNamed = masterMode === "existing" || !!batchJob;
-  // Its Master B/L taken from the houses (none read): said on the summary, as it was not on a Master B/L page.
-  const housesMblNote = housesMbl && housesMblTicked && batchJob ? `Master B/L ${housesMbl} taken from the House B/Ls` : "";
+  // Its Master B/L taken from the houses (none read): said on the summary, as it was not on a Master B/L page -
+  // as kept when the master job was made with it or found by it (review of system-22).
+  const housesMblLine = housesMblNote(batchJob?.housesMbl);
   const successSubtitle =
     destination === "masterjob"
       ? [
@@ -602,7 +632,7 @@ export function DocumentReadingWorkflow() {
             : masterJobNamed
               ? `Master Job ${activeMcz}`
               : "",
-          housesMblNote,
+          housesMblLine,
           madeBefore.length > 0 ? `Created before, not created again: ${madeBefore.join(", ")}` : "",
         ]
           .filter(Boolean)
@@ -701,6 +731,7 @@ export function DocumentReadingWorkflow() {
     setMblFiled(false);
     setMblReadError(null);
     setMasterShipments([]);
+    setFirstHouses([]);
     setMasterIdx(0);
     setMasterFields([]);
     setMasterCreatedJobs([]);
@@ -1243,6 +1274,7 @@ export function DocumentReadingWorkflow() {
       setHousesMblTicked(true);
       setMblFiled(false);
       setMasterShipments(extracted);
+      setFirstHouses(extracted);
       setMasterDocs(batchDocs(hbl));
       setMasterExisting(housesMadeAlready(hbl));
       // No Master B/L number read: the server looked for the master job of the houses' common one
@@ -1250,7 +1282,10 @@ export function DocumentReadingWorkflow() {
       mblJob = mblJob ?? hbl.existingMasterJob ?? null;
       setMblMasterJob(mblJob);
       // The Master B/L has its master job already (read before): a new batch goes under it, not a new one.
-      if (mblJob && masterMode === "new") setBatchJob({ id: mblJob.id, mczNumber: mblJob.number });
+      // Found by the houses' one (none read): kept with it for the summary.
+      if (mblJob && masterMode === "new") {
+        setBatchJob({ id: mblJob.id, mczNumber: mblJob.number, housesMbl: housesMasterBolShown(info, extracted) || undefined });
+      }
       setMasterDocsSaved(0);
       setHblBatchIndex(1);
       setHblTotalBatches(hbl.totalBatches || 1);
@@ -1399,12 +1434,8 @@ export function DocumentReadingWorkflow() {
     setFilingMblOnly(true);
     try {
       let id = masterMode === "existing" ? currentMasterJob!.id : batchJob?.id;
-      if (!id) {
-        // By its Master B/L: the master job that has it already is the one filed to.
-        const { masterJob } = await createMasterJob.mutateAsync({ masterBolNumber: masterBolToFile(mblInfo, mblTicked, masterShipments, housesMblTicked) || undefined });
-        id = masterJob.id;
-        setBatchJob({ id: masterJob.id, mczNumber: masterJob.mczNumber });
-      }
+      // By its Master B/L: the master job that has it already is the one filed to.
+      if (!id) id = (await newBatchJob()).id;
       if (await fileMblToMasterJob(id)) setStep("committed");
     } catch (err) {
       toast.error(`The master job could not be created: ${err instanceof Error ? err.message : "unknown error"}`);
@@ -1424,12 +1455,8 @@ export function DocumentReadingWorkflow() {
     if (masterExisting[house]) return advanceMaster();
     try {
       let job: { mczNumber: string } | null = masterMode === "existing" ? { mczNumber: masterMczExisting } : batchJob;
-      if (!job) {
-        // By its Master B/L: a pre-alert read again goes under the master job that has it already.
-        const { masterJob } = await createMasterJob.mutateAsync({ masterBolNumber: masterBolToFile(mblInfo, mblTicked, masterShipments, housesMblTicked) || undefined });
-        job = { mczNumber: masterJob.mczNumber };
-        setBatchJob({ id: masterJob.id, mczNumber: masterJob.mczNumber });
-      }
+      // By its Master B/L: a pre-alert read again goes under the master job that has it already.
+      if (!job) job = await newBatchJob();
       const progress = houseShipments.current.get(house) ?? { current: null };
       houseShipments.current.set(house, progress);
       // Named by its House B/L: the server refuses a second shipment of it (409), also for two clicks at once.
@@ -2353,7 +2380,7 @@ export function DocumentReadingWorkflow() {
                         <span className="text-slate-900 font-medium break-words">{housesMbl}</span>
                         <span className={`block ${HINT}`}>
                           {housesMblTicked
-                            ? "No Master B/L page was read: every House B/L names this one, and it is filed to the master job"
+                            ? `No Master B/L page was read: every House B/L${hblTotalBatches > 1 ? " of the first batch" : ""} names this one, and it is filed to the master job`
                             : "Not filed: the master job is made without a Master B/L"}
                         </span>
                       </span>
@@ -2442,6 +2469,12 @@ export function DocumentReadingWorkflow() {
                     <span className="text-slate-500">
                       Batch {Math.min(hblBatchIndex, hblTotalBatches)} of {hblTotalBatches} · {masterShipments.length}{" "}
                       shipments loaded
+                      {laterHousesMbls.length > 0 && (
+                        <span className="text-amber-600">
+                          {" "}
+                          · House B/Ls loaded later name Master B/L {laterHousesMbls.join(", ")}, not {housesMblInUse}
+                        </span>
+                      )}
                     </span>
                     {hblBatchIndex < hblTotalBatches && (
                       <span className="flex items-center gap-1.5 text-slate-400">

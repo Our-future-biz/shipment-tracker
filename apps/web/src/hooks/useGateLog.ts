@@ -44,12 +44,21 @@ export const useGateRowCache = () => {
  * One record as opened: it first follows its shipment (customs status, a renumbered job's number), then is read
  * (mock test S21-117: else a renumbered job reached the record only on the 5-minute run - and Refresh is gone once
  * released). No `force`: the server's 30 s max-age keeps reopening cheap. A follow that fails (an archived record,
- * Shipments down) never keeps the record from opening.
+ * Shipments down) never keeps the record from opening. `onChanged`: called once the record is read, when the follow
+ * changed it (review of system-22: else only the detail showed it).
  */
-export async function readFollowed(id: string): Promise<controllers.GateMovementResponse> {
-  await api.warehouseConcept.gateMovementFollow({ id }).catch(() => undefined);
-  return api.warehouseConcept.gateMovementGet(id);
+export async function readFollowed(id: string, onChanged?: () => void): Promise<controllers.GateMovementResponse> {
+  const followed = await api.warehouseConcept.gateMovementFollow({ id }).catch(() => undefined);
+  const res = await api.warehouseConcept.gateMovementGet(id);
+  if (followChangedRecords(followed)) onChanged?.();
+  return res;
 }
+
+/**
+ * The follow moved a record (its customs status, a renumbered job's number): its row in the Gate Log and the
+ * stock / bonded lists built from it are read again (review of system-22: they stayed as they were).
+ */
+export const followChangedRecords = (followed: { changed: number } | undefined): boolean => (followed?.changed ?? 0) > 0;
 
 // Mutations write the returned row into the cache so the list and the detail stay in step.
 export const useGateMovement = (id: string | undefined) => {
@@ -57,7 +66,12 @@ export const useGateMovement = (id: string | undefined) => {
 
   const query = useQuery({
     queryKey: gateKeys.one(id),
-    queryFn: () => readFollowed(id!),
+    // A follow that changed the record changes what the server builds from it, as a gate event does.
+    queryFn: () =>
+      readFollowed(id!, () => {
+        void queryClient.invalidateQueries({ queryKey: gateKeys.list(), exact: true });
+        void invalidateAfterGateEvent(queryClient);
+      }),
     enabled: !!id,
   });
 

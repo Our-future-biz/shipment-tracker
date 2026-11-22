@@ -210,19 +210,27 @@ async function existingMasterJob(mblInfo: Record<string, string> | null): Promis
 }
 
 /**
- * The Master B/L the houses read name, when they agree on one: every house that names one names the
- * same B/L. "" when none names one or two differ. Mock test run F3: a pre-alert of a manifest and
- * House B/Ls, with no Master B/L page, made its master job without the B/L, so a second read found none.
+ * The Master B/L the houses read name, when they agree on one: every house names one, and the same
+ * B/L. "" when one names none or two differ. Mock test run F3: a pre-alert of a manifest and House
+ * B/Ls, with no Master B/L page, made its master job without the B/L, so a second read found none.
+ * Review of system-22: a house naming none no longer leaves the others' B/L to one house (a misread
+ * B/L on one House B/L filed every house under another consolidation). The web's copy
+ * (documents/_lib/preAlertMadeAlready) follows the same rule.
  */
 export function housesMasterBol(shipments: Record<string, string>[]): string {
-  const named = shipments.map((s) => (s[MASTER_BOL] ?? "").trim()).filter((b) => billOfLadingKey(b));
-  return named.length > 0 && new Set(named.map(billOfLadingKey)).size === 1 ? named[0] : "";
+  const named = shipments.map((s) => (s[MASTER_BOL] ?? "").trim());
+  return named.length > 0 && named.every((b) => billOfLadingKey(b)) && new Set(named.map(billOfLadingKey)).size === 1 ? named[0] : "";
 }
 
-/** The live master job of the houses' common Master B/L, when no Master B/L number was read (else extractMbl answers it). */
-async function housesMasterJob(session: PipelineSession): Promise<ReadingMadeAlready | null> {
+/**
+ * The live master job of the Master B/L the houses of the batch answered agree on, when no Master B/L
+ * number was read (else extractMbl answers it). Review of system-22: by the batch's own houses, not
+ * every house read so far - the web takes it from batch 0's answer with batch 0's houses in hand, also
+ * when the reading is started again after a later batch (naming another B/L) was read.
+ */
+async function housesMasterJob(session: PipelineSession, houses: Record<string, string>[]): Promise<ReadingMadeAlready | null> {
   if (billOfLadingKey(session.mblInfo?.[MASTER_BOL])) return null;
-  const masterBol = housesMasterBol(session.shipments);
+  const masterBol = housesMasterBol(houses);
   return masterBol ? existingMasterJob({ [MASTER_BOL]: masterBol }) : null;
 }
 
@@ -299,7 +307,7 @@ export async function extractHblBatch(sessionId: string, batchIndex: number, who
       ...earlier,
       totalExtracted: session.shipments.length,
       existing: await existingHouses(earlier.shipments),
-      existingMasterJob: await housesMasterJob(session),
+      existingMasterJob: await housesMasterJob(session, earlier.shipments),
     };
   }
 
@@ -353,7 +361,7 @@ export async function extractHblBatch(sessionId: string, batchIndex: number, who
     done,
   };
   session.hblBatches.set(batchIndex, result);
-  return { ...result, existing: await existingHouses(shipments), existingMasterJob: await housesMasterJob(session) };
+  return { ...result, existing: await existingHouses(shipments), existingMasterJob: await housesMasterJob(session, shipments) };
 }
 
 /**
