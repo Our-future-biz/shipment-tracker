@@ -16,7 +16,7 @@ import { useToast } from "@/lib/toast";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { canDeleteCustomerRecords } from "../../_lib/customerPermissions";
 import { ADDRESS_TYPES } from "../../_lib/constants";
-import { CustomerAddressDialog } from "../_components/CustomerAddressDialog";
+import { CustomerAddressDialog, withAddedTypes } from "../_components/CustomerAddressDialog";
 import type { CustomerAddressFormValues } from "../_components/CustomerAddressDialog";
 import { CustomerCountChip } from "../_components/CustomerCountChip";
 import { EMPTY_CELL, TABLE_PAGINATION } from "../../_lib/customerTable";
@@ -42,7 +42,8 @@ interface AddressesTabProps {
 
 export function AddressesTab({ customerId }: AddressesTabProps) {
   const { addresses, isLoading, isError, createAddress, updateAddress, deleteAddress, makeBilling } = useCustomerAddresses(customerId);
-  const hasRegistered = addresses.some((a) => a.types.includes("Registered"));
+  const registered = addresses.find((a) => a.types.includes("Registered"));
+  const hasRegistered = !!registered;
   const hasBilling = addresses.some((a) => a.types.includes("Billing"));
   const { customer } = useCustomer(customerId);
   const toast = useToast();
@@ -69,6 +70,21 @@ export function AddressesTab({ customerId }: AddressesTabProps) {
     } catch (err) {
       // e.g. "already has a registered address", or a blank street.
       toast.error(`${address ? "Failed to update the address" : "Failed to add the address"}: ${apiErrorMessage(err)}`);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // "The Registered address" picked in Add Address: the chosen types are added to it, not a second copy made.
+  const handleAddToRegistered = async (types: AddressItem["types"]) => {
+    if (!registered) return;
+    setSaving(true);
+    try {
+      await updateAddress({ id: registered.id, params: { types: withAddedTypes(registered.types, types) } });
+      toast.success(`${types.join(", ")} added to the Registered address`);
+      handleCloseDialog();
+    } catch (err) {
+      toast.error(`Failed to add to the Registered address: ${apiErrorMessage(err)}`);
     } finally {
       setSaving(false);
     }
@@ -210,6 +226,8 @@ export function AddressesTab({ customerId }: AddressesTabProps) {
         defaultCountry={customer?.country || "CZ"}
         hasRegistered={hasRegistered}
         hasBilling={hasBilling}
+        registered={registered}
+        onAddToRegistered={(types) => void handleAddToRegistered(types)}
         saving={saving}
         onCancel={handleCloseDialog}
         onSubmit={handleSubmit}
