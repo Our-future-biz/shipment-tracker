@@ -55,6 +55,21 @@ describe("documents", () => {
       ["Unknown", ""],
     ]);
   });
+
+  // Mock test S19-175: the page told the user's own upload by comparing this name with their e-mail, so
+  // it never matched once the name was a name. The uploader's id comes along for that.
+  it("carry the uploader's id beside the name, null when nobody is recorded", async () => {
+    const row = { id: "a1", shipmentId: "s1", companyId: "c1", fileName: "inv.pdf", fileSize: 1, fileType: "application/pdf", createdAt: AT, documentType: "", customsStatus: "", customsNote: "", customsReviewedAt: null, customsReviewedById: null };
+    vi.mocked(shipmentAttachmentRepository.listByShipmentId).mockResolvedValue([
+      { ...row, uploadedById: "u-jan" },
+      { ...row, id: "a2", uploadedById: null },
+    ] as never);
+    const items = await attachmentService.list("s1", "c1");
+    expect(items.map((i) => [i.uploadedById, i.uploadedByName])).toEqual([
+      ["u-jan", "Jan Novák"],
+      [null, "Unknown"],
+    ]);
+  });
 });
 
 describe("chat messages", () => {

@@ -782,9 +782,14 @@ export interface AttachmentItem {
   customsStatus: AttachmentCustomsStatus;
   customsNote: string;
   customsReviewedAt: string | null;
-  /** The uploader's e-mail; "Unknown" when it cannot be resolved. */
+  /** The uploader by name, the e-mail for a user with none; "Unknown" when it cannot be resolved. */
   uploadedByName: string;
-  /** The customs reviewer's e-mail; "" while the document is unreviewed. */
+  /**
+   * The uploader's user id (null when not known): what tells the signed-in user's own upload, as the
+   * server's four-eyes rule does - the name above is for reading only (mock test S19-175).
+   */
+  uploadedById: string | null;
+  /** The customs reviewer by name, the e-mail for a user with none; "" while the document is unreviewed. */
   customsReviewedByName: string;
 }
 

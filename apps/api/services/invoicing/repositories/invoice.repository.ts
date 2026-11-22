@@ -195,6 +195,31 @@ class InvoiceRepository extends TenantRepository<typeof t> {
     return new Set(rows.map((r) => r.source).filter((s): s is string => !!s));
   }
 
+  /**
+   * Whether a tax document of the shipment came, or was credited in full or cancelled, after `since` (mock test
+   * S20-195, review): whether a row below nothing is owed depends on the documents billing it, and none of these
+   * writes the row - an invoice that took the credit off (+80 handling, −20), a partial credit note of another
+   * invoice that settled it, or an invoice credited or cancelled whose rows below nothing are owed again. A new
+   * invoice or credit note by its creation; a status change by the document's last write, read only for a document
+   * credited or cancelled (storing an open one's PDF writes it too, and changes nothing owed).
+   */
+  async documentsChangedSince(reader: Reader, companyId: string, shipmentId: string, since: Date): Promise<boolean> {
+    const after = since.toISOString();
+    const [row] = await reader
+      .select({ id: t.id })
+      .from(t)
+      .where(
+        and(
+          eq(t.companyId, companyId),
+          eq(t.shipmentId, shipmentId),
+          isNull(t.deletedAt),
+          or(sql`${t.createdAt} > ${after}`, and(inArray(t.status, ["credited", "cancelled"]), sql`${t.updatedAt} > ${after}`)),
+        ),
+      )
+      .limit(1);
+    return !!row;
+  }
+
   /** The credit notes issued against an invoice, oldest first. */
   async creditNotesOf(invoiceId: string, companyId: string, reader: Reader = db): Promise<InvoiceRecord[]> {
     return reader

@@ -41,7 +41,8 @@ class AvizaceService {
         byName: by,
         payload: {
           changes: { avizace: { before: c.avizace, after: avizace } },
-          summary: `Avizace given by ${avizace.channel.toLowerCase()} to ${avizace.contact}${window}`,
+          // "Delivery notice", as the screens say it (mock test S21-094); events saved before keep their text.
+          summary: `Delivery notice given by ${avizace.channel.toLowerCase()} to ${avizace.contact}${window}`,
         },
       });
       await truckingOutboxRepository.enqueue(tx, actor.companyID, [

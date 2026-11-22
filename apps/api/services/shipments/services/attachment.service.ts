@@ -13,7 +13,7 @@ import type { FileContent } from "../../../lib/fileContent";
 import type { AttachmentCustomsStatus, AttachmentFileLink, AttachmentItem } from "../interfaces/interfaces";
 import { shipmentService } from "./shipment.service";
 
-/** An attachment row as the API shows it: who uploaded and reviewed it by name (the e-mail for a user with none; mock test of 21 Nov), a download link, no storage key. */
+/** An attachment row as the API shows it: who uploaded and reviewed it by name (the e-mail for a user with none; mock test of 21 Nov) and the uploader's id, a download link, no storage key. */
 function toItem(row: ShipmentAttachmentRecord, names: Map<string, string>): AttachmentItem {
   return {
     id: row.id,
@@ -28,6 +28,8 @@ function toItem(row: ShipmentAttachmentRecord, names: Map<string, string>): Atta
     customsNote: row.customsNote,
     customsReviewedAt: isoOrNull(row.customsReviewedAt),
     uploadedByName: row.uploadedById ? names.get(row.uploadedById) || "Unknown" : "Unknown",
+    // The id too: a name is no identity, so the page tells the user's own upload by it (mock test S19-175).
+    uploadedById: row.uploadedById ?? null,
     customsReviewedByName: row.customsReviewedById ? names.get(row.customsReviewedById) || "Unknown" : "",
   };
 }

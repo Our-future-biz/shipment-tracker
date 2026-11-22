@@ -14,14 +14,20 @@ const sameEmail = (a: string | null | undefined, b: string | null | undefined) =
 };
 
 /**
- * Why the signed-in user is not offered "approve" on this document, or null when they are. A
- * document shows its uploader by e-mail (`uploadedByName`; "Unknown" when it can't be told - then
- * the button is offered and the server decides).
+ * Why the signed-in user is not offered "approve" on this document, or null when they are. Their own
+ * upload is told by the uploader's user id (`uploadedById`), as the server tells it: `uploadedByName`
+ * is the uploader's name now, which is no identity and never equals an e-mail (mock test S19-175).
+ * An uploader nobody knows (null) gets the button, and the server decides. Only an older answer
+ * without the id falls back to the e-mail the name then was.
  */
 export function ownUploadApprovalRefusal(
-  document: { uploadedByName?: string | null },
-  user: { email?: string | null; role?: string | null } | null | undefined,
+  document: { uploadedById?: string | null; uploadedByName?: string | null },
+  user: { id?: string | null; email?: string | null; role?: string | null } | null | undefined,
 ): string | null {
   if (!user || MANAGER_ROLES.includes(user.role ?? "")) return null;
-  return sameEmail(document.uploadedByName, user.email) ? OWN_UPLOAD_REFUSAL : null;
+  const own =
+    document.uploadedById !== undefined
+      ? !!document.uploadedById && !!user.id && document.uploadedById === user.id
+      : sameEmail(document.uploadedByName, user.email);
+  return own ? OWN_UPLOAD_REFUSAL : null;
 }

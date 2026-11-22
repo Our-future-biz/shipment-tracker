@@ -204,8 +204,10 @@ export function CargoComparison({
             message={<span className="text-xs">Within tolerance</span>}
             description={informed ? <span className="text-xs">Operations informed {formatDateTime(informed.at)}{informed.by ? ` by ${informed.by}` : ""}.</span> : undefined}
             action={
-              // A remeasurement within tolerance is told too (owner decision, 18 Nov 2026): the
-              // shipment's chat (its Notifications) - or its Alerts as well, if a figure is not the same.
+              // A remeasurement within tolerance is told too (owner decision, 18 Nov 2026), in the
+              // shipment's chat (its Notifications) only: within the tolerance is no variance, so no
+              // Alert even when a figure is not quite the same - the message says "within the 5 %
+              // tolerance" (council finding L6, mock test S20-107; the server's remeasureVerdict).
               savedRemeasured && (
                 <Tooltip title={linesUnsaved ? "Save the lines first — Operations are told the saved figures" : undefined}>
                   <span className="inline-flex">

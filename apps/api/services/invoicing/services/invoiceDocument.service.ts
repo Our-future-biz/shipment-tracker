@@ -469,6 +469,10 @@ function creditNoteHeader(original: InvoiceRecord, reason: string, issuedBy: str
 }
 
 const CREDITED_MEANWHILE = (number: string) => `Invoice ${number} was credited a moment ago — open it again and credit what is left`;
+// The request waits on what was owed when it was asked (mock test S20-195): approving it again can't help - it is
+// rejected, and asked again on what is owed now.
+const STALE_CREDIT_REQUEST =
+  "What is owed on this job changed since this was asked (a Trucking price, a line below zero, another invoice or credit note): reject the request, and ask again on what is owed now";
 
 export interface InvoicePdfFile {
   fileName: string;
@@ -943,6 +947,20 @@ class InvoiceDocumentService {
             const now = await truckingLinesRepository.openCreditDiffs(tx, companyId, original.shipmentId, creditedRows);
             if (!sameCreditsOwed(diffs, now)) {
               throw APIError.failedPrecondition("Trucking changed the price of this job a moment ago, or a line below zero changed: open the request again");
+            }
+            // The two reads above are both of now: a price changed while the request waited (the approver's page
+            // from before it) left them alike, and the lines asked to give what was owed then settled what is owed
+            // now and put a credit of their own beside it - 20 asked when 20 was owed, 10 settled and a −10 row after
+            // Trucking's 400 → 410 (mock test S20-195). What the request was asked on is gone: it is asked again. So too
+            // when a document of the job came, or was credited or cancelled, since: an invoice that took the credit off,
+            // another invoice's partial credit note that settled it, or an invoice whose rows below nothing are owed again
+            // (review of S20-195) - none of them writes the row. This approval's own credit note is written after this.
+            const since = request.requestedAt;
+            if (
+              (await truckingLinesRepository.creditsOwedChangedSince(tx, companyId, original.shipmentId, since)) ||
+              (await invoiceRepository.documentsChangedSince(tx, companyId, original.shipmentId, since))
+            ) {
+              throw APIError.failedPrecondition(STALE_CREDIT_REQUEST);
             }
           },
           afterInsert: async (tx, inserted) => {

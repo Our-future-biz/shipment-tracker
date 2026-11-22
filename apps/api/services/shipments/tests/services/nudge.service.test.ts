@@ -58,7 +58,7 @@ describe("a manager's nudge", () => {
       text: "Send the SI today",
       details: "",
       dueDate: "2026-11-19",
-      authorName: "boss@firma.cz",
+      authorName: "Petra Šéfová", // by name, as the notes list shows authors
       createdAt: "2026-11-18T10:00:00.000Z",
       done: false,
       doneAt: null,

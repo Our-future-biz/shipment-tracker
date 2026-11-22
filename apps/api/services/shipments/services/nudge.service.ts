@@ -2,6 +2,7 @@ import { APIError } from "encore.dev/api";
 import log from "encore.dev/log";
 import { businessDay } from "../../../lib/businessDate";
 import { companyUsers, type CompanyUser } from "../../../lib/companyUsers";
+import { nameOf } from "../../../lib/userNames";
 import { iso } from "../../../lib/db/serialize";
 import type { Actor } from "../../../lib/rbac";
 import { isUuid } from "../../../lib/uuid";
@@ -55,7 +56,8 @@ class NudgeService {
         text: note.text,
         details: note.details,
         dueDate: note.dueDate,
-        authorName: me?.email ?? "",
+        // By name, as the job's notes list shows its authors (lib/userNames nameOf).
+        authorName: me ? nameOf(me) : "",
         createdAt: iso(note.createdAt),
         done: false,
         doneAt: null,

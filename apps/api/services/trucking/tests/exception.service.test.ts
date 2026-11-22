@@ -123,7 +123,7 @@ describe("avizace", () => {
     const { c } = await seed();
     await avizaceService.record(user, c.id, { channel: "PHONE", contact: "Eva Nováková", agreedFrom: "2026-10-16T06:00:00Z", agreedTo: "2026-10-16T08:00:00Z", note: "" });
     expect(outboxOf("delivery_advice")).toEqual([expect.objectContaining({ payload: { at: "2026-10-15T10:00:00.000Z", text: "By phone to Eva Nováková, window 16 Oct 2026, 08:00–10:00" } })]);
-    expect(eventsOf("avizace_recorded")[0]!.payload).toMatchObject({ summary: "Avizace given by phone to Eva Nováková, window 16 Oct 2026, 08:00–10:00" });
+    expect(eventsOf("avizace_recorded")[0]!.payload).toMatchObject({ summary: "Delivery notice given by phone to Eva Nováková, window 16 Oct 2026, 08:00–10:00" });
   });
 
   it("an FTL trip warns while its delivery needs an avizace not recorded", async () => {

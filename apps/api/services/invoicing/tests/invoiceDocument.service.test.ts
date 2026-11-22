@@ -19,6 +19,8 @@ const repo = vi.hoisted(() => ({
   lockSeries: vi.fn(),
   lockInvoiceRow: vi.fn(async () => undefined),
   markCancelled: vi.fn(),
+  // Whether a document of the job came, or was credited or cancelled, since a partial credit note was asked (none unless a test says so).
+  documentsChangedSince: vi.fn(async (): Promise<boolean> => false),
 }));
 const generated = vi.hoisted(() => ({ shipmentIdsWithInvoices: vi.fn() }));
 const requests = vi.hoisted(() => ({ approve: vi.fn(), withdrawForInvoice: vi.fn() }));
@@ -30,6 +32,8 @@ const trucking = vi.hoisted(() => ({
   openCreditDiffs: vi.fn(async (): Promise<Map<string, unknown[]>> => new Map()),
   settleDiffs: vi.fn(async () => undefined),
   retireNettedSets: vi.fn(async () => []),
+  // Whether a line below nothing was written since the partial credit note was asked (none unless a test says so).
+  creditsOwedChangedSince: vi.fn(async (): Promise<boolean> => false),
 }));
 const bucket = vi.hoisted(() => ({ upload: vi.fn(), download: vi.fn(), remove: vi.fn() }));
 const pdf = vi.hoisted(() => ({ render: vi.fn() }));
@@ -94,6 +98,7 @@ vi.mock("../repositories/truckingLines.repository", () => ({
     openCreditDiffs: trucking.openCreditDiffs,
     settleDiffs: trucking.settleDiffs,
     retireNettedSets: trucking.retireNettedSets,
+    creditsOwedChangedSince: trucking.creditsOwedChangedSince,
   },
 }));
 vi.mock("../repositories/invoiceProfile.repository", () => ({ invoiceProfileRepository: profiles }));
@@ -180,6 +185,8 @@ beforeEach(() => {
   vi.clearAllMocks();
   trucking.openCreditDiffs.mockImplementation(async () => new Map());
   trucking.retireNettedSets.mockImplementation(async () => []);
+  trucking.creditsOwedChangedSince.mockImplementation(async () => false);
+  repo.documentsChangedSince.mockImplementation(async () => false);
   clients.shipmentGet.mockResolvedValue({ shipment });
   clients.shipmentReferenceFinal.mockResolvedValue({ jobNumber: shipment.jobNumber });
   // No approved Import Instructions say who pays the duty and VAT, unless a test says so.
@@ -1052,6 +1059,46 @@ describe("partial credit notes", () => {
       trucking.openCreditDiffs.mockImplementationOnce(async () => new Map([["s1", [diff]]])).mockImplementationOnce(async () => new Map());
       await expect(invoiceDocumentService.issuePartialCredit(asking("50.00") as never, approver)).rejects.toThrow(/Trucking changed the price/);
       expect(trucking.settleDiffs).not.toHaveBeenCalled();
+    });
+
+    // Mock test S20-195: 20 asked while 20 was owed; Trucking's 400 → 410 while it waited left 10 owed, and the
+    // approval read now twice - alike - so it settled the 10 and put a −10 row of its own beside it.
+    it("refuses when Trucking changed the price after the request was asked, though both reads at the approval agree: nothing is issued", async () => {
+      const asked = { ...asking("20.00"), requestedAt: new Date("2026-11-21T19:07:00Z") };
+      const now = { ...diff, amount: -10, version: 2 };
+      trucking.openCreditDiffs.mockImplementation(async () => new Map([["s1", [now]]]));
+      trucking.creditsOwedChangedSince.mockImplementation(async () => true);
+      await expect(invoiceDocumentService.issuePartialCredit(asked as never, approver)).rejects.toThrow(
+        /^What is owed on this job changed since this was asked \(a Trucking price, a line below zero, another invoice or credit note\): reject the request/,
+      );
+      // Asked about the shipment since the request, under the shipment's lock (in the issue's transaction).
+      expect(trucking.creditsOwedChangedSince).toHaveBeenCalledWith({}, COMPANY, SHIPMENT, asked.requestedAt);
+      expect(trucking.lock.mock.invocationCallOrder.at(-1)!).toBeLessThan(trucking.creditsOwedChangedSince.mock.invocationCallOrder[0]!);
+      expect(requests.approve).not.toHaveBeenCalled();
+      expect(selling.insertCreditRows).not.toHaveBeenCalled();
+      expect(trucking.settleDiffs).not.toHaveBeenCalled();
+    });
+
+    // Review of S20-195: whether a row is owed hangs on the documents billing it, and they write no row. (1) Invoice C
+    // (+80 handling, −20) took the −20 off since: both reads find nothing owed, and a −20 of its own would credit 40.
+    // (3) Another invoice credited in full or cancelled since: its rows below nothing are owed again.
+    it("refuses when a document of the job came, or was credited or cancelled, since the request: nothing is issued", async () => {
+      const asked = { ...asking("20.00"), requestedAt: new Date("2026-11-21T19:07:00Z") };
+      trucking.openCreditDiffs.mockImplementation(async () => new Map());
+      repo.documentsChangedSince.mockImplementation(async () => true);
+      await expect(invoiceDocumentService.issuePartialCredit(asked as never, approver)).rejects.toThrow(/^What is owed on this job changed since this was asked/);
+      expect(repo.documentsChangedSince).toHaveBeenCalledWith({}, COMPANY, SHIPMENT, asked.requestedAt);
+      expect(trucking.lock.mock.invocationCallOrder.at(-1)!).toBeLessThan(repo.documentsChangedSince.mock.invocationCallOrder[0]!);
+      expect(requests.approve).not.toHaveBeenCalled();
+      expect(selling.insertCreditRows).not.toHaveBeenCalled();
+    });
+
+    it("issues as before when nothing below nothing changed since the request", async () => {
+      const asked = { ...asking("50.00"), requestedAt: new Date("2026-11-21T19:07:00Z") };
+      await invoiceDocumentService.issuePartialCredit(asked as never, approver);
+      expect(trucking.creditsOwedChangedSince).toHaveBeenCalledWith({}, COMPANY, SHIPMENT, asked.requestedAt);
+      expect(repo.documentsChangedSince).toHaveBeenCalledWith({}, COMPANY, SHIPMENT, asked.requestedAt);
+      expect(requests.approve).toHaveBeenCalled();
     });
 
     it("a line below nothing entered by hand is a credit owed like Trucking's: the credit note line settles it, no negative row of its own", async () => {

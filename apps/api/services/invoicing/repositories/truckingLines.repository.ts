@@ -441,6 +441,39 @@ class TruckingLinesRepository {
   }
 
   /**
+   * Whether a selling line of the shipment that a credit owed is made of was written after `since` (mock test
+   * S20-195). A partial credit note is asked on the credits owed of that moment; Trucking's price changed while
+   * the request waited (a "Price change after invoice" replaced, taken away or added), or a line below nothing
+   * entered or changed since, and the lines asked no longer settle what they were asked for. Seen: a row below
+   * nothing written since, the rows taken away too (a credit owed that is gone keeps its amount), and a line
+   * entered by hand changed in place since whatever it is now - it may have been below nothing before, and only
+   * today's value is kept (the safe side: the request is asked again). Not seen here: what invoice lines do to
+   * whether a row is owed - one billed on an invoice or settled by a credit note since, or owed again once its
+   * invoice was credited or cancelled - writes no row (invoiceRepository.documentsChangedSince reads that). A row
+   * on a credit note, or kept by a master job's split, is no credit owed.
+   */
+  async creditsOwedChangedSince(reader: Reader, companyId: string, shipmentId: string, since: Date): Promise<boolean> {
+    const s = invoiceSellingCostTable;
+    const after = since.toISOString();
+    const written = await reader
+      .select({ qty: s.qty, amount: s.amount, ref: s.sourceTruckingRef, createdAt: s.createdAt, deletedAt: s.deletedAt })
+      .from(s)
+      .where(
+        and(
+          eq(s.companyId, companyId),
+          eq(s.shipmentId, shipmentId),
+          isNull(s.sourceMasterJobRef),
+          isNull(s.sourceCreditNoteId),
+          sql`${s.updatedAt} > ${after}`,
+        ),
+      );
+    // Trucking never changes a row in place (its rows are replaced; settleDiffs only lowers one below nothing), and a
+    // row added since was not there to be owed: only a hand line older than the request, still live, is read by its edit.
+    const editedByHand = (r: (typeof written)[number]) => r.ref === null && !r.deletedAt && r.createdAt.getTime() <= since.getTime();
+    return written.some((r) => valueOf(r) < 0 || editedByHand(r));
+  }
+
+  /**
    * What a partial credit note did to the credits owed it settles (lib/partialCredit
    * settleTruckingCredit), in its own transaction: a line settled in part comes down to what was
    * credited (`shrink`), and what is left of it stays owed as a line of its own (`rest`) - of a

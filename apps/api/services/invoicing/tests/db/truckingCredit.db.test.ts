@@ -16,8 +16,8 @@ import { truckingLinesRepository } from "../../repositories/truckingLines.reposi
 import { masterJobCostRepository } from "../../repositories/masterJobCost.repository";
 import { invoiceRepository } from "../../repositories/invoice.repository";
 import { sellingCostRepository } from "../../repositories/sellingCost.repository";
-import { countCreditsOwed } from "../../lib/billingQueue";
-import { settleTruckingCredit, type CreditLineCalc } from "../../lib/partialCredit";
+import { buildBillingQueue, countCreditsOwed } from "../../lib/billingQueue";
+import { remainingLines, settleTruckingCredit, type CreditLineCalc } from "../../lib/partialCredit";
 import type { SellingLineWrite } from "../../repositories/sellingCost.repository";
 import { invoiceLineTable, invoiceTable } from "../../schemas/invoice.schema";
 import { invoiceCostTable } from "../../schemas/invoiceCost.schema";
@@ -424,6 +424,175 @@ describe("a credit owed, given on a credit note", () => {
     const gone = await db.transaction((tx) => truckingLinesRepository.retireNettedSets(tx, companyId, shipmentId));
     expect(gone).toHaveLength(2);
     expect(await liveSelling(shipmentId)).toEqual([]);
+  });
+});
+
+describe("a partial credit note asked before Trucking changed the price (mock test S20-195)", () => {
+  // The request's moment: what was written before it is its basis, what comes after makes it stale.
+  const requestedNow = async () => {
+    await new Promise((r) => setTimeout(r, 20));
+    const at = new Date();
+    await new Promise((r) => setTimeout(r, 20));
+    return at;
+  };
+
+  it("sees a credit owed Trucking replaced while the request waited (20 owed → 10), though both reads at the approval agree", async () => {
+    const { companyId, shipmentId, ref } = job();
+    const billed = await sellingRow(companyId, shipmentId, { sourceTruckingRef: ref, amount: "420.00", currency: "EUR" });
+    await invoiceOf(companyId, shipmentId, [billed]);
+    await truckingLinesRepository.replace(companyId, shipmentId, ref, [], [{ ...push("400.00")[0]!, currency: "EUR" }]);
+    const asked = await requestedNow();
+    expect(await truckingLinesRepository.creditsOwedChangedSince(db, companyId, shipmentId, asked)).toBe(false);
+
+    // The dispatcher's 400 → 410 while it waits: the −20 goes, a −10 comes.
+    await truckingLinesRepository.replace(companyId, shipmentId, ref, [], [{ ...push("410.00")[0]!, currency: "EUR" }]);
+    const first = await truckingLinesRepository.openCreditDiffs(db, companyId, shipmentId, [billed.id]);
+    const again = await truckingLinesRepository.openCreditDiffs(db, companyId, shipmentId, [billed.id]);
+    expect(first.get(billed.id)!.map((d) => d.amount)).toEqual([-10]);
+    expect(again).toEqual(first);
+    expect(await truckingLinesRepository.creditsOwedChangedSince(db, companyId, shipmentId, asked)).toBe(true);
+  });
+
+  it("sees a credit owed taken away since (the price put back), and one that came since", async () => {
+    const back = job();
+    const billed = await sellingRow(back.companyId, back.shipmentId, { sourceTruckingRef: back.ref });
+    await invoiceOf(back.companyId, back.shipmentId, [billed]);
+    await truckingLinesRepository.replace(back.companyId, back.shipmentId, back.ref, [], push("950.00"));
+    const asked = await requestedNow();
+    await truckingLinesRepository.replace(back.companyId, back.shipmentId, back.ref, [], push("1000.00"));
+    expect((await truckingLinesRepository.openCreditDiffs(db, back.companyId, back.shipmentId, [billed.id])).size).toBe(0);
+    expect(await truckingLinesRepository.creditsOwedChangedSince(db, back.companyId, back.shipmentId, asked)).toBe(true);
+
+    const came = job();
+    const row = await sellingRow(came.companyId, came.shipmentId, { sourceTruckingRef: came.ref });
+    await invoiceOf(came.companyId, came.shipmentId, [row]);
+    const askedOnNothing = await requestedNow();
+    await truckingLinesRepository.replace(came.companyId, came.shipmentId, came.ref, [], push("980.00"));
+    expect(await truckingLinesRepository.creditsOwedChangedSince(db, came.companyId, came.shipmentId, askedOnNothing)).toBe(true);
+  });
+
+  it("keeps the approval for unchanged prices: the same push again, a price raised, a charge entered, or a credit note's own row written since are no change of what is owed", async () => {
+    const { companyId, shipmentId, ref } = job();
+    const billed = await sellingRow(companyId, shipmentId, { sourceTruckingRef: ref });
+    const invoice = await invoiceOf(companyId, shipmentId, [billed]);
+    await truckingLinesRepository.replace(companyId, shipmentId, ref, [], push("950.00"));
+    const asked = await requestedNow();
+    await truckingLinesRepository.replace(companyId, shipmentId, ref, [], push("950.00"));
+    await sellingRow(companyId, shipmentId, { description: "Handling", amount: "80.00" });
+    await sellingRow(companyId, shipmentId, { description: "Credited on CN-1", amount: "-30.00", sourceCreditNoteId: invoice.id });
+    // A raised price of another consignment is a charge to bill, no credit owed.
+    const other = `trucking:consignment:${randomUUID()}`;
+    const theirs = await sellingRow(companyId, shipmentId, { sourceTruckingRef: other, amount: "400.00" });
+    await invoiceOf(companyId, shipmentId, [theirs]);
+    await truckingLinesRepository.replace(companyId, shipmentId, other, [], push("450.00"));
+    expect(await truckingLinesRepository.creditsOwedChangedSince(db, companyId, shipmentId, asked)).toBe(false);
+  });
+
+  // Review of S20-195: whether a row is owed hangs on the documents billing it, and none of them writes the row.
+  it("(1) sees an invoice that took the credit owed off since: no row was written, both reads find nothing owed", async () => {
+    const { companyId, shipmentId, ref } = job();
+    const billed = await sellingRow(companyId, shipmentId, { sourceTruckingRef: ref, amount: "400.00", currency: "EUR" });
+    await invoiceOf(companyId, shipmentId, [billed]);
+    await truckingLinesRepository.replace(companyId, shipmentId, ref, [], [{ ...push("380.00")[0]!, currency: "EUR" }]);
+    const [owed] = (await truckingLinesRepository.openCreditDiffs(db, companyId, shipmentId, [billed.id])).get(billed.id)!;
+    const asked = await requestedNow();
+    expect(await invoiceRepository.documentsChangedSince(db, companyId, shipmentId, asked)).toBe(false);
+
+    // Invoice C: +80 handling and the −20, for 60.
+    const handling = await sellingRow(companyId, shipmentId, { description: "Handling", amount: "80.00", currency: "EUR" });
+    const [diff] = await db.select().from(s).where(eq(s.id, owed!.id));
+    await invoiceOf(companyId, shipmentId, [handling, diff!]);
+    expect((await truckingLinesRepository.openCreditDiffs(db, companyId, shipmentId, [billed.id])).size).toBe(0);
+    expect(await truckingLinesRepository.creditsOwedChangedSince(db, companyId, shipmentId, asked)).toBe(false);
+    expect(await invoiceRepository.documentsChangedSince(db, companyId, shipmentId, asked)).toBe(true);
+  });
+
+  it("(2) sees a partial credit note of another invoice that settled the credit owed since", async () => {
+    const { companyId, shipmentId, ref } = job();
+    const billed = await sellingRow(companyId, shipmentId, { sourceTruckingRef: ref });
+    await invoiceOf(companyId, shipmentId, [billed]);
+    const other = await sellingRow(companyId, shipmentId, { description: "Handling", amount: "300.00" });
+    const otherInvoice = await invoiceOf(companyId, shipmentId, [other]);
+    await truckingLinesRepository.replace(companyId, shipmentId, ref, [], push("950.00"));
+    const asked = await requestedNow();
+    await creditNoteOf(companyId, shipmentId, otherInvoice.id, other, 50);
+    expect(await invoiceRepository.documentsChangedSince(db, companyId, shipmentId, asked)).toBe(true);
+  });
+
+  it("(3) sees another invoice credited in full or cancelled since: its rows below nothing are owed again, and no row was written", async () => {
+    for (const end of ["credited", "cancelled"] as const) {
+      const { companyId, shipmentId } = job();
+      const freight = await sellingRow(companyId, shipmentId, { description: "Ocean freight", amount: "1000.00" });
+      await invoiceOf(companyId, shipmentId, [freight]);
+      const handling = await sellingRow(companyId, shipmentId, { description: "Handling", amount: "100.00" });
+      const discount = await sellingRow(companyId, shipmentId, { description: "Discount", amount: "-20.00" });
+      const second = await invoiceOf(companyId, shipmentId, [handling, discount]);
+      expect((await truckingLinesRepository.openCreditDiffs(db, companyId, shipmentId, [freight.id])).size).toBe(0);
+      const asked = await requestedNow();
+      await db.transaction(async (tx) => {
+        const done = end === "credited" ? await invoiceRepository.markCredited(tx, second.id, companyId) : await invoiceRepository.markCancelled(tx, second.id, companyId, second.issueDate);
+        expect(done).toBe(true);
+      });
+      expect((await truckingLinesRepository.openCreditDiffs(db, companyId, shipmentId, [freight.id])).get(freight.id)!.map((d) => d.id)).toEqual([discount.id]);
+      expect(await truckingLinesRepository.creditsOwedChangedSince(db, companyId, shipmentId, asked)).toBe(false);
+      expect(await invoiceRepository.documentsChangedSince(db, companyId, shipmentId, asked)).toBe(true);
+    }
+  });
+
+  it("an open invoice's PDF stored since changes nothing owed; a hand line edited in place since is seen whatever it is now", async () => {
+    const { companyId, shipmentId } = job();
+    const freight = await sellingRow(companyId, shipmentId, { description: "Ocean freight", amount: "1000.00" });
+    const invoice = await invoiceOf(companyId, shipmentId, [freight]);
+    const discount = await sellingRow(companyId, shipmentId, { description: "Discount", amount: "-20.00" });
+    const asked = await requestedNow();
+    expect(await invoiceRepository.setPdfIfMissing(invoice.id, companyId, `pdf/${invoice.id}`, "sha")).toBe(true);
+    expect(await invoiceRepository.documentsChangedSince(db, companyId, shipmentId, asked)).toBe(false);
+    expect(await truckingLinesRepository.creditsOwedChangedSince(db, companyId, shipmentId, asked)).toBe(false);
+    // −20 → +5 in place: today's value is above nothing, but it was owed when the request was asked.
+    expect(await sellingCostRepository.writeUnlessInvoiced(discount.id, companyId, shipmentId, { data: { amount: "5.00" } })).toMatchObject({ amount: "5.00" });
+    expect(await truckingLinesRepository.creditsOwedChangedSince(db, companyId, shipmentId, asked)).toBe(true);
+  });
+});
+
+describe("a whole credit note after partial ones (tester A, CZFCL00000161)", () => {
+  it("leaves the invoice and its credit notes at nothing, and the job bills again what the whole credit note reversed: 1,340 of 1,430, the partial credits standing", async () => {
+    const { companyId, shipmentId } = job();
+    const freight = await sellingRow(companyId, shipmentId, { category: "ocean_freight", description: "Ocean freight", amount: "1200.00", currency: "EUR" });
+    const thc = await sellingRow(companyId, shipmentId, { category: "othc", description: "Origin terminal handling", amount: "180.00", currency: "EUR" });
+    const bl = await sellingRow(companyId, shipmentId, { category: "bl_fee", description: "B/L fee", amount: "50.00", currency: "EUR" });
+    const invoice = await invoiceOf(companyId, shipmentId, [freight, thc, bl]);
+    // CN-002 (−80 of THC) and CN-003 (−10 of freight): a row "Credited on CN…" each, billed by its credit note.
+    await creditNoteOf(companyId, shipmentId, invoice.id, thc, 80);
+    await creditNoteOf(companyId, shipmentId, invoice.id, freight, 10);
+    const creditRows = (await db.select().from(s).where(and(eq(s.shipmentId, shipmentId), isNull(s.deletedAt)))).filter((r) => r.sourceCreditNoteId);
+    expect(creditRows.map((r) => r.amount).sort()).toEqual(["-10.00", "-80.00"]);
+    expect([...(await invoiceRepository.invoicedSellingRowIds(shipmentId, companyId))].sort()).toEqual([freight.id, thc.id, bl.id, ...creditRows.map((r) => r.id)].sort());
+
+    // The whole credit note, as credit() writes it: what is left of each line (1,190 + 100 + 50), the invoice Credited.
+    const notes = await invoiceRepository.creditNotesOf(invoice.id, companyId);
+    const left = remainingLines(await invoiceRepository.getLines(invoice.id, companyId), await invoiceRepository.linesOf(notes.map((n) => n.id), companyId));
+    expect(left.map((l) => l.remainingAmount)).toEqual([1190, 100, 50]);
+    await db.transaction(async (tx) => {
+      const [whole] = await tx
+        .insert(invoiceTable)
+        .values({ ...notes[0]!, id: undefined, number: `CN-${randomUUID()}`, net: "-1340.00", gross: "-1340.00", netCzk: "-1340.00", grossCzk: "-1340.00", createdAt: undefined, updatedAt: undefined })
+        .returning();
+      await tx.insert(invoiceLineTable).values(
+        left.map((l, i) => ({
+          companyId, invoiceId: whole!.id, seq: i + 1, description: l.description, qty: "-1.00", unitPrice: l.remainingAmount.toFixed(2), unitCurrency: l.unitCurrency,
+          net: (-l.remainingNet).toFixed(2), fxRate: "1", vatCode: "OUT" as const, vatRate: "0.00", sourceSellingCostId: l.sourceSellingCostId, correctsLineId: l.lineId,
+        })),
+      );
+      expect(await invoiceRepository.markCredited(tx, invoice.id, companyId)).toBe(true);
+    });
+
+    // Nothing of the job is billed now; the next invoice bills the charges and the credits they kept: 1,340.
+    expect((await invoiceRepository.invoicedSellingRowIds(shipmentId, companyId)).size).toBe(0);
+    const rows = (await db.select().from(s).where(and(eq(s.shipmentId, shipmentId), isNull(s.deletedAt)))).filter((r) => r.invoice);
+    const [entry] = buildBillingQueue({ rows, openInvoices: [], billingCurrencies: new Map([[shipmentId, "EUR"]]), rates: { EUR: 25 }, roePct: 0 });
+    expect(entry).toMatchObject({ rowsToBill: 5, amountToBill: 1340 });
+    // No credit owed: the job has no open invoice, its rows below nothing go on its next invoice with the rest.
+    expect(await creditsOwed(companyId, shipmentId)).toEqual({ jobs: [], lines: 0 });
   });
 });
 
