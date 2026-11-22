@@ -1,11 +1,11 @@
 // A save of Cargo Details' dimension lines sends the whole list (mock test council Y10): a page
-// opened before another save - an accepted remeasurement, a colleague's edit - would write its old
-// lines back over the new ones with its next line save, unseen. So the page sends along the lines
-// it started from, and the server saves only while the shipment still holds them; else it refuses
-// and the page reads them again. Container Details' saves likewise send the whole list of containers,
-// with their Pieces, Gross Weight and Volume - which an accepted remeasurement also writes - so they
-// are held to the containers the page started from the same way. Pure; the shipment service asks it
-// in the write's turn.
+// opened before another save - a colleague's edit - would write its old lines back over the new
+// ones with its next line save, unseen. So the page sends along the lines it started from, and the
+// server saves only while the shipment still holds them; else it refuses and the page reads them
+// again. Container Details' saves likewise send the whole list of containers, with their Pieces,
+// Gross Weight and Volume, so they are held to the containers the page started from the same way.
+// (An accepted remeasurement writes neither since 22 Nov: it is only recorded.) Pure; the shipment
+// service asks it in the write's turn.
 
 import { cargoNum, hasAllSizes } from "../../../lib/cargoVolume";
 import { normalizeContainerNumber } from "./cargoProjection";

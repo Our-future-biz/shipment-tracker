@@ -76,7 +76,7 @@ export function informedComparedWith(newValue: string | null | undefined): Compa
  * 5 %), every figure known on both sides alike (lib/remeasureNotice remeasureVerdict). The
  * remeasured figures are rounded as a shipment stores them (kg to 0.1, m³ to 0.001,
  * lib/remeasureAccept roundedFigures): 7 × 13.25 kg remeasured is 92.75 kg, and the Total Weight
- * that takes it over holds 92.8 kg - unrounded, it would never match.
+ * typed to it holds 92.8 kg - unrounded, it would never match.
  */
 export function matchesNow(shown: ShownCargo, informedNewValue: string | null | undefined, jobCharge?: ChargeKind): boolean {
   const ours = shipmentFiguresFor(shown, informedComparedWith(informedNewValue));

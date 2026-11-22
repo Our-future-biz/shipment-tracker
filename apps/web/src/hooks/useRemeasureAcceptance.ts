@@ -29,8 +29,8 @@ export function useRemeasureAcceptance(shipmentId: string) {
 
   // `expected`: the warehouse's remeasured lines as the page shows them. Refused, nothing is
   // accepted, and what it was decided on is read again - the warehouse's lines, and the shipment
-  // with its Cargo Details and last acceptance (mock test council n14): after "changed meanwhile" or
-  // "already accepted" the page would else keep showing the Cargo Details that were refused.
+  // with its last acceptance (mock test council n14): after "changed meanwhile" or "already
+  // accepted" the page would else keep showing the lines and the acceptance it was refused on.
   const accept = useMutation({
     mutationFn: async (expected: string) => {
       try {
@@ -46,8 +46,10 @@ export function useRemeasureAcceptance(shipmentId: string) {
     },
     onSuccess: async (res) => {
       settle(res);
-      // The cargo lines and totals changed: the shipment, the grids and W/M follow - and the
-      // Alerts, whose remeasurement now reads "Accepted by …".
+      // Only recorded (owner's answer 22 Nov): the shipment's cargo stays as it is. What reads the
+      // acceptance is read again - under ["shipments"] the shipment and this acceptance (the tile,
+      // Costs Breakdown, the Warehouse tab's bar), and the Alerts, whose remeasurement now reads
+      // "Accepted by …".
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["shipments"] }),
         queryClient.invalidateQueries({ queryKey: remeasureInformedKey(shipmentId) }),

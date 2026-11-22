@@ -122,7 +122,7 @@ export function isValidContainerNumber(raw: string): boolean {
  * The first container number of a write that is not 4 letters and 7 digits, or undefined - a number
  * the container already has is not asked again (mock test council n19): a shipment saved before the
  * check, with "TBA" in its only container, would else be stopped by any save of its containers,
- * an accepted remeasurement's too. Only a line with an id is a stored container - the one its id
+ * one that only changes its figures too. Only a line with an id is a stored container - the one its id
  * names - and keeps its number unasked: a line with no id is a new container, and taking any stored
  * container's number for its own would let a new line add one more "TBA" beside the old.
  */

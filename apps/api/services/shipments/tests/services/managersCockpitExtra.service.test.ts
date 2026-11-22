@@ -217,6 +217,28 @@ describe("the reads of the cockpit's step 2 signals", () => {
     expect(out.byJob.get("b")).toEqual([{ rank: 39, text: "Remeasurement accepted 16.11., costs not checked", urgent: false, area: "finance", kind: "remeasurement" }]);
   });
 
+  // Review of system-23: Accept only records - the figures still differ, the Warehouse tab offers Inform Again,
+  // and Accept refuses the same lines as accepted already. An Inform Again of the figures last accepted waits for nothing.
+  it("takes an Inform Again of the figures last accepted as accepted; other figures informed after an acceptance wait for one", async () => {
+    const figures = (weightKg: number) => JSON.stringify({ colli: 10, weightKg, volumeCbm: 5 });
+    const accepted = (id: string) => [
+      change(id, "remeasurementAccepted", "2026-11-12 09:00", { oldValue: figures(1000), newValue: JSON.stringify({ colli: 10, weightKg: 1200, volumeCbm: 5, lines: "[]" }) }),
+      change(id, "remeasurementCostsChecked", "2026-11-12 10:00", { newValue: at("2026-11-12 09:00").toISOString() }),
+    ];
+    attachments.reviewFactsByShipmentIds.mockResolvedValue([...verified("same"), ...verified("other")]);
+    audit.latestByShipmentIds.mockImplementation(
+      history([
+        ...accepted("same"),
+        change("same", "remeasureInformed", "2026-11-13 10:00", { oldValue: figures(1000), newValue: figures(1200) }),
+        ...accepted("other"),
+        change("other", "remeasureInformed", "2026-11-13 10:00", { oldValue: figures(1000), newValue: figures(1300) }),
+      ]),
+    );
+    const out = await extraSignals([job("same"), job("other")], CTX);
+    expect(out.byJob.get("same")).toBeUndefined();
+    expect(texts(out.byJob.get("other"))).toEqual(["Remeasurement differs, not accepted since 13.11. 10:00"]);
+  });
+
   // A Sea Full Load job with no volume typed, the warehouse measured 20 m³: charged per container,
   // so Alerts and the chat said the charge stays the same. Judged with no charge, the cockpit took
   // it for a W/M change and named it urgent, "differs, not accepted".

@@ -24211,8 +24211,9 @@ export namespace interfaces {
     export type ReleaseRequestWhat = "house_bol" | "warehouse"
 
     /**
-     * A shipment's last accepted remeasurement (Cargo Details → Accept remeasurement): the figures the
-     * shipment held before and took over, when and by whom, and Costs Breakdown's check after it.
+     * A shipment's last accepted remeasurement (Cargo Details → Accept remeasurement; only recorded since
+     * 22 Nov - the shipment's cargo stays as it is): the figures the shipment held then and the remeasured
+     * ones accepted, when and by whom, and Costs Breakdown's check after it.
      */
     export interface RemeasureAcceptance {
         acceptedAt: string
@@ -24221,10 +24222,18 @@ export namespace interfaces {
          */
         acceptedBy: string
 
-        before: RemeasureFigures
-        after: RemeasureFigures
         /**
-         * The warehouse's remeasured lines it took over (their saved text): the same lines are not accepted again.
+         * The shipment's figures when it was accepted.
+         */
+        before: RemeasureFigures
+
+        /**
+         * The remeasured figures accepted.
+         */
+        after: RemeasureFigures
+
+        /**
+         * The warehouse's remeasured lines it accepted (their saved text): the same lines are not accepted again.
          */
         lines: string
 

@@ -7,12 +7,14 @@ import { formatDateTime } from "@/lib/date";
 import { apiErrorMessage } from "@/lib/api";
 import { useMessages } from "@/lib/toast";
 
-// Costs Breakdown after an accepted remeasurement (owner decision, 18 Nov 2026): the cargo changed,
-// so what the freight is charged by changed (chargeable weight for air, W/M otherwise; a sea Full
-// Load is charged per container, so only the figures are told). The system never changes a cost
-// line's quantity or price: this warning asks to check them, and stays until someone marks them
-// checked - or comes back with the next accepted remeasurement. "Quantities checked" is for the
-// shipment's people, a manager and Invoicing (the server's rule, its answer's mayCheckCosts).
+// Costs Breakdown after an accepted remeasurement (owner decision, 18 Nov 2026): the warehouse's
+// figures were accepted - since 22 Nov only recorded, the shipment's cargo stays as it is - so what
+// the freight is charged by may be other than the costs were figured on (chargeable weight for air,
+// W/M otherwise; a sea Full Load is charged per container, so only the figures are told). The system
+// never changes a cost line's quantity or price: this warning asks to check them, and stays until
+// someone marks them checked - or comes back with the next accepted remeasurement. "Quantities
+// checked" is for the shipment's people, a manager and Invoicing (the server's rule, its answer's
+// mayCheckCosts).
 
 const kg = (v: number) => (v > 0 ? `${v.toLocaleString("en-US", { minimumFractionDigits: 1, maximumFractionDigits: 1 })} kg` : "—");
 const cbm = (v: number) => (v > 0 ? `${v.toFixed(3)} CBM` : "—");
@@ -26,9 +28,10 @@ export function RemeasureCostsNotice({ shipmentId }: { shipmentId: string }) {
   const was = chargeBasis(freightMode, before.weightKg, before.volumeCbm);
   const now = chargeBasis(freightMode, after.weightKg, after.volumeCbm);
   const by = acceptance.acceptedBy ? ` by ${acceptance.acceptedBy}` : "";
+  // Accepting no longer changes the cargo (review of system-23): it is the remeasurement that was accepted.
   const message = chargedByWeightOrMeasure(freightMode, loadType)
-    ? `Cargo changed by remeasurement: ${now.name} ${fmtChargeBasis(was)} → ${fmtChargeBasis(now)} — check the quantities`
-    : "Cargo changed by remeasurement — check the quantities";
+    ? `Remeasurement accepted: ${now.name} ${fmtChargeBasis(was)} → ${fmtChargeBasis(now)} — check the quantities`
+    : "Remeasurement accepted — check the quantities";
 
   const onChecked = async () => {
     try {

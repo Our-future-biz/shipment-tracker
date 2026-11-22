@@ -9,7 +9,7 @@ const shipments = vi.hoisted(() => ({
   writeTurn: vi.fn(async (_shipmentId: string, _companyId: string, work: (tx: unknown) => Promise<unknown>) => work(TX)),
 }));
 const links = vi.hoisted(() => ({ replace: vi.fn(), liveOf: vi.fn(), revoke: vi.fn(), liveByHash: vi.fn(), touchOpened: vi.fn() }));
-const service = vi.hoisted(() => ({ mayChangeDetails: vi.fn(), customsStatusOf: vi.fn() }));
+const service = vi.hoisted(() => ({ mayChangeDetails: vi.fn(), customsStatusOf: vi.fn(), getById: vi.fn() }));
 vi.mock("encore.dev/api", () => import("../../../../lib/tests/encoreApi.stub"));
 vi.mock("encore.dev/log", () => ({ default: { warn: vi.fn(), error: vi.fn() } }));
 vi.mock("~encore/clients", () => ({ invoicing: { invoiceProfileGet: vi.fn() } }));
@@ -21,7 +21,11 @@ vi.mock("../../repositories/container.repository", () => ({ containerRepository:
 vi.mock("../../repositories/shipmentTrackingEvent.repository", () => ({ shipmentTrackingEventRepository: { listByShipmentId: vi.fn() } }));
 vi.mock("../../services/tracking.service", () => ({ TRACKING_EVENTS_LIMIT: 500 }));
 vi.mock("../../services/shipment.service", () => ({ shipmentService: service }));
+vi.mock("../../lib/trackingTimeline", () => ({ buildTracking: () => ({ milestones: [] }) }));
 
+import { containerRepository } from "../../repositories/container.repository";
+import { shipmentTrackingEventRepository } from "../../repositories/shipmentTrackingEvent.repository";
+import { newLinkToken } from "../../lib/customerLink";
 import { customerLinkService } from "../../services/customerLink.service";
 
 const SHIPMENT = "7b0e4d53-08a5-4e5e-9a0b-0e2f6a1f1c01";
@@ -50,5 +54,23 @@ describe("a new customer link", () => {
     await expect(customerLinkService.create(SHIPMENT, ACTOR, NOW)).rejects.toMatchObject({ code: "permission_denied" });
     expect(shipments.writeTurn).not.toHaveBeenCalled();
     expect(links.replace).not.toHaveBeenCalled();
+  });
+});
+
+// Review of system-23: the customer's page is read with no login of the company's - or with a user's of
+// another company - so it never fills the shipment's Booked Dimensions from a quote.
+describe("the customer's page", () => {
+  it("reads the shipment as its page shows it without filling its Booked Dimensions", async () => {
+    const { token } = newLinkToken();
+    links.liveByHash.mockResolvedValue({ id: "l1", companyId: "c1", shipmentId: SHIPMENT });
+    const texts = Object.fromEntries(["jobNumber", "origin", "destination", "pcs", "typeOfPackages", "totalWeightTons", "totalGrossWeightKg"].map((k) => [k, ""]));
+    shipments.getByIdForCompany.mockResolvedValue({ id: SHIPMENT, status: "Booked", actualDeliveryDate: null, personInCharge: "", holidayCover: "", ...texts });
+    links.touchOpened.mockResolvedValue(undefined);
+    vi.mocked(shipmentTrackingEventRepository.listByShipmentId).mockResolvedValue([]);
+    vi.mocked(containerRepository.listByShipmentId).mockResolvedValue([]);
+    service.customsStatusOf.mockResolvedValue("");
+    service.getById.mockResolvedValue({ pcs: "5", typeOfPackages: "Pallet(s)", totalGrossWeightKg: "250" });
+    await customerLinkService.publicStatus(token, NOW);
+    expect(service.getById).toHaveBeenCalledExactlyOnceWith(SHIPMENT, "c1", { fillBookedDimensions: false });
   });
 });

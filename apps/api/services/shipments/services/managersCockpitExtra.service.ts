@@ -196,9 +196,12 @@ export async function extraSignals(jobs: readonly ExtraJob[], ctx: ExtraContext)
             verdict: remeasureVerdict(readFigures(informed.oldValue), readFigures(informed.newValue), remeasureSource(informed.newValue), judgedCharge(informed.newValue, jobChargeOf(job))),
             source: remeasureSource(informed.newValue),
             matchesCargoDetails: false,
+            remeasured: readFigures(informed.newValue),
           }
         : null,
       acceptedAt: accepted?.changedAt ?? null,
+      // What the acceptance took: an Inform Again of those figures after it is settled by it (review of system-23).
+      acceptedFigures: accepted ? readFigures(accepted.newValue) : null,
       // A check names the acceptance it was made for (services/shipment.service markRemeasureCostsChecked): only a
       // check of the latest acceptance counts, as on Cargo Details and Costs Breakdown.
       costsCheckedAt: checked && accepted && checked.newValue === iso(accepted.changedAt) ? checked.changedAt : null,

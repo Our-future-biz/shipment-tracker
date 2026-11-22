@@ -9,7 +9,7 @@ vi.mock("~encore/clients", () => ({
   auth: { usersList: vi.fn(), userLookup: vi.fn(), departmentList: vi.fn() },
   customers: { customerUpdate: vi.fn(), customerGet: vi.fn(), addressList: vi.fn(), contactList: vi.fn() },
   invoicing: { invoicingImportQuote: vi.fn(), openInvoiceCount: vi.fn(), _internalShipmentBillingStart: vi.fn(), _internalInvoicedShipments: vi.fn(), _internalChargeCount: vi.fn(), _internalPaidSupplierInvoices: vi.fn(), _internalReleaseCheck: vi.fn(), _internalLateChargeShipments: vi.fn() },
-  quotes: { salesQuoteGet: vi.fn() },
+  quotes: { salesQuoteGet: vi.fn(), _internalSalesQuoteData: vi.fn() },
   warehouse: { _internalPickupPlates: vi.fn(), warehouseSectionGet: vi.fn() },
   holidays: { _internalHolidaysCzNational: vi.fn() },
 }));
@@ -112,6 +112,7 @@ import { PAYMENT_UNCHECKED, RELEASE_CHANGED_MEANWHILE } from "../../lib/prepayme
 const repository = vi.mocked(shipmentRepository);
 const links = vi.mocked(quoteLinksService);
 const salesQuoteGet = vi.mocked(quotes.salesQuoteGet);
+const quoteData = vi.mocked(quotes._internalSalesQuoteData);
 const importQuote = vi.mocked(invoicing.invoicingImportQuote);
 
 const COMPANY = "86f202b1-7449-441b-9c5b-5bf4d89f8d88";
@@ -3586,6 +3587,16 @@ describe("accepting the warehouse's remeasurement", () => {
     shipmentUntouched();
   });
 
+  // Review of system-23: a delete that had the shipment's write turn first leaves no acceptance on a deleted job.
+  it("is refused as not found when the shipment is gone by its write turn, and nothing is recorded", async () => {
+    const saved = job([full]);
+    repository.getInTurn.mockResolvedValueOnce(null);
+    await expect(shipmentService.acceptRemeasurement(SHIPMENT, MANAGER, saved)).rejects.toMatchObject({ code: "not_found", message: "Shipment not found" });
+    expect(repository.writeTurn).toHaveBeenCalledTimes(1);
+    expect(repository.getInTurn).toHaveBeenCalledWith(TX, SHIPMENT, COMPANY);
+    expect(shipmentAuditRepository.create).not.toHaveBeenCalled();
+  });
+
   it("is refused in the write turn when another Accept of the same lines got there first", async () => {
     const saved = job([full]);
     // Nothing accepted when this Accept looked; the other's entry is there once its turn comes.
@@ -3944,33 +3955,61 @@ describe("Booked Dimensions (owner's answer 22 Nov)", () => {
     ]);
   });
 
+  // The quote is read for the shipment's own company (review of system-23), never with the caller's login.
+  const AS_SHIPMENTS_COMPANY = { authData: { userID: "", companyID: COMPANY, role: "user" } };
+  const notFilled = () => row({ createdFromQuote: true, salesNumber: REF, bookedDimensions: null }) as never;
+
   it("fills them once from the quote of a shipment made from one before, on its first read", async () => {
-    repository.getByIdForCompany.mockResolvedValueOnce(row({ createdFromQuote: true, salesNumber: REF, bookedDimensions: null }) as never);
-    salesQuoteGet.mockResolvedValue(quote({ data: { packages } }));
+    repository.getByIdForCompany.mockResolvedValueOnce(notFilled());
+    quoteData.mockResolvedValue({ quote: { data: { packages } } });
     const item = await shipmentService.getById(SHIPMENT, COMPANY);
-    expect(salesQuoteGet).toHaveBeenCalledWith({ quoteNumber: REF });
+    expect(quoteData).toHaveBeenCalledWith({ quoteNumber: REF }, AS_SHIPMENTS_COMPANY);
     expect(repository.setBookedDimensionsOnce).toHaveBeenCalledWith(SHIPMENT, COMPANY, [expect.objectContaining({ pieces: "30" })]);
     expect(item!.bookedDimensions).toEqual([expect.objectContaining({ pieces: "30" })]);
   });
 
+  // Review of system-23: read with whatever login came with the request, a user of another company opening this
+  // company's tracking link (or any call for another company) booked their own quote of that reference into it.
+  it("reads the quote of the shipment's own company, never the signed-in caller's of another company", async () => {
+    signedIn.role = "manager";
+    try {
+      repository.getByIdForCompany.mockResolvedValueOnce(notFilled());
+      quoteData.mockResolvedValue({ quote: { data: { packages } } });
+      await shipmentService.getById(SHIPMENT, COMPANY);
+      expect(salesQuoteGet).not.toHaveBeenCalled();
+      expect(quoteData).toHaveBeenCalledExactlyOnceWith({ quoteNumber: REF }, AS_SHIPMENTS_COMPANY);
+      expect(repository.setBookedDimensionsOnce).toHaveBeenCalledExactlyOnceWith(SHIPMENT, COMPANY, [expect.objectContaining({ pieces: "30" })]);
+    } finally {
+      signedIn.role = null;
+    }
+  });
+
+  it("asks no quote and books nothing for the customer's tracking page (fillBookedDimensions: false)", async () => {
+    repository.getByIdForCompany.mockResolvedValueOnce(notFilled());
+    const item = await shipmentService.getById(SHIPMENT, COMPANY, { fillBookedDimensions: false });
+    expect(quoteData).not.toHaveBeenCalled();
+    expect(salesQuoteGet).not.toHaveBeenCalled();
+    expect(repository.setBookedDimensionsOnce).not.toHaveBeenCalled();
+    expect(item!.bookedDimensions).toEqual([]);
+  });
+
   it("books none when the quote is gone, and tries again later when it can't be read now", async () => {
-    repository.getByIdForCompany.mockResolvedValueOnce(row({ createdFromQuote: true, salesNumber: REF, bookedDimensions: null }) as never);
-    salesQuoteGet.mockRejectedValueOnce(APIError.notFound("Quote not found"));
+    repository.getByIdForCompany.mockResolvedValueOnce(notFilled());
+    quoteData.mockResolvedValueOnce({ quote: null });
     expect((await shipmentService.getById(SHIPMENT, COMPANY))!.bookedDimensions).toEqual([]);
     expect(repository.setBookedDimensionsOnce).toHaveBeenCalledWith(SHIPMENT, COMPANY, []);
 
     repository.setBookedDimensionsOnce.mockClear();
-    repository.getByIdForCompany.mockResolvedValueOnce(row({ createdFromQuote: true, salesNumber: REF, bookedDimensions: null }) as never);
-    salesQuoteGet.mockRejectedValueOnce(new Error("quotes is unreachable"));
+    repository.getByIdForCompany.mockResolvedValueOnce(notFilled());
+    quoteData.mockRejectedValueOnce(new Error("quotes is unreachable"));
     expect((await shipmentService.getById(SHIPMENT, COMPANY))!.bookedDimensions).toEqual([]);
     expect(repository.setBookedDimensionsOnce).not.toHaveBeenCalled();
   });
 
   it("asks no quote for a shipment that has its Booked Dimensions", async () => {
     repository.getByIdForCompany.mockResolvedValueOnce(row({ createdFromQuote: true, salesNumber: REF, bookedDimensions: [] }) as never);
-    salesQuoteGet.mockClear();
     await shipmentService.getById(SHIPMENT, COMPANY);
-    expect(salesQuoteGet).not.toHaveBeenCalled();
+    expect(quoteData).not.toHaveBeenCalled();
     expect(repository.setBookedDimensionsOnce).not.toHaveBeenCalled();
   });
 });

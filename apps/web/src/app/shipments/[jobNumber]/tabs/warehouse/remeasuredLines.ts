@@ -1,5 +1,5 @@
 import { dimensionTotals, dimensionVolumePerPiece, num, roundFigure, shipmentDeclaredFigures, type CargoDimensionLine } from "@/lib/cargo";
-import type { CargoFigures } from "./RemeasureCompare";
+import { figuresCompared, figuresDiffer, type CargoFigures } from "./RemeasureCompare";
 
 // The warehouse's saved remeasured lines (its job section's remeasure_rows: a JSON list of
 // { pieces, lengthCm, widthCm, heightCm, weightPerPcKg }, numbers as text), as Cargo Details shows
@@ -97,7 +97,7 @@ export function unmeasuredReason(json: string | undefined): string | null {
 
 /**
  * Whether two saved texts hold the same remeasured lines - also saved with other spacing, key order
- * or a point tidied away: the lines an acceptance took over are not accepted again.
+ * or a point tidied away: the lines an acceptance accepted are not accepted again.
  */
 export function sameRemeasuredLines(a: string, b: string): boolean {
   if (a === b) return true;
@@ -142,7 +142,7 @@ export function shipmentCargoFigures(s: { cargoDimensions?: CargoDimensionLine[]
   });
 }
 
-/** The lines the last acceptance took over, again: the server refuses them in these words. */
+/** The lines the last acceptance accepted, again: the server refuses them in these words. */
 export const ALREADY_ACCEPTED = "These remeasured lines were already accepted: the warehouse has saved nothing new since";
 
 /**
@@ -152,6 +152,25 @@ export const ALREADY_ACCEPTED = "These remeasured lines were already accepted: t
  */
 export const alreadyAccepted = (acceptedLines: string | null | undefined, saved: string): boolean =>
   acceptedLines != null && sameRemeasuredLines(acceptedLines, saved);
+
+/** What the Warehouse tab says under its Compared table (remeasureBar). */
+export type RemeasureBar = "differs" | "accepted" | "matches" | null;
+
+/**
+ * What the Warehouse tab says under its Compared table: "differs", with Inform Operations, while the
+ * remeasured figures differ from the shipment's (a figure only the warehouse measured too);
+ * "accepted" in its place when the lines saved are the ones last accepted (review of system-23:
+ * Accept only records, so the figures still differ after it - the tab offered Inform Again as if
+ * nothing was done, and Accept refuses those lines as accepted already); "matches"; null while
+ * nothing was remeasured or no figure is known on both sides. `unsaved`: lines on screen not saved
+ * yet - those are not the lines accepted.
+ */
+export function remeasureBar(o: { ship: CargoFigures; re: CargoFigures; saved: string; unsaved: boolean; acceptedLines: string | null | undefined }): RemeasureBar {
+  const { ship, re } = o;
+  if (!(re.colli > 0 || re.weightKg > 0 || re.volumeCbm > 0)) return null;
+  if (figuresDiffer(ship, re)) return !o.unsaved && alreadyAccepted(o.acceptedLines, o.saved) ? "accepted" : "differs";
+  return figuresCompared(ship, re) ? "matches" : null;
+}
 
 /** "5 colli · 250.0 kg · 34.650 CBM" */
 export const figuresText = (f: CargoFigures) =>

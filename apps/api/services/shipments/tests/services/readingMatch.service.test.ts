@@ -25,6 +25,25 @@ describe("shipmentOfHouseBol", () => {
     expect(service.getById).toHaveBeenCalledWith("s1", "c1");
   });
 
+  // Review of system-23: a House B/L is not unique on a manual create or edit - an old cancelled job with it
+  // was offered, and written into, instead of the active one.
+  it("gives the oldest shipment of the House B/L that is not cancelled; a cancelled one only when no other has it", async () => {
+    shipments.liveByHouseBols.mockResolvedValue([
+      { id: "s1", jobNumber: "CZ00000010", key: "HBL123", status: "Cancelled Shipment" },
+      { id: "s2", jobNumber: "CZ00000011", key: "HBL123", status: "Booked [IMP]" },
+      { id: "s3", jobNumber: "CZ00000012", key: "HBL123", status: "Booked [IMP]" },
+    ]);
+    service.getById.mockImplementation(async (id: string) => ({ id }));
+    await expect(readingMatchService.shipmentOfHouseBol("c1", "HBL123")).resolves.toEqual({ id: "s2" });
+    expect(service.getById).toHaveBeenCalledExactlyOnceWith("s2", "c1");
+
+    shipments.liveByHouseBols.mockResolvedValue([
+      { id: "s1", jobNumber: "CZ00000010", key: "HBL123", status: "Cancelled Shipment" },
+      { id: "s4", jobNumber: "CZ00000013", key: "HBL123", status: " Cancelled Shipment " },
+    ]);
+    await expect(readingMatchService.shipmentOfHouseBol("c1", "HBL123")).resolves.toEqual({ id: "s1" });
+  });
+
   it("gives null when no live shipment has it", async () => {
     shipments.liveByHouseBols.mockResolvedValue([]);
     await expect(readingMatchService.shipmentOfHouseBol("c1", "HBL123")).resolves.toBeNull();
@@ -34,5 +53,22 @@ describe("shipmentOfHouseBol", () => {
   it("asks nothing for a House B/L of no letters or digits", async () => {
     await expect(readingMatchService.shipmentOfHouseBol("c1", " / - ")).resolves.toBeNull();
     expect(shipments.liveByHouseBols).not.toHaveBeenCalled();
+  });
+});
+
+// A consolidation's reading: each House B/L's shipment, by the same rule.
+describe("matches", () => {
+  it("gives each House B/L's oldest shipment that is not cancelled, a cancelled one only when no other has it", async () => {
+    shipments.liveByHouseBols.mockResolvedValue([
+      { id: "s1", jobNumber: "CZ00000010", key: "HBL1", status: "Cancelled Shipment" },
+      { id: "s2", jobNumber: "CZ00000011", key: "HBL1", status: "Booked [EXP]" },
+      { id: "s3", jobNumber: "CZ00000012", key: "HBL2", status: "Cancelled Shipment" },
+    ]);
+    const { shipments: found, masterJob } = await readingMatchService.matches("c1", ["hbl-1", "HBL2", "HBL3"], "");
+    expect(found).toEqual([
+      { houseBol: "hbl-1", shipmentId: "s2", jobNumber: "CZ00000011" },
+      { houseBol: "HBL2", shipmentId: "s3", jobNumber: "CZ00000012" },
+    ]);
+    expect(masterJob).toBeNull();
   });
 });

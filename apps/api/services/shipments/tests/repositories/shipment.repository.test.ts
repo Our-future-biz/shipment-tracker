@@ -241,12 +241,13 @@ describe("createForHouseBol", () => {
 });
 
 describe("liveByHouseBols", () => {
-  it("reads the company's live shipments by the House B/Ls' keys, each key once, the oldest first", async () => {
-    fake.state.found = [{ ...FIRST, key: "HBLTESTA1" }];
-    await expect(shipmentRepository.liveByHouseBols(COMPANY, ["HBLTEST-A1", "hbltest a1", "HBL/B2", " - "])).resolves.toEqual([{ ...FIRST, key: "HBLTESTA1" }]);
+  it("reads the company's live shipments by the House B/Ls' keys, each key once, the oldest first, with their status", async () => {
+    fake.state.found = [{ ...FIRST, key: "HBLTESTA1", status: "Booked [IMP]" }];
+    await expect(shipmentRepository.liveByHouseBols(COMPANY, ["HBLTEST-A1", "hbltest a1", "HBL/B2", " - "])).resolves.toEqual([{ ...FIRST, key: "HBLTESTA1", status: "Booked [IMP]" }]);
     const [read] = fake.state.reads;
     expect(sent(read!.where).params).toEqual([COMPANY, "[^A-Z0-9]", "HBLTESTA1", "HBLB2"]);
-    expect(Object.keys(read!.fields)).toEqual(["id", "jobNumber", "key"]);
+    // The status: a cancelled shipment is offered only when no other has the House B/L (review of system-23).
+    expect(Object.keys(read!.fields)).toEqual(["id", "jobNumber", "key", "status"]);
   });
 
   it("asks nothing for B/Ls without letters or digits", async () => {

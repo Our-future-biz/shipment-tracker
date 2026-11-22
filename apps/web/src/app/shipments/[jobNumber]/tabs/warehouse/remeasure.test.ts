@@ -6,6 +6,7 @@ import {
   alreadyAccepted,
   figuresText,
   readRemeasuredLines,
+  remeasureBar,
   remeasuredFigures,
   roundedFigures,
   sameRemeasuredLines,
@@ -178,12 +179,42 @@ describe("alreadyAccepted", () => {
   });
 });
 
-// Council finding m8: the lines the last acceptance took over are not accepted again.
+// Council finding m8: the lines the last acceptance accepted are not accepted again.
 describe("sameRemeasuredLines", () => {
   it("finds the same lines however they were saved", () => {
     expect(sameRemeasuredLines(saved, JSON.stringify([{ weightPerPcKg: "50", pieces: " 5", lengthCm: "140.", widthCm: "220", heightCm: "225" }]))).toBe(true);
     expect(sameRemeasuredLines(saved, JSON.stringify([{ pieces: "6", lengthCm: "140", widthCm: "220", heightCm: "225", weightPerPcKg: "50" }]))).toBe(false);
     expect(sameRemeasuredLines("", saved)).toBe(false);
     expect(ALREADY_ACCEPTED).toBe("These remeasured lines were already accepted: the warehouse has saved nothing new since");
+  });
+});
+
+// Review of system-23: Accept only records, so after it the shipment's figures still differ - the Warehouse tab
+// said "Remeasured values differ" with Inform Again as if nothing was done, and an Inform Again of the lines
+// already accepted raised a warning nobody could clear. Their acceptance is said instead.
+describe("remeasureBar", () => {
+  const re = remeasuredFigures(readRemeasuredLines(saved));
+  const none = { colli: 0, weightKg: 0, volumeCbm: 0 };
+  const bar = (over: Partial<Parameters<typeof remeasureBar>[0]> = {}) => remeasureBar({ ship, re, saved, unsaved: false, acceptedLines: null, ...over });
+
+  it("offers Inform Operations while the remeasured figures differ and these lines were not accepted", () => {
+    expect(bar()).toBe("differs");
+    expect(bar({ acceptedLines: JSON.stringify([{ pieces: "6", lengthCm: "1", widthCm: "1", heightCm: "1", weightPerPcKg: "1" }]) })).toBe("differs");
+  });
+
+  it("says the lines were accepted when the warehouse's saved lines are the ones last accepted", () => {
+    expect(bar({ acceptedLines: saved })).toBe("accepted");
+    expect(bar({ acceptedLines: JSON.stringify([{ weightPerPcKg: "50", pieces: " 5", lengthCm: "140.", widthCm: "220", heightCm: "225" }]) })).toBe("accepted");
+  });
+
+  it("is a difference again while the lines on screen are not saved: they are not the ones accepted", () => {
+    expect(bar({ acceptedLines: saved, unsaved: true })).toBe("differs");
+  });
+
+  it("says they match when they do, and nothing while nothing was remeasured", () => {
+    expect(bar({ re: ship, acceptedLines: saved })).toBe("matches");
+    expect(bar({ re: none })).toBeNull();
+    // All new to a shipment with no figures: a difference, never a match.
+    expect(bar({ ship: none })).toBe("differs");
   });
 });

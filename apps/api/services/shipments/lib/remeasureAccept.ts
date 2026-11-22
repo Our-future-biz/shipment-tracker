@@ -123,6 +123,19 @@ export const roundedFigures = (f: AcceptedFigures): AcceptedFigures => ({ colli:
 /** Pieces, kg (0.1) and m³ (0.001) of cargo dimension lines or remeasured lines. */
 export const figuresOf = (lines: readonly FigureLine[]): AcceptedFigures => roundedFigures(exactFiguresOf(lines));
 
+/**
+ * Whether two sets of remeasured figures are the same - the pieces, kg (0.1) and m³ (0.001), each
+ * to 0.001 - and say something: the figures an Inform Operations told and those an acceptance took.
+ * An Inform's history entry keeps the figures, not the lines, and the same lines give the same
+ * figures (review of system-23: an Inform Again of the lines last accepted is no difference left to
+ * accept - Accept refuses those lines as accepted already).
+ */
+export function sameRemeasuredFigures(a: AcceptedFigures, b: AcceptedFigures): boolean {
+  const [x, y] = [roundedFigures(a), roundedFigures(b)];
+  const keys = ["colli", "weightKg", "volumeCbm"] as const;
+  return keys.some((k) => x[k] > 0) && keys.every((k) => Math.abs(x[k] - y[k]) <= 0.001);
+}
+
 /** The lines an acceptance accepted (its history entry's new value), "" when it names none. */
 export function acceptedLinesOf(value: string | null | undefined): string {
   try {

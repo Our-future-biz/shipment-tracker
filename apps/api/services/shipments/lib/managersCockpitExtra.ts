@@ -31,6 +31,7 @@ import {
   UNDER_CLEARANCE_WORKING_DAYS,
 } from "./cockpitThresholds";
 import type { OpsSignal } from "./managersCockpit";
+import { sameRemeasuredFigures, type AcceptedFigures } from "./remeasureAccept";
 import type { RemeasureVerdict } from "./remeasureNotice";
 import { CUSTOMS_DOCUMENT_TYPES, SAFETY_PAPERWORK_TYPES, documentTypeLabel, isReviewedDocumentType, missingDocumentTypes } from "./requiredDocuments";
 import { workingDaysSince } from "./trackingAttention";
@@ -134,15 +135,18 @@ export interface RemeasureFact {
   /**
    * The latest Inform Operations and how its figures stood to the shipment's; null when there was
    * none. `source`: which warehouse informed - "warehouse" (Shipments → Warehouse, whose lines
-   * "Accept remeasurement" takes) or "warehouseConcept" (Warehouse Concept, whose lines it does not
+   * "Accept remeasurement" accepts) or "warehouseConcept" (Warehouse Concept, whose lines it does not
    * read). Left out, the Warehouse's, as a line written before the source was kept.
    * `matchesCargoDetails`: the shipment as it shows now - its Cargo Details rows, the stored
    * figures filling in - says what it informed of, as the Alerts tab judges it (lib/remeasureMatch
-   * matchesNow); left out or false when that is not known.
+   * matchesNow); left out or false when that is not known. `remeasured`: the figures it told, held
+   * against those an earlier acceptance took (informedAccepted); left out when not known.
    */
-  informed: { at: Date; verdict: RemeasureVerdict; source?: "warehouse" | "warehouseConcept"; matchesCargoDetails?: boolean } | null;
+  informed: { at: Date; verdict: RemeasureVerdict; source?: "warehouse" | "warehouseConcept"; matchesCargoDetails?: boolean; remeasured?: AcceptedFigures } | null;
   /** The latest "Accept remeasurement". */
   acceptedAt: Date | null;
+  /** The figures the latest acceptance took (its history entry's new value); left out or null when not known. */
+  acceptedFigures?: AcceptedFigures | null;
   /** The latest "Quantities checked" on Costs Breakdown. */
   costsCheckedAt: Date | null;
 }
@@ -677,22 +681,38 @@ export function importInstructionSignals(job: Pick<ExtraJob, "estimatedArrival" 
 export const REMEASURED_IN_WAREHOUSE_CONCEPT = "Remeasured in Warehouse Concept: check Cargo Details by hand";
 
 /**
+ * Whether the latest acceptance settles the latest Inform Operations: it was made at or after it, or
+ * before it of the very figures it told (lib/remeasureAccept sameRemeasuredFigures, as the Alerts tab
+ * judges it). Review of system-23: Accept only records, so after it the shipment's figures still
+ * differ and the Warehouse tab offered Inform Again - while Accept refuses the same lines as accepted
+ * already, so the warning of such an Inform could never be cleared. An Inform's entry keeps the
+ * figures, not the lines: the same figures stand for them.
+ */
+export function informedAccepted(fact: Pick<RemeasureFact, "informed" | "acceptedAt" | "acceptedFigures">): boolean {
+  const { informed, acceptedAt, acceptedFigures } = fact;
+  if (!informed || !acceptedAt) return false;
+  if (acceptedAt.getTime() >= informed.at.getTime()) return true;
+  return !!acceptedFigures && !!informed.remeasured && sameRemeasuredFigures(acceptedFigures, informed.remeasured);
+}
+
+/**
  * Whether the latest remeasurement is one from Warehouse Concept that still asks for Cargo Details
  * to be checked by hand, whatever they say now: it differs from the shipment, nobody accepted it
- * since, and it was informed less than REMEASURE_WAREHOUSE_CONCEPT_DAYS calendar days ago. Only
- * then does it matter whether Cargo Details match it now (`matchesCargoDetails`), so only for such
- * a job does services/managersCockpitExtra.service read the Cargo Details rows.
+ * (informedAccepted), and it was informed less than REMEASURE_WAREHOUSE_CONCEPT_DAYS calendar days
+ * ago. Only then does it matter whether Cargo Details match it now (`matchesCargoDetails`), so only
+ * for such a job does services/managersCockpitExtra.service read the Cargo Details rows.
  */
-export function conceptRemeasureOpen(fact: Pick<RemeasureFact, "informed" | "acceptedAt">, now: Date): boolean {
-  const { informed, acceptedAt } = fact;
+export function conceptRemeasureOpen(fact: Pick<RemeasureFact, "informed" | "acceptedAt" | "acceptedFigures">, now: Date): boolean {
+  const { informed } = fact;
   if (!informed || informed.source !== "warehouseConcept" || informed.verdict !== "differs") return false;
-  if (acceptedAt && acceptedAt.getTime() >= informed.at.getTime()) return false;
+  if (informedAccepted(fact)) return false;
   return now.getTime() - informed.at.getTime() < REMEASURE_WAREHOUSE_CONCEPT_DAYS * DAY;
 }
 
 /**
  * The warehouse remeasured the cargo (lib/remeasureNotice, lib/remeasureAccept):
- *  - its last Inform Operations differs from the shipment and nobody has accepted it since:
+ *  - its last Inform Operations differs from the shipment and nobody has accepted it since - nor
+ *    before, of the same figures (informedAccepted):
  *    ATTENTION after 24 hours (by air after 4 office hours), URGENT after 48 hours - and by air
  *    as soon as the Closing (the ETD when no Closing) is a working day away, whatever the wait - while
  *    the job has not left (hasLeft): a flight that landed is hurried by no Closing;
@@ -712,7 +732,7 @@ export function remeasurementSignals(
 ): ExtraSignal[] {
   if (!fact) return [];
   const { informed, acceptedAt, costsCheckedAt } = fact;
-  const differs = !!informed && informed.verdict === "differs" && !(acceptedAt && acceptedAt.getTime() >= informed.at.getTime());
+  const differs = !!informed && informed.verdict === "differs" && !informedAccepted(fact);
   if (informed && differs) {
     const waited = now.getTime() - informed.at.getTime();
     const air = freightKindOf(job) === "air";

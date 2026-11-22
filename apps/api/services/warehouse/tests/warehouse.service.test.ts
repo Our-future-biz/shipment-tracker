@@ -170,6 +170,35 @@ describe("Shipment Details saved field by field", () => {
         expect.objectContaining({ code: "invalid_argument" }),
       );
     }
+    // Cleared: nothing to read.
+    sections.patchKeys.mockResolvedValueOnce({ row: row({ house_bl_figures: "" }), conflicts: null });
+    await warehouseService.patchSection(SHIPMENT, "job", COMPANY, [{ key: "house_bl_figures", value: "", expected: value }]);
+  });
+
+  // Review of system-23: anyone who may patch Shipment Details could store any object - figures below 0, text for
+  // a figure, keys of their own - which Cargo Details and the Warehouse tab then read as the House B/L's.
+  it("takes the House B/L's figures only as Document Reading writes them: its House B/L, figures of 0 or more, when read", async () => {
+    sections.findByShipmentAndSection.mockResolvedValue(row({}));
+    const good = { houseBol: "HBL1", colli: 30, weightKg: 1500, volumeCbm: 3.5, readAt: "2026-11-22T12:00:00.000Z" };
+    sections.patchKeys.mockResolvedValue({ row: row({}), conflicts: null });
+    await warehouseService.patchSection(SHIPMENT, "job", COMPANY, [{ key: "house_bl_figures", value: JSON.stringify({ ...good, volumeCbm: 0 }), expected: "" }]);
+    expect(sections.patchKeys).toHaveBeenCalledTimes(1);
+    const bad = [
+      { ...good, colli: -1 },
+      { ...good, weightKg: "1500" },
+      { ...good, volumeCbm: null },
+      { ...good, houseBol: "  " },
+      { ...good, houseBol: 7 },
+      { ...good, readAt: "yesterday" },
+      { ...good, owner: "me" },
+      { colli: 30, weightKg: 1500, volumeCbm: 3.5, readAt: good.readAt },
+    ];
+    for (const figures of bad) {
+      await expect(warehouseService.patchSection(SHIPMENT, "job", COMPANY, [{ key: "house_bl_figures", value: JSON.stringify(figures), expected: "" }])).rejects.toThrow(
+        expect.objectContaining({ code: "invalid_argument", message: expect.stringMatching(/^Bill Of Lading details/) }),
+      );
+    }
+    expect(sections.patchKeys).toHaveBeenCalledTimes(1);
   });
 });
 

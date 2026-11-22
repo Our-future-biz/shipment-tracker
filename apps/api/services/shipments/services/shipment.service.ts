@@ -225,7 +225,11 @@ export interface ReleaseExtras {
    * day a person set in Shipments between the gate's read and this write stays. Left out, the day is written as sent.
    */
   warehouseReleasedReplaces?: readonly string[];
-  /** Lines of the shipment's history the write adds in its own turn (an accepted remeasurement). */
+  /**
+   * Lines of the shipment's history the write adds in its own turn (a hand-over, a Holiday Cover, a
+   * release with the work not yet invoiced unchecked). An accepted remeasurement writes its own, in
+   * its own turn (acceptRemeasurement).
+   */
   history?: { field: string; oldValue: string | null; newValue: string | null }[];
   /**
    * The caller's own write, done in the shipment's write turn once its row is saved, so the two land
@@ -233,23 +237,17 @@ export interface ReleaseExtras {
    */
   alongside?: (tx: Tx) => Promise<void>;
   /**
-   * What the caller decided on besides the shipment's row (its containers and cargo lines, an
-   * acceptance's history), checked again first in the write turn, before anything is written - the
-   * async, in-transaction kin of StillHolds. It throws to refuse the write.
-   */
-  stillHoldsInTurn?: (tx: Tx) => Promise<void>;
-  /**
    * The cargo dimension lines the page saving them started from (Cargo Details, mock test council
    * Y10): the write's lines are saved only while the shipment still holds these, else it is refused
-   * (CARGO_LINES_CHANGED) - a page opened before an accepted remeasurement or a colleague's save
-   * would write its old lines back over theirs. Left out, the lines are saved as sent.
+   * (CARGO_LINES_CHANGED) - a page opened before a colleague's save would write its old lines back
+   * over theirs. Left out, the lines are saved as sent.
    */
   expectedCargoDimensions?: CargoDimensionLine[];
   /**
    * The containers the page saving them started from (Container Details): the write's containers are
    * saved only while the shipment still has these, else it is refused (CONTAINERS_CHANGED) - a page
-   * opened before an accepted remeasurement would write the only container's old Pieces, Gross
-   * Weight and Volume back with its next save. Left out, the containers are saved as sent.
+   * opened before a colleague's save would write its old containers (their seals, Pieces, Gross
+   * Weight and Volume) back over theirs. Left out, the containers are saved as sent.
    */
   expectedContainers?: ContainerLine[];
 }
@@ -1085,10 +1083,16 @@ class ShipmentService {
     return shipment;
   }
 
-  async getById(id: string, companyId: string): Promise<ShipmentItem | null> {
+  /**
+   * A live shipment of the company, as its page shows it; null when there is none. `fillBookedDimensions`
+   * false: the Booked Dimensions of a shipment that has none stored yet are not read from its quote (shown as
+   * none) - the customer's tracking page, read with no login of the company's, asks the quotes service nothing
+   * (review of system-23).
+   */
+  async getById(id: string, companyId: string, { fillBookedDimensions = true }: { fillBookedDimensions?: boolean } = {}): Promise<ShipmentItem | null> {
     const shipment = await shipmentRepository.getByIdForCompany(id, companyId);
     if (!shipment) return null;
-    if (shipment.bookedDimensions === null) await this.fillBookedDimensions(shipment, companyId);
+    if (shipment.bookedDimensions === null && fillBookedDimensions) await this.fillBookedDimensions(shipment, companyId);
     let masterJobMczNumber: string | null = null;
     if (shipment.masterJobId) {
       const mj = await masterJobRepository.getByIdForCompany(shipment.masterJobId, companyId);
@@ -1112,20 +1116,23 @@ class ShipmentService {
 
   /**
    * Booked Dimensions of a shipment made from a quote before there were any (stored null): its quote's
-   * package lines, read from the quote once and kept - none when the quote is gone. A quote that can't
-   * be read now (no login to ask with, the quotes service down) leaves it null, to be tried on a later read.
+   * package lines, read from the quote once and kept - none when the quote is gone. The quote is read for
+   * the shipment's own company (asCompany), whatever login came with the request (review of system-23):
+   * with the caller's, a user of another company - opening this company's tracking link with their own
+   * login, or any call for another company - had their own quote of that reference booked into it for
+   * good, or none. A quote that can't be read now (the quotes service down) leaves it null, to be tried on
+   * a later read.
    */
   private async fillBookedDimensions(shipment: ShipmentRecord, companyId: string): Promise<void> {
     let lines: CargoDimensionLine[] = [];
     const reference = shipment.salesNumber.trim();
     if (shipment.createdFromQuote && reference) {
       try {
-        lines = bookedDimensionsFromQuote((await quotes.salesQuoteGet({ quoteNumber: reference })).quote.data);
+        const { quote } = await quotes._internalSalesQuoteData({ quoteNumber: reference }, asCompany(companyId));
+        if (quote) lines = bookedDimensionsFromQuote(quote.data);
       } catch (err) {
-        if (!(err instanceof APIError && err.code === ErrCode.NotFound)) {
-          log.warn(err, "the booked dimensions of a shipment could not be read from its quote", { companyId, shipmentId: shipment.id, reference });
-          return;
-        }
+        log.warn(err, "the booked dimensions of a shipment could not be read from its quote", { companyId, shipmentId: shipment.id, reference });
+        return;
       }
     }
     await shipmentRepository.setBookedDimensionsOnce(shipment.id, companyId, lines);
@@ -1720,7 +1727,6 @@ class ShipmentService {
         setsRelease = watchesRelease && setsWarehouseRelease(current, shipmentData);
         if (setsRelease && !releaseChecked) throw APIError.failedPrecondition(RELEASE_CHANGED_MEANWHILE);
       }
-      if (extras.stillHoldsInTurn) await extras.stillHoldsInTurn(tx);
       // The gate's day goes only over an empty day or one the gate wrote itself: a person's day set meanwhile stays
       // (the rest of the write - the plate - still goes). Checked here, under the shipment's write lock.
       if (role === undefined && extras.warehouseReleasedReplaces && (shipmentData.warehouseReleasedDate ?? "").trim()) {
@@ -1728,13 +1734,13 @@ class ShipmentService {
         if (!keepsReleasedDay(current?.warehouseReleasedDate, extras.warehouseReleasedReplaces)) delete shipmentData.warehouseReleasedDate;
       }
       // Cargo Details' lines saved from a page that started from other lines than the shipment holds
-      // now (an accepted remeasurement, a colleague's save in between): refused, not written over them.
+      // now (a colleague's save in between): refused, not written over them.
       if (extras.expectedCargoDimensions && cargoDimensions !== undefined) {
         const now = await this.cargoDetailsOf(id, companyId, tx);
         if (!sameCargoLines(extras.expectedCargoDimensions, now.lines, now.containers.length)) throw APIError.aborted(CARGO_LINES_CHANGED);
       }
-      // Container Details' list saved from a page that started from other containers (an accepted
-      // remeasurement's figures, a colleague's seal): refused, not written over them.
+      // Container Details' list saved from a page that started from other containers (a colleague's
+      // figures or seal): refused, not written over them.
       if (extras.expectedContainers && containers !== undefined) {
         const now = (await containerRepository.listByShipmentId(id, companyId, tx)).map(toContainerLine);
         if (!sameContainers(extras.expectedContainers, now)) throw APIError.aborted(CONTAINERS_CHANGED);
@@ -2121,6 +2127,8 @@ class ShipmentService {
     const before = dimensionFiguresFilled({ pcs, totalWeightTons: existing.totalWeightTons, totalVolumeCbm: existing.totalVolumeCbm, cargoDimensions: [...read.lines] });
     const after = roundedFigures(exactFiguresOf(remeasured));
     await shipmentRepository.writeTurn(id, actor.companyID, async (tx) => {
+      // A delete that had the turn first: no acceptance is recorded on a deleted job (review of system-23).
+      if (!(await shipmentRepository.getInTurn(tx, id, actor.companyID))) throw APIError.notFound("Shipment not found");
       // Another Accept of these lines that had its turn before this one: that they were accepted is what to say.
       if (alreadyAccepted(saved, await lastAccepted())) throw APIError.failedPrecondition(ALREADY_ACCEPTED);
       await shipmentAuditRepository.create(
@@ -2132,7 +2140,8 @@ class ShipmentService {
   }
 
   // The shipment's containers and cargo dimension lines as Cargo Details shows them (getById), read
-  // in `tx` when given: what an acceptance is decided on, and checked again in its write turn.
+  // in `tx` when given: what an acceptance's figures before are worked out on, and what a save of
+  // Cargo Details' lines is held to in its write turn (expectedCargoDimensions).
   private async cargoDetailsOf(id: string, companyId: string, tx?: Tx): Promise<CargoDetailsRead> {
     const containers = (await containerRepository.listByShipmentId(id, companyId, tx)).map(toContainerLine);
     const lines = (await cargoDimensionRepository.listByShipmentId(id, companyId, tx)).map(toCargoDimensionLine);

@@ -871,6 +871,25 @@ describe("A19: the warehouse's remeasurement", () => {
     expect(told(fact({ informed: differs("2026-11-16 10:00"), acceptedAt: at("2026-11-16 10:00"), costsCheckedAt: at("2026-11-16 10:05") }))).toEqual([]);
   });
 
+  // Review of system-23: Accept only records, so the shipment's figures still differ after it and the Warehouse
+  // tab offers Inform Again - while Accept refuses the same lines as accepted already. Lines L saved, informed,
+  // accepted, then informed again: that is no difference left to accept, or the job stayed URGENT for good.
+  it("takes an Inform Again of the figures last accepted as accepted; other figures informed after the acceptance wait again", () => {
+    const L = { colli: 5, weightKg: 250, volumeCbm: 34.65 };
+    const informedAgain = (remeasured: typeof L) =>
+      fact({ informed: { ...differs("2026-11-16 10:00"), remeasured }, acceptedAt: at("2026-11-15 10:00"), acceptedFigures: L, costsCheckedAt: at("2026-11-15 11:00") });
+    expect(told(informedAgain(L))).toEqual([]);
+    expect(tags(told(informedAgain({ ...L, weightKg: 260 })))).toEqual([["Remeasurement differs, not accepted since 16.11. 10:00", true]]);
+    // Nothing known of what the acceptance took (an older reader): as before, only an acceptance after it counts.
+    expect(tags(told(fact({ informed: { ...differs("2026-11-16 10:00"), remeasured: L }, acceptedAt: at("2026-11-15 10:00"), costsCheckedAt: at("2026-11-15 11:00") })))).toEqual([
+      ["Remeasurement differs, not accepted since 16.11. 10:00", true],
+    ]);
+    // From Warehouse Concept alike: the figures it told were accepted, nothing to check by hand.
+    const concept = fact({ informed: { ...differs("2026-11-16 10:00"), source: "warehouseConcept", remeasured: L }, acceptedAt: at("2026-11-15 10:00"), acceptedFigures: L, costsCheckedAt: at("2026-11-15 11:00") });
+    expect(conceptRemeasureOpen(concept, NOW)).toBe(false);
+    expect(told(concept)).toEqual([]);
+  });
+
   it("names an accepted remeasurement whose costs nobody checked for longer than a working day", () => {
     const f = fact({ informed: differs("2026-11-13 10:00"), acceptedAt: at("2026-11-16 10:00") });
     expect(told(f)).toEqual([]);

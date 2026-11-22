@@ -699,16 +699,19 @@ export interface RemeasureFigures {
 }
 
 /**
- * A shipment's last accepted remeasurement (Cargo Details → Accept remeasurement): the figures the
- * shipment held before and took over, when and by whom, and Costs Breakdown's check after it.
+ * A shipment's last accepted remeasurement (Cargo Details → Accept remeasurement; only recorded since
+ * 22 Nov - the shipment's cargo stays as it is): the figures the shipment held then and the remeasured
+ * ones accepted, when and by whom, and Costs Breakdown's check after it.
  */
 export interface RemeasureAcceptance {
   acceptedAt: string;
   /** The name of the user who accepted, "" when not known. */
   acceptedBy: string;
+  /** The shipment's figures when it was accepted. */
   before: RemeasureFigures;
+  /** The remeasured figures accepted. */
   after: RemeasureFigures;
-  /** The warehouse's remeasured lines it took over (their saved text): the same lines are not accepted again. */
+  /** The warehouse's remeasured lines it accepted (their saved text): the same lines are not accepted again. */
   lines: string;
   /** The shipment's Freight Mode now: air jobs are charged by chargeable weight, the others by W/M. */
   freightMode: string;

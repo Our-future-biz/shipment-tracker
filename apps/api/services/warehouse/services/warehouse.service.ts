@@ -74,7 +74,7 @@ const JOB_KEYS: Record<string, number> = {
   remeasurement_sent: 2_000,
   remeasure_rows: 100_000,
   // The Colli, weight and volume of the shipment's own House B/L, as Document Reading read it (owner's answer
-  // 22 Nov): JSON { houseBol, colli, weightKg, volumeCbm, readAt }. Shown beside the warehouse's remeasured
+  // 22 Nov): JSON { houseBol, colli, weightKg, volumeCbm, readAt }, nothing else (checkHouseBlFigures). Shown beside the warehouse's remeasured
   // figures as "Bill Of Lading Details", never one of them.
   house_bl_figures: 2_000,
 };
@@ -113,15 +113,44 @@ function checkChanges(section: string, changes: SectionKeyWrite[]) {
         throw APIError.invalidArgument(`Remeasured lines must be a list of up to ${MAX_REMEASURE_ROWS} lines`);
       }
     }
-    if (c.key === "house_bl_figures" && c.value) {
-      let figures: unknown;
-      try {
-        figures = JSON.parse(c.value);
-      } catch {
-        throw APIError.invalidArgument("Bill Of Lading details must be a JSON object");
-      }
-      if (!figures || typeof figures !== "object" || Array.isArray(figures)) throw APIError.invalidArgument("Bill Of Lading details must be a JSON object");
-    }
+    if (c.key === "house_bl_figures" && c.value) checkHouseBlFigures(c.value);
+  }
+}
+
+// The keys of the House B/L's figures, as Document Reading writes them (apps/web documents/_components
+// DocumentReadingWorkflow writeBlDetails): the House B/L they are of, its Colli, kg and m³, and when it was read.
+const HOUSE_BL_KEYS = ["houseBol", "colli", "weightKg", "volumeCbm", "readAt"] as const;
+
+/**
+ * The House B/L's figures are taken only as Document Reading writes them (review of system-23): an object of
+ * exactly HOUSE_BL_KEYS - a House B/L, three numbers of 0 or more and the time it was read. Anyone who may patch
+ * Shipment Details could store any object, which Cargo Details and the Warehouse tab then read as the B/L's.
+ */
+function checkHouseBlFigures(value: string) {
+  let figures: unknown;
+  try {
+    figures = JSON.parse(value);
+  } catch {
+    figures = null;
+  }
+  const o = figures && typeof figures === "object" && !Array.isArray(figures) ? (figures as Record<string, unknown>) : null;
+  const keys = o ? Object.keys(o) : [];
+  const figure = (v: unknown) => typeof v === "number" && Number.isFinite(v) && v >= 0;
+  const asWritten =
+    !!o &&
+    keys.length === HOUSE_BL_KEYS.length &&
+    HOUSE_BL_KEYS.every((k) => keys.includes(k)) &&
+    figure(o.colli) &&
+    figure(o.weightKg) &&
+    figure(o.volumeCbm) &&
+    typeof o.houseBol === "string" &&
+    !!o.houseBol.trim() &&
+    typeof o.readAt === "string" &&
+    !Number.isNaN(Date.parse(o.readAt));
+  if (!asWritten) {
+    throw APIError.invalidArgument(
+      "Bill Of Lading details must be { houseBol, colli, weightKg, volumeCbm, readAt }: the House B/L, its Colli, kg and CBM as numbers of 0 or more, and when it was read",
+    );
   }
 }
 

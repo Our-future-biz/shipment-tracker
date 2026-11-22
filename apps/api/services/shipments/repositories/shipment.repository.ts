@@ -825,12 +825,15 @@ class ShipmentRepository extends TenantRepository<typeof shipmentTable> {
       .where(and(eq(shipmentTable.id, id), eq(shipmentTable.companyId, companyId), isNull(shipmentTable.bookedDimensions)));
   }
 
-  /** The company's live shipments whose House B/L is one of `houseBols` (by billOfLadingKey), with that key, the oldest first. */
-  async liveByHouseBols(companyId: string, houseBols: string[]): Promise<(NamingShipment & { key: string })[]> {
+  /**
+   * The company's live shipments whose House B/L is one of `houseBols` (by billOfLadingKey), with that key and
+   * their status (a cancelled one is offered last, services/readingMatch), the oldest first.
+   */
+  async liveByHouseBols(companyId: string, houseBols: string[]): Promise<(NamingShipment & { key: string; status: string })[]> {
     const keys = [...new Set(houseBols.map(billOfLadingKey).filter(Boolean))];
     if (!keys.length) return [];
     return this.db
-      .select({ id: shipmentTable.id, jobNumber: shipmentTable.jobNumber, key: HOUSE_BOL_KEY })
+      .select({ id: shipmentTable.id, jobNumber: shipmentTable.jobNumber, key: HOUSE_BOL_KEY, status: shipmentTable.status })
       .from(shipmentTable)
       .where(and(eq(shipmentTable.companyId, companyId), isNull(shipmentTable.deletedAt), inArray(HOUSE_BOL_KEY, keys)))
       .orderBy(asc(shipmentTable.createdAt), asc(shipmentTable.id));

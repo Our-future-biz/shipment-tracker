@@ -136,7 +136,25 @@ describe("the warehouse's Inform Operations on the Alerts tab", () => {
     expect(await alertService.remeasureInformed("s1", "c1")).toMatchObject([{ informedBy: "", verdict: "differs", difference: "colli +1" }]);
   });
 
-  it("says who accepted the remeasured figures after the warehouse informed, an earlier acceptance or other figures not", async () => {
+  // Review of system-23: Accept only records, so after it the figures still differ and the Warehouse tab offers
+  // Inform Again, while Accept refuses the same lines as accepted already - the Alert would stand for good.
+  it("takes an Inform Again of the figures the last acceptance before it took as accepted by that acceptance; other figures not", async () => {
+    lookup.companyUsers.mockResolvedValue([{ id: "u2", email: "jana@firma.cz", displayName: "Jana" }]);
+    const ours = { colli: 1, weightKg: 300, volumeCbm: 0.96 };
+    const found = { colli: 1, weightKg: 500, volumeCbm: 6.292 };
+    const acceptance = (id: string, changedAt: string, after: object) => ({ id, userId: "u2", changedAt: new Date(changedAt), oldValue: "{}", newValue: JSON.stringify({ ...after, lines: "[]" }) });
+    // Informed 18.11. 09:05, after the acceptance of 17.11.
+    history([informed("a1", ours, found)], [acceptance("x1", "2026-11-17T10:00:00Z", found)]);
+    expect((await alertService.remeasureInformed("s1", "c1"))[0]).toMatchObject({ verdict: "differs", acceptedAt: "2026-11-17T10:00:00.000Z", acceptedBy: "Jana" });
+    // Other figures informed after the acceptance: still to accept.
+    history([informed("a1", ours, { ...found, weightKg: 520 })], [acceptance("x1", "2026-11-17T10:00:00Z", found)]);
+    expect((await alertService.remeasureInformed("s1", "c1"))[0]).toMatchObject({ verdict: "differs", acceptedAt: null, acceptedBy: "" });
+    // The same figures accepted once, other ones last before it: the lines last accepted are those others.
+    history([informed("a1", ours, found)], [acceptance("x2", "2026-11-17T12:00:00Z", { ...found, weightKg: 480 }), acceptance("x1", "2026-11-17T10:00:00Z", found)]);
+    expect((await alertService.remeasureInformed("s1", "c1"))[0]).toMatchObject({ acceptedAt: null });
+  });
+
+  it("says who accepted the remeasured figures after the warehouse informed - an acceptance of other figures not", async () => {
     lookup.companyUsers.mockResolvedValue([{ id: "u2", email: "jana@firma.cz", displayName: "Jana" }]);
     const found = { colli: 1, weightKg: 500, volumeCbm: 6.292 };
     const acceptance = (id: string, changedAt: string, after: object) => ({ id, userId: "u2", changedAt: new Date(changedAt), oldValue: "{}", newValue: JSON.stringify({ ...after, lines: "[]" }) });

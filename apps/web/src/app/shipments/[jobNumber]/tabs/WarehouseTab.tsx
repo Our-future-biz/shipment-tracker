@@ -13,6 +13,7 @@ import { formatDateTime } from "@/lib/date";
 import { loadTypeLabel } from "@/lib/enums";
 import { NOT_STACKABLE, STACKABLE, adrUnText, dimensionLineVolume, dimensionTotals, hasAdr, isDangerousShipment, numberInput, shipmentStackability } from "@/lib/cargo";
 import { SectionChangedError, useWarehouseSection } from "@/hooks/useWarehouseSection";
+import { useRemeasureAcceptance } from "@/hooks/useRemeasureAcceptance";
 import { apiErrorMessage } from "@/lib/api";
 import { informedText } from "@/lib/informOperations";
 import { SectionCard as Card, PillTabs } from "@/components/SectionCard";
@@ -25,8 +26,8 @@ import { rowKey } from "@/app/shipments/_lib/rowKey";
 import { TD_CELL, TH_CELL, TOTAL_CELL, rowLine } from "./warehouse/warehouseUi";
 import { PickupSection } from "./warehouse/PickupSection";
 import { JobNotes, ActionPushButtons } from "./warehouse/JobExtras";
-import { RemeasureCompare, figuresCompared, figuresDiffer, noFigures } from "./warehouse/RemeasureCompare";
-import { roundedFigures, shipmentCargoFigures, tidyNumber } from "./warehouse/remeasuredLines";
+import { RemeasureCompare, noFigures } from "./warehouse/RemeasureCompare";
+import { remeasureBar, roundedFigures, shipmentCargoFigures, tidyNumber } from "./warehouse/remeasuredLines";
 import { readHouseBlFigures } from "./warehouse/houseBlFigures";
 
 interface JobSectionData {
@@ -402,10 +403,12 @@ function DimensionsEditor({ shipment, messageApi }: { shipment: ShipmentItem; me
   const shipmentDims = useMemo(() => shipmentCargoFigures(shipment), [shipment]);
 
   const remeasured = roundedFigures({ colli: totalColli, weightKg: totalWeightKg, volumeCbm: totalVolumeCbm });
-  // A figure only the warehouse measured is a difference too (mock test council Y9) - also when the
-  // shipment has no figures at all, which still offers Inform Operations (n16).
-  const hasMismatch = figuresDiffer(shipmentDims, remeasured);
   const hasData = totalColli > 0 || totalWeightKg > 0 || totalVolumeCbm > 0;
+  // A figure only the warehouse measured is a difference too (mock test council Y9) - also when the
+  // shipment has no figures at all, which still offers Inform Operations (n16). Lines saved that were
+  // accepted since say so instead (review of system-23): Accept only records, so they still differ.
+  const { acceptance } = useRemeasureAcceptance(shipment.id);
+  const bar = remeasureBar({ ship: shipmentDims, re: remeasured, saved: saved ?? "", unsaved: dirty || failed, acceptedLines: acceptance?.lines });
 
   // Inform Operations: one request records when and posts "Cargo has been remeasured by the
   // warehouse" with the SAVED lines' figures to the shipment's chat, tagging its Person in Charge and
@@ -430,8 +433,6 @@ function DimensionsEditor({ shipment, messageApi }: { shipment: ShipmentItem; me
       informingRef.current = false;
     }
   };
-
-  const compared = figuresCompared(shipmentDims, remeasured);
 
   return (
     <Card
@@ -584,7 +585,7 @@ function DimensionsEditor({ shipment, messageApi }: { shipment: ShipmentItem; me
         />
       </div>
 
-      {hasData && hasMismatch && (
+      {bar === "differs" && (
         <div className="mt-3 flex items-center justify-between gap-3 flex-wrap rounded-lg border border-red-200 bg-red-50 px-3.5 py-2.5">
           <span className="flex items-center gap-2 text-[13px] text-red-700">
             <WarningOutlined /> Remeasured values differ from the shipment values.
@@ -598,9 +599,17 @@ function DimensionsEditor({ shipment, messageApi }: { shipment: ShipmentItem; me
           </Tooltip>
         </div>
       )}
+      {/* The lines saved were accepted on Cargo Details (review of system-23): Accept only records, so the
+          figures still differ - there is nothing left to tell Operations of them until the warehouse saves others. */}
+      {bar === "accepted" && acceptance && (
+        <div className="mt-3 flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3.5 py-2.5 text-[13px] text-emerald-700">
+          <CheckCircleFilled /> These remeasured lines were accepted{acceptance.acceptedBy ? ` by ${acceptance.acceptedBy}` : ""} on {formatDateTime(acceptance.acceptedAt)}; the
+          shipment&apos;s values stay as they are.
+        </div>
+      )}
       {/* A match is told too (owner decision, 18 Nov 2026): it goes to the shipment's chat - its
           Notifications - while a difference is also an Alert. */}
-      {hasData && compared && !hasMismatch && (
+      {bar === "matches" && (
         <div className="mt-3 flex items-center justify-between gap-3 flex-wrap rounded-lg border border-emerald-200 bg-emerald-50 px-3.5 py-2.5">
           <span className="flex items-center gap-2 text-[13px] text-emerald-700">
             <CheckCircleFilled /> All values match

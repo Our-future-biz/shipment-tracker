@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { alreadyAccepted, acceptedLinesOf, exactFiguresOf, figuresOf, parseRemeasuredLines, readFigures, roundedFigures, sameRemeasuredLines } from "../lib/remeasureAccept";
+import { alreadyAccepted, acceptedLinesOf, exactFiguresOf, figuresOf, parseRemeasuredLines, readFigures, roundedFigures, sameRemeasuredFigures, sameRemeasuredLines } from "../lib/remeasureAccept";
 import type { CargoDimensionLine } from "../interfaces/interfaces";
 
 // CZAIR00000094: declared 5 cartons 120×80×150 cm, 34 kg each; the warehouse found 5 × 140×220×225 cm, 50 kg each.
@@ -88,7 +88,7 @@ describe("a figure typed with a point at its end or start", () => {
 });
 
 // Council finding m8: the same lines are not accepted twice.
-describe("the lines an acceptance took over", () => {
+describe("the lines an acceptance accepted", () => {
   it("are read from its history entry, and the same lines are found however they were saved", () => {
     expect(acceptedLinesOf(JSON.stringify({ colli: 5, lines: saved }))).toBe(saved);
     expect(acceptedLinesOf(JSON.stringify({ colli: 5 }))).toBe("");
@@ -96,6 +96,24 @@ describe("the lines an acceptance took over", () => {
     expect(sameRemeasuredLines(saved, JSON.stringify([{ weightPerPcKg: "50", pieces: " 5", lengthCm: "140.", widthCm: "220", heightCm: "225" }]))).toBe(true);
     expect(sameRemeasuredLines(saved, JSON.stringify([{ pieces: "6", lengthCm: "140", widthCm: "220", heightCm: "225", weightPerPcKg: "50" }]))).toBe(false);
     expect(sameRemeasuredLines("", saved)).toBe(false);
+  });
+});
+
+// Review of system-23: an Inform Operations' entry keeps the figures it told, not the lines - held against
+// the figures an acceptance took, an Inform Again of the lines last accepted is no difference left to accept.
+describe("sameRemeasuredFigures", () => {
+  const told = { colli: 5, weightKg: 250, volumeCbm: 34.65 };
+
+  it("holds for the same pieces, kg and m³ as they are compared - kg to 0.1, m³ to 0.001", () => {
+    expect(sameRemeasuredFigures(told, { ...told })).toBe(true);
+    expect(sameRemeasuredFigures(told, { colli: 5, weightKg: 250.04, volumeCbm: 34.6504 })).toBe(true);
+  });
+
+  it("does not hold for any other figure, or when neither says anything", () => {
+    expect(sameRemeasuredFigures(told, { ...told, colli: 6 })).toBe(false);
+    expect(sameRemeasuredFigures(told, { ...told, weightKg: 250.1 })).toBe(false);
+    expect(sameRemeasuredFigures(told, { ...told, volumeCbm: 0 })).toBe(false);
+    expect(sameRemeasuredFigures({ colli: 0, weightKg: 0, volumeCbm: 0 }, { colli: 0, weightKg: 0, volumeCbm: 0 })).toBe(false);
   });
 });
 
@@ -114,7 +132,7 @@ describe("readFigures", () => {
 describe("alreadyAccepted", () => {
   const accepted = (lines: string) => JSON.stringify({ colli: 5, weightKg: 250, volumeCbm: 34.65, lines });
 
-  it("holds when the last acceptance took over the same lines, also saved with other spacing or key order", () => {
+  it("holds when the last acceptance accepted the same lines, also saved with other spacing or key order", () => {
     expect(alreadyAccepted(saved, accepted(saved))).toBe(true);
     expect(alreadyAccepted(saved, accepted(JSON.stringify([{ weightPerPcKg: "50", pieces: " 5 ", lengthCm: "140.", widthCm: "220", heightCm: "225" }])))).toBe(true);
   });

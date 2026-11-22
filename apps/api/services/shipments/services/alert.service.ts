@@ -4,7 +4,7 @@ import type { CustomsVerdictNotice, RemeasureInformedItem, RemeasureSource } fro
 import { companyUsers } from "../../../lib/companyUsers";
 import { REMEASURE_INFORMED, chargeKindOf, differenceText, informedSource, remeasureVerdict } from "../lib/remeasureNotice";
 import { judgedCharge, matchesNow, type ShownCargo } from "../lib/remeasureMatch";
-import { REMEASURE_ACCEPTED, readFigures } from "../lib/remeasureAccept";
+import { REMEASURE_ACCEPTED, readFigures, sameRemeasuredFigures } from "../lib/remeasureAccept";
 import { shipmentAuditRepository } from "../repositories/shipmentAudit.repository";
 import { userNames } from "../../../lib/userNames";
 import { shipmentAlertReadRepository } from "../repositories/shipmentAlertRead.repository";
@@ -75,8 +75,15 @@ class AlertService {
       const source: RemeasureSource = informedSource(r.newValue);
       const charge = judgedCharge(r.newValue, chargeNow);
       // Settled (council finding K3): these figures were accepted after the warehouse informed, or
-      // the shipment's figures match them now - compared as they were when it informed.
-      const settledBy = acceptances.find((a) => a.changedAt >= r.changedAt && remeasureVerdict(readFigures(a.newValue), remeasured, "warehouse", charge) === "matches");
+      // the shipment's figures match them now - compared as they were when it informed. Or they are
+      // the very figures the last acceptance before it took (review of system-23): Accept only records,
+      // so the figures still differ after it and the Warehouse tab offered Inform Again, while Accept
+      // refuses the same lines as accepted already - the Alert stood for good. As Shipments → Managers
+      // judges it (lib/managersCockpitExtra informedAccepted).
+      const lastBefore = acceptances.filter((a) => a.changedAt < r.changedAt).at(-1);
+      const settledBy =
+        acceptances.find((a) => a.changedAt >= r.changedAt && remeasureVerdict(readFigures(a.newValue), remeasured, "warehouse", charge) === "matches") ??
+        (lastBefore && sameRemeasuredFigures(readFigures(lastBefore.newValue), remeasured) ? lastBefore : undefined);
       return {
         id: r.id,
         informedAt: iso(r.changedAt)!,

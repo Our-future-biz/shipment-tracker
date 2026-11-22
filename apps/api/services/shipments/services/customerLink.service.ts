@@ -76,8 +76,9 @@ class CustomerLinkService {
       shipmentService.customsStatusOf(shipment, companyId),
       containerRepository.listByShipmentId(shipmentId, companyId),
       ourContact(companyId),
-      // The pieces and weight as the job page shows them (the cargo lines' totals win over typed values).
-      shipmentService.getById(shipmentId, companyId),
+      // The pieces and weight as the job page shows them (the cargo lines' totals win over typed values). Read
+      // with no login of the company's: its Booked Dimensions are never filled from here (review of system-23).
+      shipmentService.getById(shipmentId, companyId, { fillBookedDimensions: false }),
     ]);
     // No names, audit or ticks go in, so none can come out.
     const { milestones } = buildTracking({ shipment, customsStatus, audit: [], changesCapped: false, events, notices: [], mayChangeDetails: false, tasks: [], names: new Map(), invoiced: null, now });
