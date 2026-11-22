@@ -45,7 +45,6 @@ import { OverviewTiles, type TileId } from "./OverviewTiles";
 import { NeedsAttentionTable } from "./NeedsAttentionTable";
 import { DocumentsPanel } from "./DocumentsPanel";
 import { dimensionLineIsEmpty } from "@/lib/cargo";
-import { DimensionsModal, linesChangedMeanwhile } from "./DimensionsModal";
 import { MasterJobHoverCard } from "@/components/MasterJobHoverCard";
 import { ShipmentHoverCard } from "@/components/ShipmentHoverCard";
 import { CommercialInvoicesModal } from "./CommercialInvoicesModal";
@@ -318,8 +317,6 @@ export const ShipmentsTable = ({
   const [currentPage, setCurrentPage] = useState(1);
   const [docsShipment, setDocsShipment] = useState<ShipmentItem | null>(null);
   // Shipment whose Dimensions dialog is open, by id so the dialog sees fresh rows.
-  const [dimsShipmentId, setDimsShipmentId] = useState<string | null>(null);
-  const dimsShipment = shipments.find((s) => s.id === dimsShipmentId) ?? null;
   const [invoicesShipmentId, setInvoicesShipmentId] = useState<string | null>(null);
   const [chatShipment, setChatShipment] = useState<Pick<ShipmentItem, "id" | "jobNumber"> | null>(null);
   // A row whose status is being set to Cancelled Shipment: the reason is asked first (D22).
@@ -601,11 +598,12 @@ export const ShipmentsTable = ({
             <span className={EMPTY}>{"\u2014"}</span>
           );
         }
-        // Dimensions \u2192 a link to the dimension lines, shown and edited in a dialog. Bold once some are filled in.
+        // Dimensions \u2192 open the shipment's Cargo Details tab, where its dimension lines are kept (owner's answer
+        // 22 Nov), as Container Number opens Container Details. Bold once some are filled in.
         if (col.key === "dimensionsSummary") {
           return (
             <button
-              onClick={(e) => { e.stopPropagation(); setDimsShipmentId(record.id); }}
+              onClick={(e) => { e.stopPropagation(); router.push(`/shipments/${record.id}?tab=cargo`); }}
               className={`${cellLinkClass(textStyle?.color)} ${(record.cargoDimensions ?? []).some((l) => !dimensionLineIsEmpty(l)) ? "font-bold" : "font-medium"} bg-transparent border-none p-0 cursor-pointer`}
               style={textStyle}
             >
@@ -1221,24 +1219,6 @@ export const ShipmentsTable = ({
             throw e;
           })
         }
-      />
-
-      <DimensionsModal
-        shipment={dimsShipment}
-        // The dimensions are the shipment's details: only shown to whoever may not change them.
-        readOnly={!!dimsShipment && !canChangeShipmentDetails(user, dimsShipment)}
-        onClose={() => setDimsShipmentId(null)}
-        // Held to the lines the dialog opened with, as Cargo Details' saves are (Y10): a dialog opened
-        // before a colleague's save or an accepted remeasurement would else write its old lines back.
-        onSave={(shipment, cargoDimensions, expectedCargoDimensions) =>
-          updateShipment({ id: shipment.id, data: { cargoDimensions, expectedCargoDimensions } }).catch((e) => {
-            // Refused as changed meanwhile, the dialog shows the lines as saved and says so itself.
-            if (!linesChangedMeanwhile(e)) toast.error(`Could not save the dimensions: ${apiErrorMessage(e)}`);
-            throw e;
-          })
-        }
-        // Read on its own, not from the list: the list is read again only after the write settles.
-        reload={(shipment) => api.shipments.shipmentGet(shipment.id).then((r) => r.shipment)}
       />
 
       <Drawer
