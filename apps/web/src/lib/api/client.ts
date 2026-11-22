@@ -12260,7 +12260,8 @@ export namespace controllers {
         /**
          * What the dialog's preview showed for each job, by shipment id (mock test S20-123). A job whose Handled By /
          * Holiday Cover (whichever the hand-over writes) is no longer so is left as it is, in `skipped` with "Changed
-         * by somebody else meanwhile". Left out, or a job missing from it, that job is not checked.
+         * by somebody else meanwhile". Left out, or a job missing from it, that job is not checked. Only the jobs in
+         * `shipmentIds` are read from it; more than 1,000 entries are refused, as the list is.
          */
         shown?: { [key: string]: HandOverShownPeople }
     }
@@ -16008,7 +16009,7 @@ export namespace interfaces {
         shipmentId: string
         authorId: string
         /**
-         * Who wrote it: the user's e-mail, as every person is shown; "" when the user is unknown.
+         * Who wrote it, by display name (the e-mail for a user with none), for reading only: `authorId` tells who it is. "" when the user is unknown.
          */
         authorName: string
 
@@ -16038,7 +16039,7 @@ export namespace interfaces {
         shipmentId: string
         jobNumber: string
         /**
-         * Who wrote it: the user's e-mail; "" when the user is unknown.
+         * Who wrote it, by display name (the e-mail for a user with none), for reading only: a name is no identity. "" when the user is unknown.
          */
         authorName: string
 
@@ -16569,7 +16570,7 @@ export namespace interfaces {
         role: "Handled By" | "Holiday Cover"
 
         /**
-         * Who made them so, by e-mail; empty when unknown.
+         * Who made them so, by display name (the e-mail for a user with none), for reading only: a name is no identity. Empty when unknown.
          */
         by: string
 
@@ -17107,7 +17108,11 @@ export namespace interfaces {
         note: string
 
         reviewedAt: string
+        /**
+         * Who gave it, by display name (the e-mail for a user with none), for reading only: a name is no identity. "" when the user is unknown.
+         */
         reviewedByName: string
+
         /**
          * Given since this user last opened the shipment's Alerts.
          */
@@ -20084,7 +20089,7 @@ export namespace interfaces {
         documentType: string
 
         /**
-         * The uploader's e-mail; "Unknown" when it cannot be resolved.
+         * The uploader by display name (the e-mail for a user with none), for reading only: a name is no identity. "Unknown" when it cannot be resolved.
          */
         uploadedByName: string
     }
@@ -22354,7 +22359,7 @@ export namespace interfaces {
 
         authorId: string
         /**
-         * Who wrote it, by e-mail.
+         * Who wrote it, by display name (the e-mail for a user with none), for reading only: `authorId` tells who it is.
          */
         authorName: string
 
@@ -22380,7 +22385,7 @@ export namespace interfaces {
         quoteNumber: string
         threadRef: string
         /**
-         * Who wrote it, by e-mail.
+         * Who wrote it, by display name (the e-mail for a user with none), for reading only: a name is no identity.
          */
         authorName: string
 
@@ -25444,7 +25449,11 @@ export namespace interfaces {
      */
     export interface ShipmentCustomerLink {
         createdAt: string
+        /**
+         * Who made it, by display name (the e-mail for a user with none), for reading only: a name is no identity. "" when the user is unknown.
+         */
         createdBy: string
+
         lastOpenedAt: string | null
         /**
          * The last day it opens; null until the job is delivered.
@@ -25993,7 +26002,7 @@ export namespace interfaces {
         dueDate: string | null
 
         /**
-         * Who wrote it, by e-mail; empty when unknown.
+         * Who wrote it, by display name (the e-mail for a user with none), for reading only: a name is no identity. Empty when unknown.
          */
         authorName: string
 
@@ -26005,7 +26014,7 @@ export namespace interfaces {
         doneAt: string | null
 
         /**
-         * Who ticked it off, by e-mail; empty while open.
+         * Who ticked it off, by display name (the e-mail for a user with none), for reading only: a name is no identity. Empty while open.
          */
         doneByName: string
 

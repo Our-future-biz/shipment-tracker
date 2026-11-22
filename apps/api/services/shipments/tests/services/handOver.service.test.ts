@@ -163,6 +163,17 @@ describe("handing jobs over", () => {
     await expect(handOverService.handOver(manager, { shipmentIds: "all" as never, handledBy: "eva@firma.cz", reason: "Jan is ill" })).rejects.toThrow("Choose at least one job to hand over");
   });
 
+  // Review of system-22: only the jobs asked for are read from what the preview showed, but its entries had no bound at all.
+  it("bounds what the preview showed as the list is bounded: more than 1,000 entries are refused before anything is done", async () => {
+    const tooMany = { code: "invalid_argument", message: "At most 200 jobs can be handed over at once" };
+    const shownFor = (n: number) => Object.fromEntries(Array.from({ length: n }, (_, k) => [id(k + 1), { handledBy: "jan@firma.cz", holidayCover: "" }]));
+    await expect(handOverService.handOver(manager, { shipmentIds: [id(1)], handledBy: "eva@firma.cz", reason: "Jan is ill", shown: shownFor(1001) })).rejects.toMatchObject(tooMany);
+    expect(auth.usersList).not.toHaveBeenCalled();
+    expect(shipments.getByIdForCompany).not.toHaveBeenCalled();
+    // Up to 1,000 are taken; only the jobs asked for are looked at.
+    await expect(handOverService.handOver(manager, { shipmentIds: [id(1)], handledBy: "eva@firma.cz", reason: "Jan is ill", shown: shownFor(1000) })).resolves.toEqual({ changed: 1, skipped: [] });
+  });
+
   it("takes 200 jobs in one request", async () => {
     const many = Array.from({ length: 200 }, (_, n) => id(n + 100));
     for (const [n, shipmentId] of many.entries()) jobs.set(shipmentId, job(n + 100));

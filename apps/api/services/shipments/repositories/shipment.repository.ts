@@ -1086,6 +1086,8 @@ class ShipmentRepository extends TenantRepository<typeof shipmentTable> {
           status: shipmentTable.status,
           tradeDirection: shipmentTable.tradeDirection,
           freightMode: shipmentTable.freightMode,
+          // With the direction and the mode, how the job travels (lib/jobPorts): not in the answer.
+          department: shipmentTable.department,
           etd: shipmentTable.estimatedDeparture,
           eta: shipmentTable.estimatedArrival,
         })

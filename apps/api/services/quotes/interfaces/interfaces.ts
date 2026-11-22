@@ -461,7 +461,7 @@ export interface QuoteCommentItem {
   /** The thread: the original Sales Reference every revision shares. */
   threadRef: string;
   authorId: string;
-  /** Who wrote it, by e-mail. */
+  /** Who wrote it, by display name (the e-mail for a user with none), for reading only: `authorId` tells who it is. */
   authorName: string;
   message: string;
   createdAt: string;
@@ -483,7 +483,7 @@ export interface QuoteCommentMentionItem {
   id: string;
   quoteNumber: string;
   threadRef: string;
-  /** Who wrote it, by e-mail. */
+  /** Who wrote it, by display name (the e-mail for a user with none), for reading only: a name is no identity. */
   authorName: string;
   message: string;
   createdAt: string;

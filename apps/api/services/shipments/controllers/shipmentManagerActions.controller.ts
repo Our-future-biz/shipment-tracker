@@ -23,7 +23,8 @@ interface ShipmentHandOverRequest {
   /**
    * What the dialog's preview showed for each job, by shipment id (mock test S20-123). A job whose Handled By /
    * Holiday Cover (whichever the hand-over writes) is no longer so is left as it is, in `skipped` with "Changed
-   * by somebody else meanwhile". Left out, or a job missing from it, that job is not checked.
+   * by somebody else meanwhile". Left out, or a job missing from it, that job is not checked. Only the jobs in
+   * `shipmentIds` are read from it; more than 1,000 entries are refused, as the list is.
    */
   shown?: Record<string, HandOverShownPeople>;
 }

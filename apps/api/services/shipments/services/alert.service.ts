@@ -6,7 +6,7 @@ import { REMEASURE_INFORMED, chargeKindOf, differenceText, informedSource, remea
 import { judgedCharge, matchesNow, type ShownCargo } from "../lib/remeasureMatch";
 import { REMEASURE_ACCEPTED, readFigures } from "../lib/remeasureAccept";
 import { shipmentAuditRepository } from "../repositories/shipmentAudit.repository";
-import { userEmails } from "../lib/userEmails";
+import { userNames } from "../../../lib/userNames";
 import { shipmentAlertReadRepository } from "../repositories/shipmentAlertRead.repository";
 import { shipmentAttachmentRepository } from "../repositories/shipmentAttachment.repository";
 import { shipmentService } from "./shipment.service";
@@ -109,7 +109,9 @@ class AlertService {
       new Date(now - READ_VERDICT_KEEP_DAYS * DAY_MS),
       VERDICTS_LIMIT,
     );
-    const emails = await userEmails();
+    // Who gave the verdict reads by name (the e-mail for a user with none), as the Customs tab says it
+    // (mock test of 21 Nov; review of system-22). The user's own e-mail above stays one: it finds their shipments.
+    const names = await userNames();
     return rows.map((r) => ({
       id: r.id,
       shipmentId: r.shipmentId,
@@ -119,7 +121,7 @@ class AlertService {
       status: r.status === "approved" ? "approved" : "declined",
       note: r.note,
       reviewedAt: iso(r.reviewedAt!),
-      reviewedByName: r.reviewedById ? (emails.get(r.reviewedById) ?? "") : "",
+      reviewedByName: r.reviewedById ? (names.get(r.reviewedById) ?? "") : "",
       unread: !r.readAt || r.reviewedAt! > r.readAt,
     }));
   }

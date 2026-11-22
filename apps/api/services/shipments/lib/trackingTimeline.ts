@@ -7,7 +7,7 @@
 
 import { addDays, businessDay, businessTime } from "../../../lib/businessDate";
 import { isDeliveryDated } from "../../../lib/deliveryDated";
-import { seaPortText } from "../../../lib/geo/carrierPorts";
+import { jobPortText } from "./jobPorts";
 import type {
   ShipmentTracking,
   TrackingAttention,
@@ -100,9 +100,10 @@ function rowsOf(s: ShipmentRecord): RowSpec[] {
 
   const label = (kind: TrackingKind) => labelOfKind(kind, s);
   // The ports as a sea job shows them: a carrier code saved before the pickers named it as its port
-  // reads by its port name, here and on the public tracking page (display only, mock test S21-041).
-  const polShown = seaPortText(s.pol, s.freightMode);
-  const podShown = seaPortText(s.pod, s.freightMode);
+  // reads by its port name, here and on the public tracking page (display only, mock test S21-041) -
+  // by sea as the field defaults judge it, so a Trucking job's stay as stored (lib/jobPorts).
+  const polShown = jobPortText(s.pol, s);
+  const podShown = jobPortText(s.pod, s);
   const confirmed: RowSpec = { key: "confirmed", label: label("haulier_confirmed"), leg: "origin", event: "haulier_confirmed", optional: true };
   const booking: RowSpec = { key: "booking", label: "Booking confirmed", leg: "origin", event: "booking_confirmed", optional: true };
   const cargoReady: RowSpec = { key: "cargoReady", label: "Cargo ready", leg: "origin", planned: "cargoReadinessDate", event: "cargo_ready", optional: true };

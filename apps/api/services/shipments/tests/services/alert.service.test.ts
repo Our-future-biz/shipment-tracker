@@ -6,7 +6,7 @@ const audit = vi.hoisted(() => ({ listByShipmentId: vi.fn() }));
 const shipments = vi.hoisted(() => ({ requireLive: vi.fn(), get: vi.fn() }));
 vi.mock("encore.dev/api", () => import("../../../../lib/tests/encoreApi.stub"));
 vi.mock("../../../../lib/companyUsers", () => lookup);
-vi.mock("../../lib/userEmails", () => ({ userEmails: async () => new Map([["r1", "customs@firma.cz"]]) }));
+vi.mock("../../../../lib/userNames", () => ({ userNames: async () => new Map([["r1", "Hana Celní"]]) }));
 vi.mock("../../repositories/shipmentAttachment.repository", () => ({ shipmentAttachmentRepository: attachments }));
 vi.mock("../../repositories/shipmentAlertRead.repository", () => ({ shipmentAlertReadRepository: {} }));
 vi.mock("../../repositories/shipmentAudit.repository", () => ({ shipmentAuditRepository: audit }));
@@ -53,7 +53,7 @@ describe("customs' verdicts under the bell", () => {
         status: "declined",
         note: "Wrong value",
         reviewedAt: "2026-11-06T10:00:00.000Z",
-        reviewedByName: "customs@firma.cz",
+        reviewedByName: "Hana Celní",
         unread: true,
       },
     ]);

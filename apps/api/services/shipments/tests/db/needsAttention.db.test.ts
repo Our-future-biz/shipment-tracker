@@ -11,7 +11,6 @@ vi.mock("~encore/clients", () => ({
   holidays: { _internalHolidaysCzNational: async () => ({ dates: [] }) },
 }));
 vi.mock("../../topics", () => ({ shipmentDeleted: { publish: vi.fn() }, shipmentPartiesChanged: { publish: vi.fn() } }));
-vi.mock("../../lib/userEmails", () => ({ userEmails: async () => new Map() }));
 
 import { addDays } from "../../../../lib/businessDate";
 import { db } from "../../db/db";

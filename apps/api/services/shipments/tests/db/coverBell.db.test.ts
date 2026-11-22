@@ -5,7 +5,6 @@ import { eq } from "drizzle-orm";
 vi.mock("~encore/clients", () => ({ auth: {}, customers: {}, invoicing: {}, quotes: {}, warehouse: {} }));
 vi.mock("../../topics", () => ({ shipmentDeleted: { publish: vi.fn() }, shipmentPartiesChanged: { publish: vi.fn() } }));
 vi.mock("../../../../lib/companyUsers", async (original) => ({ ...(await original<object>()), userEmailOf: async () => "eva@firma.cz" }));
-vi.mock("../../lib/userEmails", () => ({ userEmails: async () => new Map() }));
 
 import { db } from "../../db/db";
 import { shipmentTable } from "../../schemas/shipment.schema";

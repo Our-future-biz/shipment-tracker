@@ -7,9 +7,17 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("encore.dev/api", () => import("../../../../lib/tests/encoreApi.stub"));
 vi.mock("encore.dev/log", () => ({ default: { warn: vi.fn() } }));
 vi.mock("encore.dev/config", () => ({ secret: () => () => "test-secret" }));
-// Who wrote a message is shown by e-mail, as every person is.
+vi.mock("~encore/clients", () => ({ auth: {} }));
+// Who wrote a message is shown by name, the e-mail for a user with none - as these two are (by name:
+// tests/whoByName.test.ts).
 vi.mock("../../lib/people", () => ({
-  companyPeople: vi.fn(async () => ({ emails: new Map([["u-me", "lukas@ourfuture.biz"], ["u-eva", "eva@ourfuture.biz"]]) })),
+  companyPeople: vi.fn(async () => ({
+    users: [
+      { id: "u-me", email: "lukas@ourfuture.biz", displayName: "" },
+      { id: "u-eva", email: "eva@ourfuture.biz", displayName: "" },
+    ],
+    emails: new Map([["u-me", "lukas@ourfuture.biz"], ["u-eva", "eva@ourfuture.biz"]]),
+  })),
 }));
 vi.mock("../../storage/quoteAttachmentBucket", () => ({ quoteAttachmentBucket: { upload: vi.fn(), download: vi.fn() } }));
 vi.mock("../../repositories/salesQuote.repository", () => ({ salesQuoteRepository: { loadSales: vi.fn() } }));

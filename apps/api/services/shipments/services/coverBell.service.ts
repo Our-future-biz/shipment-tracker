@@ -2,7 +2,7 @@ import { userEmailOf } from "../../../lib/companyUsers";
 import type { CoverNotesNotice } from "../interfaces/interfaces";
 import { coverNotices } from "../lib/coverBell";
 import { BELL_KEEP_DAYS } from "../lib/trackingThresholds";
-import { userEmails } from "../lib/userEmails";
+import { userNames } from "../../../lib/userNames";
 import { coverBellRepository } from "../repositories/coverBell.repository";
 import { shipmentService } from "./shipment.service";
 
@@ -17,7 +17,9 @@ class CoverBellService {
     if (!email) return [];
     const rows = await coverBellRepository.assignments(companyId, userId, email, new Date(now - BELL_KEEP_DAYS * DAY_MS), LIMIT);
     if (rows.length === 0) return [];
-    const [openNotes, names] = await Promise.all([coverBellRepository.openNotes(companyId, [...new Set(rows.map((r) => r.shipmentId))]), userEmails()]);
+    // Who made the change reads by name (the e-mail for a user with none), as the bell's other lines do
+    // (mock test of 21 Nov; review of system-22). The user's own e-mail above stays one: it finds their shipments.
+    const [openNotes, names] = await Promise.all([coverBellRepository.openNotes(companyId, [...new Set(rows.map((r) => r.shipmentId))]), userNames()]);
     return coverNotices(rows, openNotes, { userId, email }, names);
   }
 

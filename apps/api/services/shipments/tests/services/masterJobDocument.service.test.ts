@@ -23,7 +23,7 @@ vi.mock("../../storage/masterJobDocumentBucket", () => ({ masterJobDocumentBucke
 vi.mock("../../repositories/shipment.repository", () => ({ shipmentRepository: shipments }));
 vi.mock("../../repositories/shipmentAttachment.repository", () => ({ shipmentAttachmentRepository: attachments }));
 vi.mock("../../storage/attachmentBucket", () => ({ attachmentBucket }));
-vi.mock("../../lib/userEmails", () => ({ userEmails: async () => new Map([["u1", "marek@ourfuture.biz"]]) }));
+vi.mock("../../../../lib/userNames", () => ({ userNames: async () => new Map([["u1", "Petr Svoboda"]]) }));
 vi.mock("../../lib/contentToken", () => ({
   masterJobDocumentContentUrl: (mj: string, id: string, company: string) => `/master-jobs/${mj}/documents/${id}/content?t=${company}`,
   companyOfMasterJobDocumentToken: tokens.companyOfMasterJobDocumentToken,
@@ -76,7 +76,7 @@ describe("listing a master job's documents", () => {
       contentUrl: `/master-jobs/${MJ}/documents/${DOC}/content?t=c1`,
       createdAt: "2026-11-09T09:00:00.000Z",
       documentType: "Bill of Lading",
-      uploadedByName: "marek@ourfuture.biz",
+      uploadedByName: "Petr Svoboda",
     });
     expect(items[1]!.uploadedByName).toBe("Unknown");
   });
@@ -111,7 +111,7 @@ describe("adding a document", () => {
       documentType: "Bill of Lading",
       uploadedById: "u1",
     });
-    expect(item).toMatchObject({ documentType: "Bill of Lading", uploadedByName: "marek@ourfuture.biz" });
+    expect(item).toMatchObject({ documentType: "Bill of Lading", uploadedByName: "Petr Svoboda" });
   });
 
   it("needs a file with bytes and a type, and a master job of the company", async () => {

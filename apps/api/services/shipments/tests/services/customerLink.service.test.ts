@@ -14,7 +14,7 @@ vi.mock("encore.dev/api", () => import("../../../../lib/tests/encoreApi.stub"));
 vi.mock("encore.dev/log", () => ({ default: { warn: vi.fn(), error: vi.fn() } }));
 vi.mock("~encore/clients", () => ({ invoicing: { invoiceProfileGet: vi.fn() } }));
 vi.mock("../../../../lib/outbox/serviceIdentity", () => ({ serviceActor: vi.fn() }));
-vi.mock("../../lib/userEmails", () => ({ userEmails: async () => new Map([["u1", "jana@firma.cz"]]) }));
+vi.mock("../../../../lib/userNames", () => ({ userNames: async () => new Map([["u1", "Jana Nováková"]]) }));
 vi.mock("../../repositories/shipment.repository", () => ({ shipmentRepository: shipments }));
 vi.mock("../../repositories/shipmentCustomerLink.repository", () => ({ shipmentCustomerLinkRepository: links }));
 vi.mock("../../repositories/container.repository", () => ({ containerRepository: { listByShipmentId: vi.fn() } }));

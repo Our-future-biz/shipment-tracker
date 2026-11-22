@@ -5,7 +5,7 @@ import { businessDay } from "../../../lib/businessDate";
 import type { PublicShipmentStatus, ShipmentCustomerLink } from "../interfaces/interfaces";
 import { LINK_INVALID, customerLinkUrl, hashLinkToken, linkMayOpen, linkOpenUntil, looksLikeLinkToken, newLinkToken, publicStatusOf } from "../lib/customerLink";
 import { buildTracking } from "../lib/trackingTimeline";
-import { userEmails } from "../lib/userEmails";
+import { userNames } from "../../../lib/userNames";
 import { containerRepository } from "../repositories/container.repository";
 import { shipmentRepository } from "../repositories/shipment.repository";
 import { shipmentCustomerLinkRepository } from "../repositories/shipmentCustomerLink.repository";
@@ -33,7 +33,9 @@ class CustomerLinkService {
     const shipment = await this.requireShipment(shipmentId, companyId);
     const link = await shipmentCustomerLinkRepository.liveOf(shipmentId, companyId);
     if (!link) return null;
-    const names = await userEmails();
+    // Who made it reads by name (the e-mail for a user with none), as the Tracking tab's timeline beside it
+    // (mock test of 21 Nov; review of system-22).
+    const names = await userNames();
     return {
       createdAt: link.createdAt.toISOString(),
       createdBy: names.get(link.createdById) ?? "",

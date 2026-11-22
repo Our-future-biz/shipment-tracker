@@ -3,7 +3,6 @@ import { describe, expect, it, vi } from "vitest";
 
 vi.mock("~encore/clients", () => ({ auth: {}, customers: {}, invoicing: { openInvoiceCount: async () => ({ count: 0 }), _internalPaidSupplierInvoices: async () => ({ invoiceNumbers: [] }) }, quotes: {}, warehouse: { _internalPickupPlates: async () => ({ plates: [] }) } }));
 vi.mock("../../topics", () => ({ shipmentDeleted: { publish: vi.fn() }, shipmentPartiesChanged: { publish: vi.fn() } }));
-vi.mock("../../lib/userEmails", () => ({ userEmails: async () => new Map() }));
 
 import { db } from "../../db/db";
 import { shipmentNoteRepository } from "../../repositories/shipmentNote.repository";

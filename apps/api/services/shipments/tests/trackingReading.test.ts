@@ -30,6 +30,13 @@ describe("readingPreview", () => {
     expect(facts[1]).toMatchObject({ place: "Hamburg", vessel: "" });
   });
 
+  // Review of system-22: by sea as the field defaults judge it (lib/trackingEvents freightKindOf), Department and direction too.
+  it("names a sea job's old carrier code by its port, and leaves a Road Department job's as stored though its Freight Mode says sea", () => {
+    const old = { ...shipment, pol: "Shanghai Hongqiao International Apt (CNSHA)" } as ShipmentRecord;
+    expect(preview({ ATD: "2026-10-02" }, old).facts[0]).toMatchObject({ place: "Shanghai (CNSHA)" });
+    expect(preview({ ATD: "2026-10-02" }, { ...old, department: "Road Department" }).facts[0]).toMatchObject({ place: "Shanghai Hongqiao International Apt (CNSHA)" });
+  });
+
   it("says what a train is doing", () => {
     const { facts } = preview({ ATA: "2026-11-04" }, { ...shipment, freightMode: "Rail Freight" });
     expect(facts[0]!.label).toBe("Arrived at the terminal");

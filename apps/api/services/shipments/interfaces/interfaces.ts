@@ -117,6 +117,7 @@ export interface CustomsVerdictNotice {
   /** Declined: the reason. */
   note: string;
   reviewedAt: string;
+  /** Who gave it, by display name (the e-mail for a user with none), for reading only: a name is no identity. "" when the user is unknown. */
   reviewedByName: string;
   /** Given since this user last opened the shipment's Alerts. */
   unread: boolean;
@@ -531,7 +532,7 @@ export interface CommentMentionItem {
   id: string;
   shipmentId: string;
   jobNumber: string;
-  /** Who wrote it: the user's e-mail; "" when the user is unknown. */
+  /** Who wrote it, by display name (the e-mail for a user with none), for reading only: a name is no identity. "" when the user is unknown. */
   authorName: string;
   message: string;
   createdAt: string;
@@ -553,7 +554,7 @@ export interface CommentItem {
   id: string;
   shipmentId: string;
   authorId: string;
-  /** Who wrote it: the user's e-mail, as every person is shown; "" when the user is unknown. */
+  /** Who wrote it, by display name (the e-mail for a user with none), for reading only: `authorId` tells who it is. "" when the user is unknown. */
   authorName: string;
   message: string;
   createdAt: string;
@@ -584,13 +585,13 @@ export interface ShipmentNoteItem {
   details: string;
   /** The day it has to be done by (YYYY-MM-DD); null for no deadline. */
   dueDate: string | null;
-  /** Who wrote it, by e-mail; empty when unknown. */
+  /** Who wrote it, by display name (the e-mail for a user with none), for reading only: a name is no identity. Empty when unknown. */
   authorName: string;
   createdAt: string;
   done: boolean;
   /** When it was ticked off; null while open. */
   doneAt: string | null;
-  /** Who ticked it off, by e-mail; empty while open. */
+  /** Who ticked it off, by display name (the e-mail for a user with none), for reading only: a name is no identity. Empty while open. */
   doneByName: string;
   /** Starred: kept at the top of the list. */
   pinned: boolean;
@@ -826,7 +827,7 @@ export interface MasterJobDocumentItem {
   createdAt: string;
   /** Business document type (Bill of Lading, Booking confirmation, …). */
   documentType: string;
-  /** The uploader's e-mail; "Unknown" when it cannot be resolved. */
+  /** The uploader by display name (the e-mail for a user with none), for reading only: a name is no identity. "Unknown" when it cannot be resolved. */
   uploadedByName: string;
 }
 
@@ -1288,7 +1289,7 @@ export interface CoverNotesNotice {
   jobNumber: string;
   /** What the user was made. */
   role: "Handled By" | "Holiday Cover";
-  /** Who made them so, by e-mail; empty when unknown. */
+  /** Who made them so, by display name (the e-mail for a user with none), for reading only: a name is no identity. Empty when unknown. */
   by: string;
   at: string;
   /** How many of its to-dos are open. */
@@ -1559,6 +1560,7 @@ export interface TrackingLastFreeDayChange {
 /** A shipment's customer link as the desk sees it; the URL isn't kept. */
 export interface ShipmentCustomerLink {
   createdAt: string;
+  /** Who made it, by display name (the e-mail for a user with none), for reading only: a name is no identity. "" when the user is unknown. */
   createdBy: string;
   lastOpenedAt: string | null;
   /** The last day it opens; null until the job is delivered. */

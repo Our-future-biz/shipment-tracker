@@ -22,7 +22,7 @@ import {
 import type { MasterJobDocumentRecord } from "../schemas/masterJobDocument.schema";
 import { masterJobDocumentBucket } from "../storage/masterJobDocumentBucket";
 import { canManageDocuments } from "../lib/documentRules";
-import { userEmails } from "../lib/userEmails";
+import { userNames } from "../../../lib/userNames";
 import { companyOfMasterJobDocumentToken, masterJobDocumentContentUrl } from "../lib/contentToken";
 import { iso } from "../../../lib/db/serialize";
 import { isUuid } from "../../../lib/uuid";
@@ -34,8 +34,11 @@ import type { MasterJobDocumentItem, MasterJobDocumentsZip } from "../interfaces
 // (owner decision, 6 Nov 2026): anyone in the company adds a document, only a manager, an admin or a
 // superadmin deletes one.
 
-/** A document as the API shows it: who added it by e-mail, a download link, no storage key. */
-function toItem(row: MasterJobDocumentRecord, emails: Map<string, string>): MasterJobDocumentItem {
+/**
+ * A document as the API shows it: who added it by name (the e-mail for a user with none), as a shipment's
+ * Documents tab names its uploaders (mock test of 21 Nov; review of system-22), a download link, no storage key.
+ */
+function toItem(row: MasterJobDocumentRecord, names: Map<string, string>): MasterJobDocumentItem {
   return {
     id: row.id,
     masterJobId: row.masterJobId,
@@ -45,7 +48,7 @@ function toItem(row: MasterJobDocumentRecord, emails: Map<string, string>): Mast
     contentUrl: masterJobDocumentContentUrl(row.masterJobId, row.id, row.companyId),
     createdAt: iso(row.createdAt),
     documentType: row.documentType,
-    uploadedByName: row.uploadedById ? emails.get(row.uploadedById) || "Unknown" : "Unknown",
+    uploadedByName: row.uploadedById ? names.get(row.uploadedById) || "Unknown" : "Unknown",
   };
 }
 
@@ -61,11 +64,11 @@ const NOT_FOUND = "Document not found";
 class MasterJobDocumentService {
   async list(masterJobId: string, companyId: string): Promise<MasterJobDocumentItem[]> {
     await this.requireMasterJob(masterJobId, companyId);
-    const [rows, emails] = await Promise.all([
+    const [rows, names] = await Promise.all([
       masterJobDocumentRepository.listByMasterJobId(masterJobId, companyId),
-      userEmails(),
+      userNames(),
     ]);
-    return rows.map((r) => toItem(r, emails));
+    return rows.map((r) => toItem(r, names));
   }
 
   /** Stores the bytes, then the record; when the record can't be written, the stored bytes go again. */
@@ -89,7 +92,7 @@ class MasterJobDocumentService {
         documentType,
         uploadedById,
       });
-      return toItem(row, await userEmails());
+      return toItem(row, await userNames());
     } catch (err) {
       await masterJobDocumentBucket
         .remove(storageKey)

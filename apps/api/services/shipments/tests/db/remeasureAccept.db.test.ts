@@ -18,7 +18,6 @@ vi.mock("~encore/clients", () => ({
   },
 }));
 vi.mock("../../topics", () => ({ shipmentDeleted: { publish: vi.fn() }, shipmentPartiesChanged: { publish: vi.fn() } }));
-vi.mock("../../lib/userEmails", () => ({ userEmails: async () => new Map() }));
 vi.mock("../../../../lib/outbox/serviceIdentity", () => ({ serviceActor: async () => ({ userID: "svc" }) }));
 
 import { db } from "../../db/db";

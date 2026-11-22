@@ -105,6 +105,16 @@ describe("the milestones", () => {
     expect(row(air, "departed")?.place).toBe("Shanghai Hongqiao International Apt (CNSHA)");
   });
 
+  // Review of system-22: by the rule the field defaults read a job's mode by (lib/trackingEvents freightKindOf).
+  it("leaves a Road Department or Domestic job's places as stored, though its Freight Mode says sea", () => {
+    const old = { pol: "Shanghai Hongqiao International Apt (CNSHA)", pod: "Ningbo Lishe International Apt (CNNGB)", estimatedDeparture: "2026-11-20", estimatedArrival: "2026-11-22" };
+    for (const trucking of [{ department: "Road Department" }, { tradeDirection: "Domestic" }]) {
+      const t = build({ shipment: shipment({ ...old, ...trucking }) });
+      expect(row(t, "departed")?.place).toBe("Shanghai Hongqiao International Apt (CNSHA)");
+      expect(row(t, "arrived")?.place).toBe("Ningbo Lishe International Apt (CNNGB)");
+    }
+  });
+
   it("marks an actual date done and says who recorded it", () => {
     const t = build({
       shipment: shipment({ estimatedDeparture: "2026-09-19", actualDeparture: "2026-09-20" }),

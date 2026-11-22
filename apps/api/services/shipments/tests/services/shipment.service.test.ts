@@ -2756,6 +2756,37 @@ describe("the main search in shipments", () => {
       ["Shanghai Hongqiao International Apt (CNSHA)", ""],
     ]);
   });
+
+  // Review of system-22: a Trucking job is by road to the field defaults (lib/trackingEvents freightKindOf),
+  // whatever its Freight Mode says - so its airport stays the airport here too.
+  it("leaves a Road Department or Domestic job's places as stored, though its Freight Mode says sea", async () => {
+    const old = { customer: "ACME", customerId: null, status: "Booked", etd: null, eta: null, freightMode: "Sea Freight", pol: "Shanghai Hongqiao International Apt (CNSHA)", pod: null };
+    vi.mocked(shipmentRepository.searchMain).mockResolvedValue({
+      rows: [
+        { ...old, id: "s1", jobNumber: "CZFCL00000301", tradeDirection: "Import", department: "Road Department" },
+        { ...old, id: "s2", jobNumber: "CZFCL00000302", tradeDirection: "Domestic", department: "Operation Department" },
+        { ...old, id: "s3", jobNumber: "CZFCL00000303", tradeDirection: "Import", department: "Operation Department" },
+      ],
+      total: 3,
+    } as never);
+    const { items } = await shipmentService.searchMain(COMPANY, "shanghai", 5);
+    expect(items.map((i) => i.pol)).toEqual(["Shanghai Hongqiao International Apt (CNSHA)", "Shanghai Hongqiao International Apt (CNSHA)", "Shanghai (CNSHA)"]);
+  });
+});
+
+// Review of system-22: the job page names its places by the same rule of how the job travels as the field defaults.
+describe("a job's places on its page", () => {
+  const old = { freightMode: "Sea Freight", tradeDirection: "Import", department: "Operation Department", pol: "Shanghai Hongqiao International Apt (CNSHA)", pod: "Ningbo Lishe International Apt (CNNGB)" };
+
+  it("read by their port's name on a sea job", async () => {
+    stored.set(SHIPMENT, row(old));
+    expect(await shipmentService.getById(SHIPMENT, COMPANY)).toMatchObject({ pol: "Shanghai (CNSHA)", pod: "Ningbo (CNNGB)" });
+  });
+
+  it("stay as stored on a Road Department job whose Freight Mode says sea", async () => {
+    stored.set(SHIPMENT, row({ ...old, department: "Road Department" }));
+    expect(await shipmentService.getById(SHIPMENT, COMPANY)).toMatchObject({ pol: old.pol, pod: old.pod });
+  });
 });
 
 describe("the main search in containers", () => {

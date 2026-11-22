@@ -63,6 +63,9 @@ class HandOverService {
     const tooMany = `At most ${HAND_OVER_MAX_JOBS} jobs can be handed over at once`;
     // Bounded as sent, before anything is done with the list: a job named over and over is not a way past the cap.
     if (sent.length > HAND_OVER_MAX_IDS_SENT) throw APIError.invalidArgument(tooMany);
+    // What the preview showed is read only for the jobs asked for, but bounded as sent all the same: one
+    // entry per job, as many as the list may carry (review of system-22).
+    if (input.shown && Object.keys(input.shown).length > HAND_OVER_MAX_IDS_SENT) throw APIError.invalidArgument(tooMany);
     const ids = [...new Set(sent)];
     if (ids.length === 0) throw APIError.invalidArgument("Choose at least one job to hand over");
     if (ids.length > HAND_OVER_MAX_JOBS) throw APIError.invalidArgument(tooMany);

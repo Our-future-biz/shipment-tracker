@@ -61,7 +61,7 @@ import { billOfLadingKey } from "../../../lib/billOfLading";
 import { deliverShipmentPushes, owePushes } from "./shipmentPush.service";
 import { isUuid } from "../../../lib/uuid";
 import { publicFields } from "../lib/rows";
-import { seaPortText } from "../../../lib/geo/carrierPorts";
+import { jobPortText } from "../lib/jobPorts";
 import { changesTaxDate } from "../lib/taxDate";
 import { masterJobNumberFor } from "../lib/masterJobNumber";
 import { houseLoadTypeProblem } from "../lib/masterJobKind";
@@ -445,10 +445,10 @@ async function searchPeopleNamesFor(filters: Pick<ShipmentListFilters, "search" 
 // The API shape of an enriched shipment: dates as ISO strings, no tenant/soft-delete columns.
 // A sea job's POL / POD holding a carrier code saved before the pickers named it as its port reads
 // "Shanghai (CNSHA)", not "Shanghai Hongqiao International Apt (CNSHA)": shown so, stored as it is
-// (mock council S4-1).
+// (mock council S4-1). A sea job as the field defaults judge it: a Trucking job's stay as stored (lib/jobPorts).
 function toShipmentItem(s: EnrichedShipment): ShipmentItem {
   const { createdAt, updatedAt, ...rest } = publicFields(s);
-  return { ...rest, pol: seaPortText(rest.pol, rest.freightMode), pod: seaPortText(rest.pod, rest.freightMode), createdAt: iso(createdAt), updatedAt: iso(updatedAt) };
+  return { ...rest, pol: jobPortText(rest.pol, rest), pod: jobPortText(rest.pod, rest), createdAt: iso(createdAt), updatedAt: iso(updatedAt) };
 }
 
 // Checked before anything is written, so a bad number never leaves a half-saved shipment. `stored`:
@@ -984,9 +984,9 @@ class ShipmentService {
         jobNumber: r.jobNumber,
         customer: r.customer ?? "",
         customerId: r.customerId ?? null,
-        // An old carrier code's place text, as a sea job shows it (mock test S21-041); stored as it is.
-        pol: seaPortText(r.pol, r.freightMode),
-        pod: seaPortText(r.pod, r.freightMode),
+        // An old carrier code's place text, as a sea job shows it (mock test S21-041; lib/jobPorts); stored as it is.
+        pol: jobPortText(r.pol, r),
+        pod: jobPortText(r.pod, r),
         status: r.status ?? "",
         tradeDirection: r.tradeDirection ?? "",
         freightMode: r.freightMode ?? "",
