@@ -107,21 +107,14 @@ import { shipmentReleaseOverrideRepository } from "../repositories/shipmentRelea
 import { shipmentReleaseRequestRepository } from "../repositories/shipmentReleaseRequest.repository";
 import {
   ALREADY_ACCEPTED,
-  CARGO_DETAILS_CHANGED,
   REMEASURE_ACCEPTED,
   REMEASURE_COSTS_CHECKED,
-  acceptByHandRefusal,
-  acceptRefusal,
   alreadyAccepted,
-  acceptedContainerFigures,
-  acceptedDimensionLines,
   acceptedLinesOf,
-  acceptedTotals,
   exactFiguresOf,
   parseRemeasuredLines,
   readFigures,
   roundedFigures,
-  sameCargoDetails,
   type CargoDetailsRead,
   type RemeasuredLine,
 } from "../lib/remeasureAccept";
@@ -2089,10 +2082,11 @@ class ShipmentService {
   }
 
   /**
-   * Accepts the warehouse's remeasurement (lib/remeasureAccept): its saved lines replace the cargo
-   * dimension lines and Pcs, Total Weight and Total Volume take their totals, in one write with a
-   * line in the history holding the figures before and after. `expected`: the remeasured lines as
-   * the page showed them - lines the warehouse changed meanwhile are not accepted unseen.
+   * Accepts the warehouse's remeasurement (lib/remeasureAccept): only recorded, since 22 Nov (owner's
+   * answer) - a line in the history holding the figures before and after and the lines accepted;
+   * Cargo Details' lines, Pcs, Total Weight, Total Volume and the container stay as they are.
+   * `expected`: the remeasured lines as the page showed them - lines the warehouse changed meanwhile
+   * are not accepted unseen.
    */
   async acceptRemeasurement(id: string, actor: { companyID: string; userID: string; role: string }, expected: string): Promise<ShipmentItem> {
     if (!isUuid(id)) throw APIError.notFound("Shipment not found");
@@ -2111,57 +2105,30 @@ class ShipmentService {
     } catch (e) {
       throw APIError.failedPrecondition(e instanceof Error ? e.message : "The remeasured lines cannot be read");
     }
-    // The same lines twice (a stale page, a second person) would record a second acceptance and
-    // bring back a Costs warning already checked (council finding m8) - while Cargo Details still
-    // hold them (Y10: lines saved over since may be accepted again); lines of dangerous goods or of
-    // several containers are taken over only line for line, the same pieces on each (X2, Y8). Asked
-    // here for a quick answer, and again in the write turn below on what is there then.
+    // Recorded only (owner's answer 22 Nov): Cargo Details' lines, the shipment's Colli, Total Weight and Total
+    // Volume and its container stay as they are. The same lines twice (a stale page, a second person) would
+    // record a second acceptance and bring back a Costs note already checked (council finding m8): asked
+    // here for a quick answer, and again in the write turn below.
     const lastAccepted = async () => (await shipmentAuditRepository.listByShipmentId(id, actor.companyID, [REMEASURE_ACCEPTED], 1))[0]?.newValue ?? null;
+    if (alreadyAccepted(saved, await lastAccepted())) throw APIError.failedPrecondition(ALREADY_ACCEPTED);
+    // What the shipment holds: its cargo lines' totals, a figure they lack from its typed totals - its Pcs as
+    // it shows (a container's first), as Inform Operations and Cargo Details compare it - against the
+    // remeasured figures: the history entry the Remeasured by Warehouse tile, Alerts, Shipments → Managers
+    // and Costs Breakdown read.
     const read = await this.cargoDetailsOf(id, actor.companyID);
-    const refusal = acceptRefusal(saved, remeasured, await lastAccepted(), read.lines);
-    if (refusal) throw APIError.failedPrecondition(refusal);
-    const current = [...read.lines];
-    // What the shipment held: its cargo lines' totals, a figure they lack from its typed totals - its
-    // Pcs as it showed (a container's first: a job made from a quote stores none), as Inform
-    // Operations and Cargo Details compared it.
     const items = (await cargoItemRepository.listByShipmentId(id, actor.companyID)).map(toCargoItemLine);
-    const { pcs } = shownCargo(existing, { containers: read.containers, items, dimensions: current });
-    const before = dimensionFiguresFilled({ pcs, totalWeightTons: existing.totalWeightTons, totalVolumeCbm: existing.totalVolumeCbm, cargoDimensions: current });
-    const exact = exactFiguresOf(remeasured);
-    const after = roundedFigures(exact);
-    // The only container declares the cargo's figures too, and the screens read them from it first
-    // (council finding X3): it takes the accepted totals in the same write, its change in the history.
-    // Several containers are left alone - which container's figures changed is not known.
-    const [only, ...others] = read.containers;
-    const containers = only && others.length === 0 ? { containers: [{ ...only, ...acceptedContainerFigures(exact) }] } : {};
-    // Everything above was decided on Cargo Details as read before the write turn. A save of it in
-    // between - a second container, a changed seal, ADR lines, typed totals - would be undone by this
-    // write: the container list it sends is synced, so a container it doesn't name is deleted with
-    // its cargo. So the turn reads them again and refuses unless they are as read; then the one
-    // container sent is the only one there, and only its figures change.
-    const stillHoldsInTurn = async (tx: Tx) => {
-      const row = await shipmentRepository.getInTurn(tx, id, actor.companyID);
-      if (!row) throw APIError.notFound("Shipment not found");
-      const fresh = await this.cargoDetailsOf(id, actor.companyID, tx);
-      // First: another Accept of these lines that had its turn before this one - it changed Cargo
-      // Details itself, and that they were accepted is what to say. Its history entry is read
-      // outside this transaction, which is fine: the turn is only had once the other has committed.
-      if (alreadyAccepted(saved, await lastAccepted(), fresh.lines)) throw APIError.failedPrecondition(ALREADY_ACCEPTED);
-      const totalsAsRead = row.pcs === existing.pcs && row.totalWeightTons === existing.totalWeightTons && row.totalVolumeCbm === existing.totalVolumeCbm;
-      if (!totalsAsRead || !sameCargoDetails(read, fresh)) throw APIError.aborted(CARGO_DETAILS_CHANGED);
-      const byHand = acceptByHandRefusal(remeasured, fresh.lines);
-      if (byHand) throw APIError.failedPrecondition(byHand);
-    };
-    return this.update(
-      id,
-      actor.companyID,
-      { cargoDimensions: acceptedDimensionLines(remeasured, current), ...acceptedTotals(exact), ...containers },
-      actor.userID,
-      actor.role,
-      undefined,
-      undefined,
-      { history: [{ field: REMEASURE_ACCEPTED, oldValue: JSON.stringify(before), newValue: JSON.stringify({ ...after, lines: saved }) }], stillHoldsInTurn },
-    );
+    const { pcs } = shownCargo(existing, { containers: read.containers, items, dimensions: [...read.lines] });
+    const before = dimensionFiguresFilled({ pcs, totalWeightTons: existing.totalWeightTons, totalVolumeCbm: existing.totalVolumeCbm, cargoDimensions: [...read.lines] });
+    const after = roundedFigures(exactFiguresOf(remeasured));
+    await shipmentRepository.writeTurn(id, actor.companyID, async (tx) => {
+      // Another Accept of these lines that had its turn before this one: that they were accepted is what to say.
+      if (alreadyAccepted(saved, await lastAccepted())) throw APIError.failedPrecondition(ALREADY_ACCEPTED);
+      await shipmentAuditRepository.create(
+        { companyId: actor.companyID, shipmentId: id, userId: actor.userID, field: REMEASURE_ACCEPTED, oldValue: JSON.stringify(before), newValue: JSON.stringify({ ...after, lines: saved }) },
+        tx,
+      );
+    });
+    return (await this.getById(id, actor.companyID))!;
   }
 
   // The shipment's containers and cargo dimension lines as Cargo Details shows them (getById), read

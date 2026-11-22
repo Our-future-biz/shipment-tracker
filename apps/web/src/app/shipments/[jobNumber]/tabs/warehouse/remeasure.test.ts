@@ -2,20 +2,14 @@ import { describe, expect, it } from "vitest";
 import { diffText, differs, figuresCompared, figuresDiffer, noFigures } from "./RemeasureCompare";
 import type { CargoDimensionLine } from "@/lib/cargo";
 import {
-  ACCEPT_BY_HAND,
   ALREADY_ACCEPTED,
-  acceptByHandReason,
   alreadyAccepted,
-  descriptionNote,
   figuresText,
-  keptText,
-  pcsAfterText,
   readRemeasuredLines,
   remeasuredFigures,
   roundedFigures,
   sameRemeasuredLines,
   shipmentCargoFigures,
-  takenOverText,
   tidyNumber,
   unmeasuredReason,
 } from "./remeasuredLines";
@@ -154,71 +148,6 @@ describe("the shipment's figures the remeasurement is held against", () => {
   });
 });
 
-// Council finding X2: line n keeps the shipment's line n's container, packing and dangerous goods.
-describe("acceptByHandReason", () => {
-  const pcs = (...n: number[]) => n.map((p) => ({ pieces: String(p) }));
-
-  it("refuses another number of lines on dangerous goods or several containers, as the server does", () => {
-    const un1993 = dim({ pieces: "1", adrUn: "1993", adrClass: "3" });
-    expect(acceptByHandReason(pcs(5), [dim(), un1993])).toBe(ACCEPT_BY_HAND);
-    expect(acceptByHandReason(pcs(4, 4, 1), [dim(), dim({ containerId: "c2" })])).toBe(ACCEPT_BY_HAND);
-    expect(acceptByHandReason(pcs(4, 1), [dim(), un1993])).toBeNull();
-    expect(acceptByHandReason(pcs(1, 1, 1), [dim()])).toBeNull();
-  });
-
-  // Mock test council Y8: (1) 3 drums UN 1203, (2) 10 cartons; the warehouse saved the cartons first.
-  it("refuses the same number of lines when the pieces don't match line for line", () => {
-    const drums = dim({ pieces: "3", packageType: "Drums", adrUn: "1203", adrClass: "3" });
-    const cartons = dim({ pieces: "10", packageType: "Cartons" });
-    expect(acceptByHandReason(pcs(10, 3), [drums, cartons])).toBe(ACCEPT_BY_HAND);
-    expect(acceptByHandReason(pcs(3, 10), [drums, cartons])).toBeNull();
-    expect(acceptByHandReason(pcs(5, 4), [dim(), dim({ containerId: "c2" })])).toBe(ACCEPT_BY_HAND);
-    expect(acceptByHandReason(pcs(4, 3), [dim(), dim({ pieces: "3", containerId: "c2" })])).toBeNull();
-  });
-
-  // Review: (1) 1 drum pallet UN 1203, (2) 1 carton pallet; the warehouse saved the carton pallet first.
-  it("refuses lines of other cargo with the same pieces, in either order: the pieces don't say which is which", () => {
-    const drums = dim({ pieces: "1", packageType: "Drum pallet", adrUn: "1203", adrClass: "3", heightCm: "100", weightPerPcKg: "400" });
-    const cartons = dim({ pieces: "1", packageType: "Carton pallet", widthCm: "100", heightCm: "180", weightPerPcKg: "150" });
-    expect(acceptByHandReason(pcs(1, 1), [drums, cartons])).toBe(ACCEPT_BY_HAND);
-    // Two containers of 4 pallets each: which of the warehouse's lines is whose is not known.
-    expect(acceptByHandReason(pcs(4, 4), [dim(), dim({ containerId: "c2" })])).toBe(ACCEPT_BY_HAND);
-    // Lines that take over the same - one container, the same packing and UN number - may swap.
-    expect(acceptByHandReason(pcs(1, 1, 3), [drums, { ...drums, lengthCm: "110" }, { ...cartons, pieces: "3" }])).toBeNull();
-  });
-
-  it("says per line what it takes over: package type, UN number and container", () => {
-    const drums = dim({ pieces: "3", packageType: "Drums", adrUn: "1203", adrClass: "3" });
-    const cartons = dim({ pieces: "10", packageType: "Cartons", containerId: "c2" });
-    const boxes = [
-      { id: "c1", containerNumber: "MSKU1234567" },
-      { id: "c2", containerNumber: "TGHU7654321" },
-    ];
-    expect(takenOverText(2, [drums, cartons], boxes)).toBe("Taken over: line 1 Drums, UN 1203, container MSKU1234567; line 2 Cartons, container TGHU7654321.");
-    expect(takenOverText(2, [dim({ containerId: null, packageType: "" })], [])).toBe("Taken over: line 1 no package type; line 2 no package type.");
-    expect(takenOverText(1, [], boxes)).toBeNull();
-  });
-
-  it("says what the lines keep, never more than is true", () => {
-    expect(keptText(1, [dim()])).toBe("Each line keeps the package type, stackability and pallet type of the line in its place here.");
-    expect(keptText(2, [dim({ adrUn: "1993" }), dim()])).toBe("Each line keeps the package type, stackability, pallet type and dangerous goods of the line in its place here.");
-    expect(keptText(3, [dim()])).toContain("the extra lines take those of the first line");
-    expect(keptText(1, [dim(), dim()])).toContain("the lines after line 1 are removed");
-    expect(keptText(1, [])).toContain("no lines to keep");
-  });
-});
-
-// Council finding X3: the description lines are never changed; when their pieces differ, it is said.
-describe("descriptionNote", () => {
-  const item = (pieces: string, packageType = "Cartons") => ({ containerId: null, cargoDescription: "Shoes", hsCode: "", pieces, packageType, grossWeight: "", commercialInvoiceValue: "", currency: "" });
-
-  it("says what the description lines still say, nothing when they agree or carry no pieces", () => {
-    expect(descriptionNote([item("12"), item("8")], 7)).toBe("Description lines still say 20 Cartons");
-    expect(descriptionNote([item("20")], 20)).toBeNull();
-    expect(descriptionNote([item("")], 7)).toBeNull();
-  });
-});
-
 // Council finding m7: "120." and ".5" are numbers here as on the server.
 describe("a figure typed with a point at its end or start", () => {
   it("is tidied for saving, and Accept is ready for it as the server is", () => {
@@ -235,32 +164,17 @@ describe("a figure typed with a point at its end or start", () => {
   });
 });
 
-// Mock test council n15: no container, description lines of 20 cartons, the warehouse counted 18.
-describe("pcsAfterText", () => {
-  const item = (pieces: string) => ({ containerId: null, cargoDescription: "Shoes", hsCode: "", pieces, packageType: "Cartons", grossWeight: "", commercialInvoiceValue: "", currency: "" });
-
-  it("says plainly that the job's Pcs follow the description lines with no container", () => {
-    expect(pcsAfterText([item("20")], 0, 18)).toBe("the job's Colli stays 20: with no container it follows the description lines");
-    expect(pcsAfterText([item("20")], 1, 18)).toBe("Colli becomes 18");
-    expect(pcsAfterText([item("")], 0, 18)).toBe("Colli becomes 18");
-    expect(pcsAfterText([item("18")], 0, 18)).toBe("Colli becomes 18");
-  });
-});
-
-// Mock test council Y10: "already accepted" only while Cargo Details still hold the accepted lines.
+// Council finding m8: the lines the last acceptance accepted are not accepted again - since 22 Nov (Accept only
+// records), whatever Cargo Details holds.
 describe("alreadyAccepted", () => {
-  const holding = dim({ pieces: "5", lengthCm: "140", widthCm: "220", heightCm: "225", weightPerPcKg: "50" });
-
-  it("is so while Cargo Details hold the lines the last acceptance took over", () => {
-    expect(alreadyAccepted(saved, saved, [holding])).toBe(true);
-    expect(alreadyAccepted(saved, saved, [{ ...holding, packageType: "Crates" }])).toBe(true);
+  it("is so while the warehouse's saved lines are the ones last accepted, also saved another way", () => {
+    expect(alreadyAccepted(saved, saved)).toBe(true);
+    expect(alreadyAccepted(JSON.stringify([{ weightPerPcKg: "50", pieces: " 5", lengthCm: "140", widthCm: "220", heightCm: "225" }]), saved)).toBe(true);
   });
 
-  it("is not once other lines were saved over them, nor with no acceptance or other lines", () => {
-    expect(alreadyAccepted(saved, saved, [dim({ pieces: "5" })])).toBe(false);
-    expect(alreadyAccepted(saved, saved, [holding, holding])).toBe(false);
-    expect(alreadyAccepted(null, saved, [holding])).toBe(false);
-    expect(alreadyAccepted(JSON.stringify([{ pieces: "6", lengthCm: "1", widthCm: "1", heightCm: "1", weightPerPcKg: "1" }]), saved, [holding])).toBe(false);
+  it("is not with no acceptance, or once the warehouse saved other lines", () => {
+    expect(alreadyAccepted(null, saved)).toBe(false);
+    expect(alreadyAccepted(JSON.stringify([{ pieces: "6", lengthCm: "1", widthCm: "1", heightCm: "1", weightPerPcKg: "1" }]), saved)).toBe(false);
   });
 });
 

@@ -14,37 +14,18 @@ import { ConfirmModal } from "@/components/ConfirmModal";
 import { BTN_BAR_PRIMARY, HINT } from "@/styles/ui";
 import { TD_CELL, TH_CELL, TOTAL_CELL, rowLine } from "./warehouse/warehouseUi";
 import { RemeasureCompare, figuresCompared, figuresDiffer, noFigures } from "./warehouse/RemeasureCompare";
-import {
-  ALREADY_ACCEPTED,
-  acceptByHandReason,
-  alreadyAccepted,
-  descriptionNote,
-  figuresText,
-  keptText,
-  lineCbm,
-  pcsAfterText,
-  readRemeasuredLines,
-  remeasuredFigures,
-  shipmentCargoFigures,
-  takenOverText,
-  unmeasuredReason,
-} from "./warehouse/remeasuredLines";
+import { ALREADY_ACCEPTED, alreadyAccepted, figuresText, lineCbm, readRemeasuredLines, remeasuredFigures, shipmentCargoFigures, unmeasuredReason } from "./warehouse/remeasuredLines";
 
 // Cargo Details' view of the warehouse's remeasurement (owner decision, 18 Nov 2026): the lines the
 // warehouse saved (Warehouse → Shipment Details → Dimensions / Remeasurement), read-only, against
 // the dimension lines here, with the same Compared table. Accepting it is never automatic: who may
-// change the shipment's details clicks "Accept remeasurement", and the warehouse's lines replace
-// the dimension lines, Pcs, Total Weight and Total Volume - and the only container's figures (the
-// description lines stay). Only lines measured in full can be accepted: a line with pieces but no
-// kg per piece or no size would empty the shipment's weight or volume, so Accept waits, saying
-// which line; lines carrying dangerous goods or several containers are taken over only line for
-// line. The API refuses the same.
+// change the shipment's details clicks "Accept remeasurement", and since 22 Nov (owner's answer) that
+// only records it here - Cargo Details' lines, the shipment's Colli, Total Weight and Total Volume and
+// its container stay as they are; Alerts, Shipments → Managers and Costs Breakdown take the acceptance
+// as before. Only lines measured in full can be accepted (kg per piece and every size), saying which
+// line lacks one. The API refuses the same.
 
 const cell = (v: string) => v || "—";
-
-// "250.0 kg and 34.650 CBM", as the confirm names the totals.
-const totalsText = (f: { weightKg: number; volumeCbm: number }) =>
-  `${f.weightKg > 0 ? f.weightKg.toLocaleString("en-US", { minimumFractionDigits: 1, maximumFractionDigits: 1 }) : "—"} kg and ${f.volumeCbm > 0 ? f.volumeCbm.toFixed(3) : "—"} CBM`;
 
 export function RemeasuredCard({ shipment, readOnly }: { shipment: ShipmentItem; readOnly: boolean }) {
   const messageApi = useMessages();
@@ -64,36 +45,22 @@ export function RemeasuredCard({ shipment, readOnly }: { shipment: ShipmentItem;
   // Nothing remeasured and nothing accepted: the card is not shown.
   if (lines.length === 0 && !acceptance) return null;
 
-  const current = shipment.cargoDimensions ?? [];
-  const containers = shipment.containers ?? [];
   // A figure only the warehouse measured is a difference too (mock test council Y9): Accept is offered.
   const mismatch = lines.length > 0 && figuresDiffer(ship, re);
   const compared = lines.length > 0 && figuresCompared(ship, re);
-  // "Already accepted" only while Cargo Details still hold the accepted lines (Y10): a page that
-  // saved its old lines over them since leaves them to be accepted again.
+  // The same lines are accepted once: until the warehouse saves other lines.
   const acceptBlocked = readOnly
     ? "Only the user in Handled By or Holiday Cover, or a manager, can accept the remeasurement"
     : lines.length === 0
       ? "The warehouse has no remeasured lines saved"
-      : (unmeasured ?? (alreadyAccepted(acceptance?.lines, saved, current) ? ALREADY_ACCEPTED : acceptByHandReason(lines, current)));
+      : (unmeasured ?? (alreadyAccepted(acceptance?.lines, saved) ? ALREADY_ACCEPTED : null));
   // The server says the same of the same lines (shipment.service acceptRemeasurement).
-
-  // The description lines are never changed: when their pieces differ, it is said.
-  const items = shipment.cargoItems ?? [];
-  const descriptionBefore = descriptionNote(items, re.colli);
-  const descriptionNow = acceptance ? descriptionNote(items, ship.colli) : null;
-  const container = containers.length === 1 ? (containers[0]!.containerNumber || "The container") : null;
-  const containerText = container
-    ? ` ${container === "The container" ? container : `Container ${container}`} takes the same Colli, Gross Weight and Volume.`
-    : containers.length > 1
-      ? " The containers' figures are not changed."
-      : "";
 
   const onAccept = async () => {
     try {
       await accept(saved);
       setAsking(false);
-      messageApi.success("Remeasurement accepted: Cargo Details now holds the warehouse's figures");
+      messageApi.success("Remeasurement accepted: recorded here, Cargo Details stays as it is");
     } catch (e) {
       setAsking(false);
       messageApi.error(e instanceof SectionChangedError ? e.message : `Not accepted: ${apiErrorMessage(e)}`);
@@ -174,22 +141,14 @@ export function RemeasuredCard({ shipment, readOnly }: { shipment: ShipmentItem;
       {informedAt && <div className={`mt-2 ${HINT}`}>Operations informed on {formatDateTime(informedAt)}</div>}
       {acceptance && (
         <div className={`mt-1 ${HINT}`}>
-          Accepted{acceptance.acceptedBy ? ` by ${acceptance.acceptedBy}` : ""} on {formatDateTime(acceptance.acceptedAt)} — before: {figuresText(acceptance.before)}; taken over: {figuresText(acceptance.after)}
+          Accepted{acceptance.acceptedBy ? ` by ${acceptance.acceptedBy}` : ""} on {formatDateTime(acceptance.acceptedAt)} — Cargo Details then: {figuresText(acceptance.before)}; remeasured: {figuresText(acceptance.after)}
         </div>
       )}
-      {descriptionNow && <div className={`mt-1 ${HINT}`}>{descriptionNow}: the remeasurement does not change the description lines.</div>}
 
       <ConfirmModal
         open={asking}
         title="Accept the remeasurement?"
-        description={[
-          `The warehouse's lines replace the dimension lines here. Total Weight and Total Volume become ${totalsText(re)}; ${pcsAfterText(items, containers.length, re.colli)}.${containerText}`,
-          keptText(lines.length, current),
-          takenOverText(lines.length, current, containers),
-          `The description lines are not changed${descriptionBefore ? ` (${descriptionBefore})` : ""}. Cost quantities are not changed: Costs Breakdown shows a warning to check them.`,
-        ]
-          .filter(Boolean)
-          .join(" ")}
+        description={`The warehouse's remeasurement (${figuresText(re)}) is recorded as accepted here. Cargo Details' lines, the shipment's Colli, Total Weight and Total Volume and its container stay as they are. Costs Breakdown shows a note to check the cost quantities.`}
         confirmLabel="Accept"
         loading={isAccepting}
         onClose={() => setAsking(false)}

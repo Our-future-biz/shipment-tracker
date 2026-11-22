@@ -2,9 +2,10 @@ import { randomUUID } from "node:crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { and, eq } from "drizzle-orm";
 
-// Cargo Details → Accept remeasurement against the shipments database: the warehouse's saved lines
-// replace the cargo lines and totals in one write with a line in the history, and Costs Breakdown's
-// check is kept after it. Runs only under `encore test` (SHIPMENTS_DB_TESTS=1 encore test services/shipments/tests/db).
+// Cargo Details → Accept remeasurement against the shipments database. Since 22 Nov (owner's answer)
+// the acceptance is only recorded - one line in the history with the figures before and after and
+// the lines accepted - and Cargo Details' lines, totals and container stay as they were. Costs
+// Breakdown's check is kept after it. Runs only under `encore test` (SHIPMENTS_DB_TESTS=1 encore test services/shipments/tests/db).
 const section = vi.hoisted(() => ({ data: {} as Record<string, unknown> }));
 const openInvoiceCount = vi.hoisted(() => vi.fn(async () => ({ count: 0 })));
 vi.mock("~encore/clients", () => ({
@@ -60,27 +61,50 @@ afterEach(() => {
 });
 
 describe("accepting the warehouse's remeasurement", () => {
-  it("replaces the cargo lines and totals, keeps the package type and records the figures before and after", async () => {
+  const box = { containerNumber: "MSKU1234567", sealNumber: "", type: "40' HC", teu: "2", packages: "5", packageType: "Cartons", grossWeight: "170", volume: "7.2" };
+  const acceptances = (shipmentId: string) =>
+    db
+      .select()
+      .from(shipmentAuditTable)
+      .where(and(eq(shipmentAuditTable.shipmentId, shipmentId), eq(shipmentAuditTable.field, "remeasurementAccepted")));
+
+  it("records the figures before and after and the lines accepted, and leaves the cargo lines, totals and container as they were", async () => {
     const s = await newShipment();
+    await db.update(shipmentTable).set({ freightMode: "Sea Freight", loadType: "Full Load" }).where(eq(shipmentTable.id, s.id));
+    const withBox = await shipmentService.update(s.id, s.companyId, { containers: [box as never] }, USER, "admin");
     section.data = { remeasure_rows: saved };
     expect(await shipmentService.remeasureAcceptance(s.id, s.companyId)).toBeNull();
 
     const shipment = await shipmentService.acceptRemeasurement(s.id, s.actor, saved);
-    expect(shipment.cargoDimensions).toMatchObject([{ pieces: "5", lengthCm: "140", widthCm: "220", heightCm: "225", weightPerPcKg: "50", packageType: "Cartons", stackable: "Stackable / Overstowable" }]);
+    expect(shipment.cargoDimensions).toMatchObject([{ pieces: "5", lengthCm: "120", widthCm: "80", heightCm: "150", weightPerPcKg: "34", packageType: "Cartons", stackable: "Stackable / Overstowable" }]);
     expect(shipment.pcs).toBe("5");
-    expect(Number(shipment.totalWeightTons)).toBe(0.25);
-    expect(Number(shipment.totalVolumeCbm)).toBe(34.65);
+    expect(Number(shipment.totalWeightTons)).toBe(0.17);
+    expect(Number(shipment.totalVolumeCbm)).toBe(7.2);
+    expect(shipment.containers).toMatchObject([{ id: withBox.containers![0]!.id, packages: "5", grossWeight: "170", volume: "7.2" }]);
+    // What Warehouse, Customs and the Pcs pill read: still the container's own figures.
+    expect(shipment).toMatchObject({ totalGrossWeightKg: "170", totalVolumeM3: "7.2" });
 
     const acceptance = await shipmentService.remeasureAcceptance(s.id, s.companyId);
-    expect(acceptance).toMatchObject({ before: { colli: 5, weightKg: 170, volumeCbm: 7.2 }, after: { colli: 5, weightKg: 250, volumeCbm: 34.65 }, freightMode: "Air Freight", invoiced: false, costsCheckedAt: null });
+    expect(acceptance).toMatchObject({
+      before: { colli: 5, weightKg: 170, volumeCbm: 7.2 },
+      after: { colli: 5, weightKg: 250, volumeCbm: 34.65 },
+      lines: saved,
+      freightMode: "Sea Freight",
+      invoiced: false,
+      costsCheckedAt: null,
+    });
+    expect(await acceptances(s.id)).toHaveLength(1);
   });
 
-  it("refuses lines the warehouse changed meanwhile, and lines with nothing to accept", async () => {
+  it("refuses lines the warehouse changed meanwhile, lines with nothing to accept and a line not measured in full", async () => {
     const s = await newShipment();
     section.data = { remeasure_rows: saved };
     await expect(shipmentService.acceptRemeasurement(s.id, s.actor, "[]")).rejects.toThrow(/changed the remeasured lines meanwhile/);
     section.data = {};
     await expect(shipmentService.acceptRemeasurement(s.id, s.actor, "")).rejects.toThrow(/nothing to accept/);
+    const noKg = JSON.stringify([{ pieces: "5", lengthCm: "140", widthCm: "220", heightCm: "225", weightPerPcKg: "" }]);
+    section.data = { remeasure_rows: noKg };
+    await expect(shipmentService.acceptRemeasurement(s.id, s.actor, noKg)).rejects.toThrow("Remeasured line 1 has no kg per piece");
     expect(await shipmentService.remeasureAcceptance(s.id, s.companyId)).toBeNull();
   });
 
@@ -89,6 +113,7 @@ describe("accepting the warehouse's remeasurement", () => {
     await db.update(shipmentTable).set({ personInCharge: "someone@else.cz" }).where(eq(shipmentTable.id, s.id));
     section.data = { remeasure_rows: saved };
     await expect(shipmentService.acceptRemeasurement(s.id, { ...s.actor, role: "user" }, saved)).rejects.toThrow(/Handled By or Holiday Cover/);
+    expect(await shipmentService.remeasureAcceptance(s.id, s.companyId)).toBeNull();
   });
 
   it("keeps Costs Breakdown's check until the next acceptance, and says when the job is invoiced", async () => {
@@ -105,7 +130,8 @@ describe("accepting the warehouse's remeasurement", () => {
     section.data = { remeasure_rows: again };
     await new Promise((r) => setTimeout(r, 5));
     await shipmentService.acceptRemeasurement(s.id, s.actor, again);
-    expect(await shipmentService.remeasureAcceptance(s.id, s.companyId)).toMatchObject({ before: { colli: 5, weightKg: 250 }, after: { colli: 6, weightKg: 240, volumeCbm: 6 }, costsCheckedAt: null });
+    // The first acceptance changed nothing of the shipment: "before" is still its own 5 colli, 170 kg.
+    expect(await shipmentService.remeasureAcceptance(s.id, s.companyId)).toMatchObject({ before: { colli: 5, weightKg: 170 }, after: { colli: 6, weightKg: 240, volumeCbm: 6 }, costsCheckedAt: null });
   });
 
   it("refuses the same lines a second time, so a cleared Costs warning stays cleared (council finding m8)", async () => {
@@ -115,52 +141,34 @@ describe("accepting the warehouse's remeasurement", () => {
     await shipmentService.markRemeasureCostsChecked(s.id, s.actor);
     await expect(shipmentService.acceptRemeasurement(s.id, s.actor, saved)).rejects.toThrow(/already accepted/);
     expect((await shipmentService.remeasureAcceptance(s.id, s.companyId))!.costsCheckedAt).not.toBeNull();
+    expect(await acceptances(s.id)).toHaveLength(1);
   });
 
-  it("gives a sea job's only container the accepted figures, with its line in the history (council finding X3)", async () => {
+  // "Already accepted" is the history alone now: a save of Cargo Details since doesn't open the
+  // same lines again (the acceptance never wrote them there); new lines from the warehouse do.
+  it("still refuses the same lines after Cargo Details were saved, and accepts the lines the warehouse saved since", async () => {
     const s = await newShipment();
-    await db.update(shipmentTable).set({ freightMode: "Sea Freight", loadType: "Full Load" }).where(eq(shipmentTable.id, s.id));
-    const box = { containerNumber: "MSKU1234567", sealNumber: "", type: "40' HC", teu: "2", packages: "5", packageType: "Cartons", grossWeight: "170", volume: "7.2" };
-    const withBox = await shipmentService.update(s.id, s.companyId, { containers: [box as never] }, USER, "admin");
+    section.data = { remeasure_rows: saved };
+    await shipmentService.acceptRemeasurement(s.id, s.actor, saved);
+    await shipmentService.update(s.id, s.companyId, { cargoDimensions: [{ ...declaredLine, packageType: "Crates" }] }, USER, "admin");
+    await expect(shipmentService.acceptRemeasurement(s.id, s.actor, saved)).rejects.toThrow(/already accepted/);
+
+    const other = JSON.stringify([{ pieces: "5", lengthCm: "140", widthCm: "220", heightCm: "226", weightPerPcKg: "50" }]);
+    section.data = { remeasure_rows: other };
+    await new Promise((r) => setTimeout(r, 5));
+    await shipmentService.acceptRemeasurement(s.id, s.actor, other);
+    expect(await shipmentService.remeasureAcceptance(s.id, s.companyId)).toMatchObject({ lines: other });
+    expect(await acceptances(s.id)).toHaveLength(2);
+  });
+
+  // Nothing is taken over line for line any more, so dangerous goods no longer send it to be done by hand.
+  it("records an acceptance for lines with dangerous goods, and keeps them", async () => {
+    const s = await newShipment();
+    await shipmentService.update(s.id, s.companyId, { cargoDimensions: [declaredLine, { ...declaredLine, pieces: "1", adrUn: "1993", adrClass: "3" }] as never }, USER, "admin");
     section.data = { remeasure_rows: saved };
     const shipment = await shipmentService.acceptRemeasurement(s.id, s.actor, saved);
-    expect(shipment.containers).toMatchObject([{ id: withBox.containers![0]!.id, packages: "5", grossWeight: "250", volume: "34.65" }]);
-    // What Warehouse, Customs and the Pcs pill read: the container's figures, now the accepted ones.
-    expect(shipment).toMatchObject({ pcs: "5", totalGrossWeightKg: "250", totalVolumeM3: "34.65" });
-  });
-
-  // Review: Cargo Details saved between the acceptance's read and its write turn. The other save is
-  // made just before the acceptance's own write starts (its call of update), after it read the rows.
-  it("refuses when a second container was saved meanwhile, and both containers stay with their cargo", async () => {
-    const s = await newShipment();
-    await db.update(shipmentTable).set({ freightMode: "Sea Freight", loadType: "Full Load" }).where(eq(shipmentTable.id, s.id));
-    const box = { containerNumber: "MSKU1234567", sealNumber: "", type: "40' HC", teu: "2", packages: "5", packageType: "Cartons", grossWeight: "170", volume: "7.2" };
-    const withBox = await shipmentService.update(s.id, s.companyId, { containers: [box as never] }, USER, "admin");
-    const first = withBox.containers![0]!;
-    const realUpdate = shipmentService.update.bind(shipmentService);
-    vi.spyOn(shipmentService, "update").mockImplementationOnce(async (...args) => {
-      await realUpdate(s.id, s.companyId, { containers: [first, { ...box, containerNumber: "TGHU1234567" } as never] }, USER, "admin");
-      return realUpdate(...args);
-    });
-    section.data = { remeasure_rows: saved };
-    await expect(shipmentService.acceptRemeasurement(s.id, s.actor, saved)).rejects.toThrow(/Cargo Details changed meanwhile/);
-    const after = await shipmentService.getById(s.id, s.companyId);
-    expect(after!.containers!.map((c) => c.containerNumber).sort()).toEqual(["MSKU1234567", "TGHU1234567"]);
-    expect(after!.containers!.find((c) => c.id === first.id)).toMatchObject({ packages: "5", grossWeight: "170" });
-    expect(after!.cargoDimensions).toMatchObject([{ lengthCm: "120", weightPerPcKg: "34" }]);
-    expect(await shipmentService.remeasureAcceptance(s.id, s.companyId)).toBeNull();
-  });
-
-  it("refuses when dangerous goods were added to the lines meanwhile, and keeps them", async () => {
-    const s = await newShipment();
-    const realUpdate = shipmentService.update.bind(shipmentService);
-    vi.spyOn(shipmentService, "update").mockImplementationOnce(async (...args) => {
-      await realUpdate(s.id, s.companyId, { cargoDimensions: [declaredLine, { ...declaredLine, pieces: "1", adrUn: "1993", adrClass: "3" }] as never }, USER, "admin");
-      return realUpdate(...args);
-    });
-    section.data = { remeasure_rows: saved };
-    await expect(shipmentService.acceptRemeasurement(s.id, s.actor, saved)).rejects.toThrow(/Cargo Details changed meanwhile/);
-    expect((await shipmentService.getById(s.id, s.companyId))!.cargoDimensions).toMatchObject([{ pieces: "5" }, { pieces: "1", adrUn: "1993" }]);
+    expect(shipment.cargoDimensions).toMatchObject([{ pieces: "5", lengthCm: "120" }, { pieces: "1", adrUn: "1993" }]);
+    expect(await acceptances(s.id)).toHaveLength(1);
   });
 
   it("records one acceptance when two Accepts of the same lines come at once", async () => {
@@ -170,67 +178,6 @@ describe("accepting the warehouse's remeasurement", () => {
     expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
     const refused = results.find((r): r is PromiseRejectedResult => r.status === "rejected");
     expect(String(refused?.reason)).toMatch(/already accepted/);
-    const entries = await db
-      .select()
-      .from(shipmentAuditTable)
-      .where(and(eq(shipmentAuditTable.shipmentId, s.id), eq(shipmentAuditTable.field, "remeasurementAccepted")));
-    expect(entries).toHaveLength(1);
-  });
-
-  // Mock test council Y10: a Cargo Details page opened before the Accept saves a line afterwards.
-  it("refuses a line save from a page that started from the lines before the Accept, and keeps the accepted lines", async () => {
-    const s = await newShipment();
-    const before = (await shipmentService.getById(s.id, s.companyId))!.cargoDimensions!;
-    section.data = { remeasure_rows: saved };
-    await shipmentService.acceptRemeasurement(s.id, s.actor, saved);
-    const stale = [{ ...before[0]!, packageType: "Crates" }];
-    await expect(
-      shipmentService.update(s.id, s.companyId, { cargoDimensions: stale }, USER, "admin", undefined, undefined, { expectedCargoDimensions: before }),
-    ).rejects.toThrow(/Cargo Details changed meanwhile/);
-    expect((await shipmentService.getById(s.id, s.companyId))!.cargoDimensions).toMatchObject([{ lengthCm: "140", weightPerPcKg: "50", packageType: "Cartons" }]);
-    // From the lines as they are now, the save goes through.
-    const now = (await shipmentService.getById(s.id, s.companyId))!.cargoDimensions!;
-    await shipmentService.update(s.id, s.companyId, { cargoDimensions: [{ ...now[0]!, packageType: "Crates" }] }, USER, "admin", undefined, undefined, { expectedCargoDimensions: now });
-    expect((await shipmentService.getById(s.id, s.companyId))!.cargoDimensions).toMatchObject([{ lengthCm: "140", packageType: "Crates" }]);
-  });
-
-  // Review: a Container Details page opened before the Accept saves a new seal - with the only
-  // container's old Pieces, Gross Weight and Volume.
-  it("refuses a container save from a page that started from the containers before the Accept, and keeps the accepted figures", async () => {
-    const s = await newShipment();
-    const box = { id: randomUUID(), containerNumber: "MSKU1234567", sealNumber: "", type: "40' HC", teu: "", packages: "5", packageType: "Cartons", grossWeight: "170", volume: "7.2" };
-    await shipmentService.update(s.id, s.companyId, { containers: [box] }, USER, "admin");
-    const before = (await shipmentService.getById(s.id, s.companyId))!.containers!;
-    section.data = { remeasure_rows: saved };
-    await shipmentService.acceptRemeasurement(s.id, s.actor, saved);
-    await expect(
-      shipmentService.update(s.id, s.companyId, { containers: [{ ...before[0]!, sealNumber: "SEAL1" }] }, USER, "admin", undefined, undefined, { expectedContainers: before }),
-    ).rejects.toThrow(/Container Details changed meanwhile/);
-    expect((await shipmentService.getById(s.id, s.companyId))!.containers).toMatchObject([{ sealNumber: "", packages: "5", grossWeight: "250", volume: "34.65" }]);
-    // From the containers as they are now, the seal is saved and the accepted figures stay.
-    const now = (await shipmentService.getById(s.id, s.companyId))!.containers!;
-    await shipmentService.update(s.id, s.companyId, { containers: [{ ...now[0]!, sealNumber: "SEAL1" }] }, USER, "admin", undefined, undefined, { expectedContainers: now });
-    expect((await shipmentService.getById(s.id, s.companyId))!.containers).toMatchObject([{ sealNumber: "SEAL1", packages: "5", grossWeight: "250", volume: "34.65" }]);
-  });
-
-  it("accepts the same lines again once a save put other lines over them", async () => {
-    const s = await newShipment();
-    section.data = { remeasure_rows: saved };
-    await shipmentService.acceptRemeasurement(s.id, s.actor, saved);
-    // An old page with no lines to start from (sent before the check) wrote the declared line back.
-    await shipmentService.update(s.id, s.companyId, { cargoDimensions: [declaredLine] }, USER, "admin");
-    await new Promise((r) => setTimeout(r, 5));
-    const shipment = await shipmentService.acceptRemeasurement(s.id, s.actor, saved);
-    expect(shipment.cargoDimensions).toMatchObject([{ lengthCm: "140", weightPerPcKg: "50" }]);
-  });
-
-  // Mock test council n13: stored to the 0.001 m³ it is compared at.
-  it("stores Total Volume rounded to 0.001 m³", async () => {
-    const s = await newShipment();
-    // 3 × 0.411495 m³ = 1.234485 m³: 1.234 at 3 decimals, never 1.2345.
-    const odd = JSON.stringify([{ pieces: "3", lengthCm: "100", widthCm: "100", heightCm: "41.1495", weightPerPcKg: "10" }]);
-    section.data = { remeasure_rows: odd };
-    const shipment = await shipmentService.acceptRemeasurement(s.id, s.actor, odd);
-    expect(Number(shipment.totalVolumeCbm)).toBe(1.234);
+    expect(await acceptances(s.id)).toHaveLength(1);
   });
 });

@@ -17,9 +17,10 @@ interface AcceptRemeasurementResponse {
 }
 
 /**
- * Cargo Details → Accept remeasurement (owner decision, 18 Nov 2026): the warehouse's remeasured
- * lines replace the cargo dimension lines, and Pcs, Total Weight and Total Volume take their totals.
- * Only for who may change the shipment's details (Handled By, Holiday Cover, a manager).
+ * Cargo Details → Accept remeasurement (owner decision, 18 Nov 2026; since 22 Nov only recorded): the
+ * warehouse's remeasured lines are recorded as accepted in the Remeasured by Warehouse tile - Cargo
+ * Details' lines, the shipment's Colli, Total Weight and Total Volume and its container stay as they
+ * are. Only for who may change the shipment's details (Handled By, Holiday Cover, a manager).
  */
 export const shipmentRemeasureAccept = api(
   { expose: true, auth: true, method: "POST", path: "/shipments/:shipmentId/remeasurement/accept" },

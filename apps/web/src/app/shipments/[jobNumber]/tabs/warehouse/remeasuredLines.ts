@@ -1,4 +1,4 @@
-import { dimensionTotals, dimensionVolumePerPiece, hasAdr, num, roundFigure, shipmentDeclaredFigures, type CargoDimensionLine, type CargoItemLine } from "@/lib/cargo";
+import { dimensionTotals, dimensionVolumePerPiece, num, roundFigure, shipmentDeclaredFigures, type CargoDimensionLine } from "@/lib/cargo";
 import type { CargoFigures } from "./RemeasureCompare";
 
 // The warehouse's saved remeasured lines (its job section's remeasure_rows: a JSON list of
@@ -65,8 +65,8 @@ const orList = (words: string[]) => (words.length < 2 ? (words[0] ?? "") : `${wo
 /**
  * Why the warehouse's saved lines can't be accepted yet, or null: a figure that is no plain number,
  * pieces that are no whole number, or a line with pieces lacking its kg per piece or one of its
- * sizes (empty or 0), which would write an empty weight or volume over the shipment's. The line is
- * numbered as in the warehouse's list. The API refuses the same, in the same words
+ * sizes (empty or 0): only a remeasurement measured in full is accepted (kept on 22 Nov, when Accept
+ * became a record only). The line is numbered as in the warehouse's list. The API refuses the same, in the same words
  * (services/shipments/lib/remeasureAccept).
  */
 export function unmeasuredReason(json: string | undefined): string | null {
@@ -145,107 +145,13 @@ export function shipmentCargoFigures(s: { cargoDimensions?: CargoDimensionLine[]
 /** The lines the last acceptance took over, again: the server refuses them in these words. */
 export const ALREADY_ACCEPTED = "These remeasured lines were already accepted: the warehouse has saved nothing new since";
 
-export const ACCEPT_BY_HAND =
-  "Dangerous goods or several containers are on these lines and the warehouse's lines don't match them line for line (the same number of lines, the same colli on each, no two lines of other cargo with the same colli): update Cargo Details by hand";
-
-// What a line hands on to the remeasured line in its place: its container, packing and dangerous goods.
-const handedOn = (l: CargoDimensionLine) =>
-  JSON.stringify([l.containerId ?? null, l.packageType ?? "", l.stackable ?? "", l.palletType ?? null, l.adrUn ?? null, l.adrClass ?? null, l.adrPackingGroup ?? null, !!l.adrLimitedQuantity]);
-
 /**
- * Why the remeasured lines can't replace the shipment's, or null: line n keeps its container,
- * packing and dangerous goods from the shipment's line n. With dangerous goods or several
- * containers on the lines that is only right when line n is the same cargo - the same number of
- * lines, the same pieces on each (mock test council Y8: 3 drums UN 1203 and 10 cartons, saved by
- * the warehouse cartons first, would make the cartons "Drums UN 1203") - and the pieces tell the
- * lines apart: no two lines of other cargo carry the same (review: 1 drum pallet UN 1203 and 1
- * carton pallet, saved carton pallet first). Lines that hand on the same may swap. The server
- * refuses the same (remeasureAccept acceptByHandRefusal).
+ * Whether the last acceptance (its lines; null for none) accepted the warehouse's saved lines: Accept is
+ * refused as ALREADY_ACCEPTED until the warehouse saves other lines. An acceptance is only recorded (owner's
+ * answer 22 Nov) - Cargo Details is never changed by it - so the lines alone decide, as the server's.
  */
-export function acceptByHandReason(remeasured: readonly { pieces: string }[], current: readonly CargoDimensionLine[]): string | null {
-  const containers = new Set(current.map((l) => l.containerId).filter(Boolean));
-  if (!current.some(hasAdr) && containers.size < 2) return null;
-  const lineForLine = remeasured.length === current.length && remeasured.every((r, i) => num(r.pieces) === num(current[i]!.pieces));
-  const toldApart = current.every((l, i) => current.every((m, j) => j <= i || num(l.pieces) !== num(m.pieces) || handedOn(l) === handedOn(m)));
-  return lineForLine && toldApart ? null : ACCEPT_BY_HAND;
-}
-
-const MEASURED_FIELDS = ["pieces", "lengthCm", "widthCm", "heightCm", "weightPerPcKg"] as const;
-
-/**
- * Whether Cargo Details' lines still hold the remeasured lines - line for line the same pieces,
- * sizes (cm) and kg per piece, as an acceptance wrote them (the server's holdsRemeasuredLines).
- */
-export const holdsRemeasuredLines = (current: readonly CargoDimensionLine[], remeasured: readonly RemeasuredLine[]): boolean =>
-  current.length === remeasured.length && remeasured.every((r, i) => MEASURED_FIELDS.every((f) => Math.abs(num(current[i]![f]) - num(r[f])) < 0.001));
-
-/**
- * Whether the last acceptance took over the warehouse's saved lines and Cargo Details still hold
- * them (mock test council Y10): then Accept is refused as ALREADY_ACCEPTED. Lines saved over since -
- * by hand, or by a page opened before the acceptance - may be accepted again, as the server lets them.
- */
-export const alreadyAccepted = (acceptedLines: string | null | undefined, saved: string, current: readonly CargoDimensionLine[]): boolean =>
-  acceptedLines != null && sameRemeasuredLines(acceptedLines, saved) && holdsRemeasuredLines(current, readRemeasuredLines(saved));
-
-/**
- * What each of the lines takes over from Cargo Details, said per line (Y8): "line 1 Drums, UN 1203,
- * container MSKU1234567; line 2 Cartons". Extra lines take the first line's; with no lines here
- * there is nothing to take over (null). `containers`: the shipment's, for their numbers.
- */
-export function takenOverText(
-  remeasuredCount: number,
-  current: readonly CargoDimensionLine[],
-  containers: readonly { id?: string | null; containerNumber?: string | null }[],
-): string | null {
-  if (current.length === 0 || remeasuredCount === 0) return null;
-  const parts = Array.from({ length: remeasuredCount }, (_, i) => {
-    const from = current[i] ?? current[0]!;
-    const number = from.containerId ? (containers.find((c) => c.id === from.containerId)?.containerNumber ?? "").trim() : "";
-    const un = (from.adrUn ?? "").trim().replace(/^UN\s*/i, "");
-    const what = [from.packageType.trim() || "no package type", un && `UN ${un}`, number && `container ${number}`].filter(Boolean).join(", ");
-    return `line ${i + 1} ${what}`;
-  });
-  return `Taken over: ${parts.join("; ")}.`;
-}
-
-/**
- * What the shipment's lines keep through an acceptance, said as it will be: each takes the package
- * type, stackability, pallet type, container and dangerous goods of the line in its place; extra
- * lines those of the first line (only general cargo of one container gets there).
- */
-export function keptText(remeasuredCount: number, current: readonly CargoDimensionLine[]): string {
-  if (current.length === 0) return "Cargo Details has no lines to keep package type, stackability or dangerous goods from: set them on the new lines.";
-  const kept = current.some(hasAdr) ? "package type, stackability, pallet type and dangerous goods" : "package type, stackability and pallet type";
-  const each = `Each line keeps the ${kept} of the line in its place here`;
-  if (remeasuredCount > current.length) return `${each}; the extra lines take those of the first line.`;
-  if (remeasuredCount < current.length) return `${each}; the lines after line ${remeasuredCount} are removed.`;
-  return `${each}.`;
-}
-
-/**
- * "Description lines still say 20 Cartons": the description lines (customs and invoice figures) are
- * never changed by an acceptance, so when their pieces differ from `pieces`, the screen says so;
- * null when they carry none or the same.
- */
-export function descriptionNote(items: readonly CargoItemLine[], pieces: number): string | null {
-  const described = items.reduce((s, i) => s + num(i.pieces), 0);
-  if (!(described > 0) || !(pieces > 0) || described === pieces) return null;
-  const kinds = [...new Set(items.filter((i) => num(i.pieces) > 0).map((i) => i.packageType.trim()).filter(Boolean))].join(", ");
-  return `Description lines still say ${described.toLocaleString("en-US")}${kinds ? ` ${kinds}` : ""}`;
-}
-
-/**
- * What the confirm says Pcs becomes (mock test council n15, owner's answer C3: the job keeps showing
- * the description lines' pieces). With no container the job's Pcs is read from its description
- * lines first, so when they carry pieces it stays what they say whatever is accepted - said plainly
- * rather than "Pcs become 18" while the job keeps showing 20. With a container, or no described
- * pieces, Pcs follows the accepted lines.
- */
-export function pcsAfterText(items: readonly CargoItemLine[], containerCount: number, pieces: number): string {
-  const described = items.reduce((s, i) => s + num(i.pieces), 0);
-  if (containerCount > 0 || !(described > 0) || described === pieces) return `Colli becomes ${pieces > 0 ? pieces.toLocaleString("en-US") : "—"}`;
-  return `the job's Colli stays ${described.toLocaleString("en-US")}: with no container it follows the description lines`;
-}
+export const alreadyAccepted = (acceptedLines: string | null | undefined, saved: string): boolean =>
+  acceptedLines != null && sameRemeasuredLines(acceptedLines, saved);
 
 /** "5 colli · 250.0 kg · 34.650 CBM" */
 export const figuresText = (f: CargoFigures) =>
