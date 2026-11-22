@@ -5,6 +5,7 @@ import { resolveCountryCode } from "../../../lib/geo/format";
 export const ANNOUNCEMENT_SCOPES = ["company", "audience", "department", "branch", "country"] as const;
 export type AnnouncementScope = (typeof ANNOUNCEMENT_SCOPES)[number];
 
+/** Where a reader sits: their department and branch, and the branch's country. */
 export interface Addressee {
   departmentId: string | null;
   branchId: string | null;
@@ -12,19 +13,32 @@ export interface Addressee {
   countryCode: string | null;
 }
 
-// An "audience" column left empty means all; a filled one must be the reader's own.
-const sameOrAll = (wanted: string | null, own: string | null) => !wanted || wanted === own;
+/**
+ * Whom an "audience" post is for: the countries (codes), branches and departments chosen, each empty for all
+ * of them (owner's answer 22 Nov: several of each may be chosen).
+ */
+export interface AudienceLists {
+  countryCodes: readonly string[];
+  branchIds: readonly string[];
+  departmentIds: readonly string[];
+}
+
+/** A post as its audience is judged: its scope, the single columns of the older scopes, and the lists. */
+export type AddressedPost = Addressee & AudienceLists & { scope: string };
+
+// An "audience" list left empty means all; a filled one must hold the reader's own.
+const anyOrAll = (wanted: readonly string[], own: string | null) => wanted.length === 0 || (!!own && wanted.includes(own));
 
 // Whether a post is addressed to someone sitting where `viewer` does.
-export function isAddressedTo(post: Addressee & { scope: string }, viewer: Addressee): boolean {
+export function isAddressedTo(post: AddressedPost, viewer: Addressee): boolean {
   switch (post.scope as AnnouncementScope) {
     case "company":
       return true;
     case "audience":
       return (
-        sameOrAll(post.countryCode, viewer.countryCode) &&
-        sameOrAll(post.branchId, viewer.branchId) &&
-        sameOrAll(post.departmentId, viewer.departmentId)
+        anyOrAll(post.countryCodes, viewer.countryCode) &&
+        anyOrAll(post.branchIds, viewer.branchId) &&
+        anyOrAll(post.departmentIds, viewer.departmentId)
       );
     case "department":
       return !!viewer.departmentId && post.departmentId === viewer.departmentId;
@@ -37,20 +51,28 @@ export function isAddressedTo(post: Addressee & { scope: string }, viewer: Addre
   }
 }
 
-// The country a post reaches, null for every country. Posts from before the "audience" scope
-// carry no country code: a branch post is in its branch's country, a country post names its
-// country in words — so the board's country filter can tell them apart from posts for all.
-export function audienceCountryCode(post: {
+// The countries a post reaches, none for every country. Posts from before the "audience" scope carry
+// no country code: a branch post is in its branch's country, a country post names its country in
+// words - so the board's country filter can tell them apart from posts for all.
+export function audienceCountryCodes(post: {
   scope: string;
   country: string | null;
-  countryCode: string | null;
+  countryCodes: readonly string[];
   branchCountryCode: string | null;
-}): string | null {
-  if (post.countryCode) return post.countryCode;
-  if (post.scope === "branch") return post.branchCountryCode;
-  if (post.scope === "country" && post.country) return resolveCountryCode(post.country);
-  return null;
+}): string[] {
+  if (post.scope === "audience") return [...post.countryCodes];
+  if (post.scope === "branch") return post.branchCountryCode ? [post.branchCountryCode] : [];
+  if (post.scope === "country" && post.country) {
+    const code = resolveCountryCode(post.country);
+    return code ? [code] : [];
+  }
+  return [];
 }
 
-// "Czechia · Prague Office · Accounting", or "All" when the post leaves everything open.
-export const audienceLabel = (parts: (string | null | undefined)[]) => parts.filter(Boolean).join(" · ") || "All";
+// "Czechia · Prague Office · Accounting", or "All" when the post leaves everything open. A part naming
+// several is them joined: "Czechia, Germany · FCL, LCL".
+export const audienceLabel = (parts: (string | readonly string[] | null | undefined)[]) =>
+  parts
+    .map((p) => (Array.isArray(p) ? p.filter(Boolean).join(", ") : (p as string | null | undefined)))
+    .filter(Boolean)
+    .join(" · ") || "All";

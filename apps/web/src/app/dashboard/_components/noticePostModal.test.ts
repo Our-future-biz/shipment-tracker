@@ -1,19 +1,19 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { noticeAudience } from "./NoticePostModal";
+import { allOrSome, noticeAudience } from "./NoticePostModal";
 
 const source = readFileSync(join(__dirname, "NoticePostModal.tsx"), "utf8");
 
 describe("a notice to everyone (user council M11)", () => {
   it("is for all when no country, branch or department is chosen ('All' in each)", () => {
-    expect(noticeAudience({ countryCode: "all", branchId: "all", departmentId: "all" })).toEqual({
-      countryCode: undefined,
-      branchId: undefined,
-      departmentId: undefined,
+    expect(noticeAudience({ countryCodes: ["all"], branchIds: ["all"], departmentIds: ["all"] })).toEqual({
+      countryCodes: [],
+      branchIds: [],
+      departmentIds: [],
       forAll: true,
     });
-    expect(noticeAudience({ countryCode: "CZ", branchId: "all", departmentId: "all" })).toMatchObject({ countryCode: "CZ", forAll: false });
+    expect(noticeAudience({ countryCodes: ["CZ"], branchIds: ["all"], departmentIds: ["all"] })).toMatchObject({ countryCodes: ["CZ"], forAll: false });
   });
 
   it("asks 'Send to all?' at Post, not the moment the last 'All' is picked", () => {
@@ -24,5 +24,23 @@ describe("a notice to everyone (user council M11)", () => {
     // Its yes posts the notice; the Post button doesn't pass its click event as that yes.
     expect(source).toMatch(/void handleSubmit\(true\)/);
     expect(source).toMatch(/onClick=\{\(\) => void handleSubmit\(\)\}/);
+  });
+});
+
+describe("several countries, branches and departments (owner's answer 22 Nov)", () => {
+  it("names every one picked", () => {
+    expect(noticeAudience({ countryCodes: ["CZ", "DE"], branchIds: ["all"], departmentIds: ["fcl", "lcl"] })).toEqual({
+      countryCodes: ["CZ", "DE"],
+      branchIds: [],
+      departmentIds: ["fcl", "lcl"],
+      forAll: false,
+    });
+  });
+
+  it("keeps 'All' on its own: picking it clears the others, picking one after it replaces it", () => {
+    expect(allOrSome(["CZ", "DE", "all"], ["CZ", "DE"])).toEqual(["all"]);
+    expect(allOrSome(["all", "CZ"], ["all"])).toEqual(["CZ"]);
+    expect(allOrSome(["CZ", "DE"], ["CZ"])).toEqual(["CZ", "DE"]);
+    expect(allOrSome([], ["CZ"])).toEqual([]);
   });
 });

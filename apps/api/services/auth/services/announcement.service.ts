@@ -6,7 +6,7 @@ import { departmentRepository, branchRepository, countryRepository } from "../re
 import { userRepository } from "../repositories/user.repository";
 import type { AnnouncementRecord } from "../schemas/announcement.schema";
 import { MAX_ATTACHMENT_BYTES, parseAttachmentDataUrl } from "../lib/attachmentDataUrl";
-import { type AnnouncementScope, audienceCountryCode, audienceLabel, isAddressedTo } from "../lib/announcementAudience";
+import { type AnnouncementScope, audienceCountryCodes, audienceLabel, isAddressedTo } from "../lib/announcementAudience";
 
 export { ANNOUNCEMENT_SCOPES, type AnnouncementScope } from "../lib/announcementAudience";
 
@@ -38,10 +38,10 @@ export interface AnnouncementInfo {
   scope: string;
   // Who the post is addressed to, e.g. "Czechia · Prague Office · Accounting", or "All".
   target: string;
-  // The same audience as ids, each null for "all", so the board can be filtered by it.
-  countryCode: string | null;
-  branchId: string | null;
-  departmentId: string | null;
+  // The same audience as ids, each empty for "all", so the board can be filtered by it.
+  countryCodes: string[];
+  branchIds: string[];
+  departmentIds: string[];
   severity: string;
   title: string;
   body: string;
@@ -84,8 +84,11 @@ interface AnnouncementInput {
   departmentId?: string;
   branchId?: string;
   country?: string;
-  // For "audience": one of the company's countries; left out means all countries.
-  countryCode?: string;
+  // For "audience": the company's countries (codes), branches and departments it is for, each left out or
+  // empty for all of them. Several of each may be chosen (owner's answer 22 Nov).
+  countryCodes?: string[];
+  branchIds?: string[];
+  departmentIds?: string[];
   severity?: string;
   title: string;
   body?: string;
@@ -112,6 +115,7 @@ function checkSeverity(severity: string): string {
 }
 
 const postNotFound = () => APIError.notFound("Post not found");
+const unique = (values: readonly string[]) => [...new Set(values.filter(Boolean))];
 const attachmentNotFound = () => APIError.notFound("Attachment not found");
 
 class AnnouncementService {
@@ -132,6 +136,7 @@ class AnnouncementService {
       actor.companyID,
       rows.map((r) => r.id),
     );
+    const names = await this.#audienceNames(actor.companyID, rows);
     const attachmentsByPost = new Map<string, AnnouncementAttachmentInfo[]>();
     for (const { announcementId, ...file } of attachments) {
       attachmentsByPost.set(announcementId, [...(attachmentsByPost.get(announcementId) ?? []), file]);
@@ -139,10 +144,13 @@ class AnnouncementService {
     const announcements = rows.map((r) => ({
       id: r.id,
       scope: r.scope,
-      target: audienceLabel([r.country, r.branchName, r.departmentName]),
-      countryCode: audienceCountryCode(r),
-      branchId: r.branchId,
-      departmentId: r.departmentId,
+      target:
+        r.scope === "audience"
+          ? audienceLabel([names.countries(r.countryCodes), names.branches(r.branchIds), names.departments(r.departmentIds)])
+          : audienceLabel([r.country, r.branchName, r.departmentName]),
+      countryCodes: audienceCountryCodes(r),
+      branchIds: r.scope === "audience" ? r.branchIds : r.branchId ? [r.branchId] : [],
+      departmentIds: r.scope === "audience" ? r.departmentIds : r.departmentId ? [r.departmentId] : [],
       severity: r.severity,
       title: r.title,
       body: r.body,
@@ -281,29 +289,35 @@ class AnnouncementService {
   // Validates the board + addressee and returns exactly the columns that board uses, with the
   // addressee worded as the board shows it.
   async #resolveTarget(companyId: string, input: AnnouncementInput) {
-    const empty = { departmentId: null, branchId: null, country: null, countryCode: null };
+    const empty = { departmentId: null, branchId: null, country: null, countryCode: null, countryCodes: [], branchIds: [], departmentIds: [] };
     switch (input.scope as AnnouncementScope) {
       case "company":
         return { ...empty, scope: "company", label: audienceLabel([]) };
       case "audience": {
-        // Each of country, branch and department is one of the company's own, or left out for all.
-        const code = input.countryCode?.trim().toUpperCase();
-        const country = code ? await countryRepository.findByCode(companyId, code) : null;
-        if (code && !country) throw APIError.invalidArgument("Choose one of the organization's countries");
-        const branch = input.branchId ? await branchRepository.getByIdForCompany(input.branchId, companyId) : null;
-        if (input.branchId && !branch) throw APIError.invalidArgument("Choose one of the organization's branches");
-        if (branch && country && branch.countryCode !== country.code) throw APIError.invalidArgument("The branch is not in this country");
-        const department = input.departmentId ? await departmentRepository.getByIdForCompany(input.departmentId, companyId) : null;
-        if (input.departmentId && !department) throw APIError.invalidArgument("Choose one of the organization's departments");
+        // Each country, branch and department is one of the company's own; a list left empty is all of them.
+        const codes = unique((input.countryCodes ?? []).map((c) => c.trim().toUpperCase()));
+        const [countries, branches, departments] = await Promise.all([
+          countryRepository.listByName(companyId),
+          branchRepository.listByName(companyId),
+          departmentRepository.listByName(companyId),
+        ]);
+        const chosenCountries = codes.map((code) => countries.find((c) => c.code === code));
+        if (chosenCountries.some((c) => !c)) throw APIError.invalidArgument("Choose the organization's own countries");
+        const chosenBranches = unique(input.branchIds ?? []).map((id) => branches.find((b) => b.id === id));
+        if (chosenBranches.some((b) => !b)) throw APIError.invalidArgument("Choose the organization's own branches");
+        const outside = chosenBranches.find((b) => codes.length > 0 && !codes.includes(b!.countryCode ?? ""));
+        if (outside) throw APIError.invalidArgument(`${outside.name} is not in the countries chosen`);
+        const chosenDepartments = unique(input.departmentIds ?? []).map((id) => departments.find((d) => d.id === id));
+        if (chosenDepartments.some((d) => !d)) throw APIError.invalidArgument("Choose the organization's own departments");
         // All three left at "all" is everyone: the company-wide notice.
-        if (!country && !branch && !department) return { ...empty, scope: "company", label: audienceLabel([]) };
+        if (!chosenCountries.length && !chosenBranches.length && !chosenDepartments.length) return { ...empty, scope: "company", label: audienceLabel([]) };
         return {
+          ...empty,
           scope: "audience",
-          country: country?.name ?? null,
-          countryCode: country?.code ?? null,
-          branchId: branch?.id ?? null,
-          departmentId: department?.id ?? null,
-          label: audienceLabel([country?.name, branch?.name, department?.name]),
+          countryCodes: chosenCountries.map((c) => c!.code),
+          branchIds: chosenBranches.map((b) => b!.id),
+          departmentIds: chosenDepartments.map((d) => d!.id),
+          label: audienceLabel([chosenCountries.map((c) => c!.name), chosenBranches.map((b) => b!.name), chosenDepartments.map((d) => d!.name)]),
         };
       }
       case "department": {
@@ -324,6 +338,22 @@ class AnnouncementService {
       default:
         throw APIError.invalidArgument("scope must be company, audience, department, branch or country");
     }
+  }
+
+  // The names of the countries, branches and departments the audience posts are for, looked up once per list.
+  async #audienceNames(companyId: string, rows: { scope: string }[]) {
+    const lists = rows.some((r) => r.scope === "audience")
+      ? await Promise.all([countryRepository.listByName(companyId), branchRepository.listByName(companyId), departmentRepository.listByName(companyId)])
+      : [[], [], []];
+    const byKey = <T,>(items: T[], key: (t: T) => string, name: (t: T) => string) => new Map(items.map((i) => [key(i), name(i)]));
+    const [countries, branches, departments] = [
+      byKey(lists[0], (c) => c.code, (c) => c.name),
+      byKey(lists[1], (b) => b.id, (b) => b.name),
+      byKey(lists[2], (d) => d.id, (d) => d.name),
+    ];
+    // One no longer in the organization (deleted since) keeps its id or code, so the post still says whom it was for.
+    const named = (map: Map<string, string>) => (keys: readonly string[]) => keys.map((k) => map.get(k) ?? k);
+    return { countries: named(countries), branches: named(branches), departments: named(departments) };
   }
 
   async #viewer(actor: Actor): Promise<NoticeboardViewer> {

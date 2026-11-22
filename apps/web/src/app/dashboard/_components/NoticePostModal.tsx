@@ -11,7 +11,7 @@ import { HINT, LABEL_TEXT } from "@/styles/ui";
 import { useBranches, useCountries, useDepartments } from "@/hooks/useOrgUnits";
 import type { Announcement, NewAnnouncementInput, UpdateAnnouncementInput } from "@/hooks/useNoticeboard";
 import { SEVERITIES } from "../_lib/boards";
-import { branchFitsCountry, branchOptions } from "../_lib/branches";
+import { branchesInCountries, branchOptions } from "../_lib/branches";
 import { fileIcon } from "./NoticeAttachmentList";
 
 // A new post, or an existing post being edited.
@@ -29,23 +29,32 @@ interface NoticePostModalProps {
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
 
-// Each audience field is one of the organization's own entries, or ALL for every one of them.
+// Each audience field is some of the organization's own entries (several may be picked, owner's answer
+// 22 Nov), or ALL for every one of them.
 const ALL = "all";
 
 interface NoticeFormValues {
-  countryCode?: string;
-  branchId?: string;
-  departmentId?: string;
+  countryCodes?: string[];
+  branchIds?: string[];
+  departmentIds?: string[];
   severity: string;
   title: string;
   body?: string;
 }
 
-/** The audience a new post names: a chosen country, branch or department each, nothing for "All". */
-export function noticeAudience(v: Pick<NoticeFormValues, "countryCode" | "branchId" | "departmentId">) {
-  const chosen = (value?: string) => (value && value !== ALL ? value : undefined);
-  const audience = { countryCode: chosen(v.countryCode), branchId: chosen(v.branchId), departmentId: chosen(v.departmentId) };
-  return { ...audience, forAll: !audience.countryCode && !audience.branchId && !audience.departmentId };
+/** The audience a new post names: the countries, branches and departments chosen, each empty for "All". */
+export function noticeAudience(v: Pick<NoticeFormValues, "countryCodes" | "branchIds" | "departmentIds">) {
+  const chosen = (values?: string[]) => (values ?? []).filter((x) => x !== ALL);
+  const audience = { countryCodes: chosen(v.countryCodes), branchIds: chosen(v.branchIds), departmentIds: chosen(v.departmentIds) };
+  return { ...audience, forAll: !audience.countryCodes.length && !audience.branchIds.length && !audience.departmentIds.length };
+}
+
+/** A field's picks after a change: "All" picked clears the others, and one picked after "All" takes its place. */
+export function allOrSome(next: string[] | undefined, prev: string[] | undefined): string[] {
+  const picked = next ?? [];
+  const added = picked.find((x) => !(prev ?? []).includes(x));
+  if (added === ALL) return [ALL];
+  return picked.length > 1 ? picked.filter((x) => x !== ALL) : picked;
 }
 
 // The priority pills: tinted like the pills on the board (slate, amber, red), with their icon. The
@@ -269,18 +278,29 @@ export function NoticePostModal({ target, onClose, onCreate, onUpdate, onAddAtta
   const locked = !!editing || !!createdId;
   const lockedLabel = editing ? editing.target : createdFor;
 
-  // A chosen country narrows the branches to the ones in it.
-  const countryCode = Form.useWatch("countryCode", form);
-  const countryChosen = !!countryCode && countryCode !== ALL;
+  // Chosen countries narrow the branches to the ones in them.
+  const countryCodes = (Form.useWatch("countryCodes", form) ?? []).filter((c: string) => c !== ALL);
   const withAll = (allLabel: string, options: { value: string; label: string }[]) => [{ value: ALL, label: allLabel }, ...options];
 
   const handleValuesChange = (changed: Partial<NoticeFormValues>, all: NoticeFormValues) => {
-    // A branch in another country no longer fits. Judged on the country just picked: `countryChosen`
+    // A branch in none of the countries no longer fits. Judged on the countries just picked: `countryCodes`
     // is still the previous render's.
-    if (changed.countryCode && changed.countryCode !== ALL && all.branchId !== ALL) {
-      if (!branchFitsCountry(branches, all.branchId, changed.countryCode)) form.setFieldValue("branchId", undefined);
+    if (changed.countryCodes) {
+      const countries = changed.countryCodes.filter((c) => c !== ALL);
+      const branchIds = (all.branchIds ?? []).filter((b) => b !== ALL);
+      const kept = branchesInCountries(branches, branchIds, countries);
+      if (kept.length !== branchIds.length) form.setFieldValue("branchIds", kept);
     }
   };
+  // The three audience fields: several picked show as the first and "+ N", so each keeps its one line.
+  const audienceSelect = {
+    mode: "multiple",
+    showSearch: true,
+    optionFilterProp: "label",
+    maxTagCount: "responsive",
+    // The fields are a third of the dialog wide; the list may be wider than its field.
+    popupMatchSelectWidth: false,
+  } as const;
 
   return (
     <Modal
@@ -351,35 +371,39 @@ export function NoticePostModal({ target, onClose, onCreate, onUpdate, onAddAtta
             </div>
           </Form.Item>
         ) : (
-          // Only the people matching all three see the notice; "All" leaves that one open.
+          // Only the people matching all three see the notice, through any one of the entries picked in each;
+          // "All" leaves that one open.
           <div className="grid grid-cols-3 gap-3 border-b border-slate-200 mb-4">
-            <Form.Item name="countryCode" label={fieldLabel("Country")} className="!mb-4" rules={[{ required: true, message: "Choose a country, or All" }]}>
+            <Form.Item
+              name="countryCodes"
+              label={fieldLabel("Country")}
+              className="!mb-4"
+              normalize={allOrSome}
+              rules={[{ required: true, type: "array", min: 1, message: "Choose countries, or All" }]}
+            >
+              <Select {...audienceSelect} placeholder="Choose countries" options={withAll("All countries", countries.map((c) => ({ value: c.code, label: c.name })))} />
+            </Form.Item>
+            <Form.Item
+              name="branchIds"
+              label={fieldLabel("Branch")}
+              className="!mb-4"
+              normalize={allOrSome}
+              rules={[{ required: true, type: "array", min: 1, message: "Choose branches, or All" }]}
+            >
               <Select
-                showSearch
-                optionFilterProp="label"
-                // The fields are a third of the dialog wide; the list may be wider than its field.
-                popupMatchSelectWidth={false}
-                placeholder="Choose a country"
-                options={withAll("All countries", countries.map((c) => ({ value: c.code, label: c.name })))}
+                {...audienceSelect}
+                placeholder="Choose branches"
+                options={withAll(countryCodes.length ? "All branches in these countries" : "All branches", branchOptions(branches, countryCodes))}
               />
             </Form.Item>
-            <Form.Item name="branchId" label={fieldLabel("Branch")} className="!mb-4" rules={[{ required: true, message: "Choose a branch, or All" }]}>
-              <Select
-                showSearch
-                optionFilterProp="label"
-                popupMatchSelectWidth={false}
-                placeholder="Choose a branch"
-                options={withAll(countryChosen ? "All branches in this country" : "All branches", branchOptions(branches, countryChosen ? countryCode : undefined))}
-              />
-            </Form.Item>
-            <Form.Item name="departmentId" label={fieldLabel("Department")} className="!mb-4" rules={[{ required: true, message: "Choose a department, or All" }]}>
-              <Select
-                showSearch
-                optionFilterProp="label"
-                popupMatchSelectWidth={false}
-                placeholder="Choose a department"
-                options={withAll("All departments", departments.map((d) => ({ value: d.id, label: d.name })))}
-              />
+            <Form.Item
+              name="departmentIds"
+              label={fieldLabel("Department")}
+              className="!mb-4"
+              normalize={allOrSome}
+              rules={[{ required: true, type: "array", min: 1, message: "Choose departments, or All" }]}
+            >
+              <Select {...audienceSelect} placeholder="Choose departments" options={withAll("All departments", departments.map((d) => ({ value: d.id, label: d.name })))} />
             </Form.Item>
           </div>
         )}

@@ -7947,14 +7947,21 @@ export namespace controllers {
     export interface AnnouncementCreateRequest {
         scope: string
         /**
-         * The addressee matching the scope; ignored for "company". For "audience" each of
-         * countryCode, branchId and departmentId may be left out, meaning all of them.
+         * The addressee matching the scope; ignored for "company". "department", "branch" and "country" name one
+         * in departmentId, branchId and country.
          */
         departmentId?: string
 
         branchId?: string
         country?: string
-        countryCode?: string
+        /**
+         * "audience": the countries (codes), branches and departments it is for; each left out or empty means all
+         * of them. Several of each may be chosen (owner's answer 22 Nov).
+         */
+        countryCodes?: string[]
+
+        branchIds?: string[]
+        departmentIds?: string[]
         severity?: string
         /**
          * The same limits the post dialog enforces; the whole list is polled, so text stays bounded.
@@ -29356,12 +29363,12 @@ export namespace services {
         target: string
 
         /**
-         * The same audience as ids, each null for "all", so the board can be filtered by it.
+         * The same audience as ids, each empty for "all", so the board can be filtered by it.
          */
-        countryCode: string | null
+        countryCodes: string[]
 
-        branchId: string | null
-        departmentId: string | null
+        branchIds: string[]
+        departmentIds: string[]
         severity: string
         title: string
         body: string

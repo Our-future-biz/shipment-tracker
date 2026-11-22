@@ -3,7 +3,7 @@
 import { Select, Button } from "antd";
 import { useBranches, useCountries, useDepartments } from "@/hooks/useOrgUnits";
 import { SEVERITIES } from "../_lib/boards";
-import { branchFitsCountry, branchOptions } from "../_lib/branches";
+import { branchesInCountries, branchOptions } from "../_lib/branches";
 import { hasFilters } from "../_lib/noticeFilters";
 import { HINT } from "@/styles/ui";
 import type { NoticeFilters } from "../_lib/noticeFilters";
@@ -15,16 +15,17 @@ interface NoticeFiltersBarProps {
   total: number;
 }
 
-// Country, branch, department and priority, each "All" until one is picked; the lists are the
-// organization's own, and the branches follow the chosen country.
+// Country, branch, department and priority, each "All" until something is picked; several countries, branches
+// and departments may be picked (owner's answer 22 Nov). The lists are the organization's own, and the
+// branches follow the chosen countries.
 export function NoticeFiltersBar({ value, onChange, shown, total }: NoticeFiltersBarProps) {
   const { countries } = useCountries();
   const { branches } = useBranches();
   const { departments } = useDepartments();
 
-  const handleCountryChange = (countryCode?: string) => {
-    const keepBranch = branchFitsCountry(branches, value.branchId, countryCode);
-    onChange({ ...value, countryCode, branchId: keepBranch ? value.branchId : undefined });
+  const handleCountryChange = (countryCodes: string[]) => {
+    const branchIds = branchesInCountries(branches, value.branchIds ?? [], countryCodes);
+    onChange({ ...value, countryCodes, branchIds });
   };
 
   const common = {
@@ -33,31 +34,33 @@ export function NoticeFiltersBar({ value, onChange, shown, total }: NoticeFilter
     optionFilterProp: "label",
     className: "!w-48",
   } as const;
+  // Several picked show as the first and "+ N": the bar keeps its one line.
+  const several = { ...common, mode: "multiple", maxTagCount: "responsive" } as const;
 
   return (
     <div className="flex flex-wrap items-center gap-2 px-2 pt-1 pb-2">
       <Select
-        {...common}
+        {...several}
         aria-label="Filter by country"
         placeholder="All countries"
-        value={value.countryCode}
+        value={value.countryCodes ?? []}
         onChange={handleCountryChange}
         options={countries.map((c) => ({ value: c.code, label: c.name }))}
       />
       <Select
-        {...common}
+        {...several}
         aria-label="Filter by branch"
-        placeholder={value.countryCode ? "All branches in this country" : "All branches"}
-        value={value.branchId}
-        onChange={(branchId?: string) => onChange({ ...value, branchId })}
-        options={branchOptions(branches, value.countryCode)}
+        placeholder={value.countryCodes?.length ? "All branches in these countries" : "All branches"}
+        value={value.branchIds ?? []}
+        onChange={(branchIds: string[]) => onChange({ ...value, branchIds })}
+        options={branchOptions(branches, value.countryCodes)}
       />
       <Select
-        {...common}
+        {...several}
         aria-label="Filter by department"
         placeholder="All departments"
-        value={value.departmentId}
-        onChange={(departmentId?: string) => onChange({ ...value, departmentId })}
+        value={value.departmentIds ?? []}
+        onChange={(departmentIds: string[]) => onChange({ ...value, departmentIds })}
         options={departments.map((d) => ({ value: d.id, label: d.name }))}
       />
       <Select

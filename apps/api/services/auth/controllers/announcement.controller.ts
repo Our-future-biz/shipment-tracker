@@ -48,12 +48,16 @@ export const announcementReadReceipts = api(
 
 interface AnnouncementCreateRequest {
   scope: string; // company | audience | department | branch | country
-  // The addressee matching the scope; ignored for "company". For "audience" each of
-  // countryCode, branchId and departmentId may be left out, meaning all of them.
+  // The addressee matching the scope; ignored for "company". "department", "branch" and "country" name one
+  // in departmentId, branchId and country.
   departmentId?: string;
   branchId?: string;
   country?: string & MaxLen<100>;
-  countryCode?: string & MaxLen<2>;
+  // "audience": the countries (codes), branches and departments it is for; each left out or empty means all
+  // of them. Several of each may be chosen (owner's answer 22 Nov).
+  countryCodes?: (string & MaxLen<2>)[] & MaxLen<300>;
+  branchIds?: string[] & MaxLen<500>;
+  departmentIds?: string[] & MaxLen<500>;
   severity?: string; // info | warning | critical
   // The same limits the post dialog enforces; the whole list is polled, so text stays bounded.
   title: string & MinLen<1> & MaxLen<200>;

@@ -176,6 +176,13 @@
       "when": 1795100000000,
       "tag": "0024_location_seaports",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1795357131173,
+      "tag": "0025_announcement_audience_lists",
+      "breakpoints": true
     }
   ]
 }

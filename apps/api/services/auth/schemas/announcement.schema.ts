@@ -6,9 +6,12 @@ import { userTable } from "./user.schema";
 import { departmentTable, branchTable } from "./orgUnit.schema";
 
 // A noticeboard post. `scope` picks who it is for: "company" is everyone; "audience" is the
-// people matching every filled one of country_code, branch_id and department_id (an empty one
-// means all of them). The older "department", "branch" and "country" scopes fill exactly their
-// one column. The service enforces this.
+// people matching every filled one of country_codes, branch_ids and department_ids - each a list
+// of the company's own, a person matching any one entry of a list (an empty list means all of
+// them; several may be chosen, owner's answer 22 Nov). Audience posts from before the lists
+// were filled in from country_code, branch_id and department_id (auth migration 0025). The older
+// "department", "branch" and "country" scopes fill exactly their one single column. The service
+// enforces this.
 export const announcementTable = pgTable(
   "announcement",
   {
@@ -20,6 +23,10 @@ export const announcementTable = pgTable(
     // The country's name; for "audience" posts it is shown, country_code is matched.
     country: text("country"),
     countryCode: text("country_code"),
+    // "audience" posts: the countries (codes), branches and departments chosen, each empty for all.
+    countryCodes: text("country_codes").array().notNull().default(sql`'{}'::text[]`),
+    branchIds: uuid("branch_ids").array().notNull().default(sql`'{}'::uuid[]`),
+    departmentIds: uuid("department_ids").array().notNull().default(sql`'{}'::uuid[]`),
     severity: text("severity").notNull().default("info"),
     title: text("title").notNull(),
     body: text("body").notNull().default(""),

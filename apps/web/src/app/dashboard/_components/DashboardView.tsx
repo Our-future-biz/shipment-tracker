@@ -11,6 +11,7 @@ import { useToast } from "@/lib/toast";
 import { useNoticeboard } from "@/hooks/useNoticeboard";
 import type { Announcement } from "@/hooks/useNoticeboard";
 import { useBranches } from "@/hooks/useOrgUnits";
+import { countriesOfBranches } from "../_lib/branches";
 import { filterNotices, hasFilters } from "../_lib/noticeFilters";
 import type { NoticeFilters } from "../_lib/noticeFilters";
 import { NoticeFiltersBar } from "./NoticeFiltersBar";
@@ -82,8 +83,7 @@ export function DashboardView() {
   const canPost = !!user && POSTING_ROLES.includes(user.role);
   const [filters, setFilters] = useState<NoticeFilters>({});
   const { branches } = useBranches();
-  const branchCountry = branches.find((b) => b.id === filters.branchId)?.countryCode;
-  const shownNotices = filterNotices(announcements, filters, branchCountry);
+  const shownNotices = filterNotices(announcements, filters, countriesOfBranches(branches, filters.branchIds ?? []));
   const filtered = hasFilters(filters);
   // Until the list has arrived or failed — including while the request is held back offline.
   const isLoading = !hasLoaded && !isError;

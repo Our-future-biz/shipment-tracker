@@ -16,8 +16,11 @@ export interface AnnouncementAudience {
   countryCode: string | null;
 }
 
-// An empty audience column means "all"; a filled one must be the reader's own.
-const sameOrAll = (column: PgColumn, own: string | null) => (own ? or(isNull(column), eq(column, own))! : isNull(column));
+// An empty audience list means "all"; a filled one must hold the reader's own (`type`: the list's element type).
+const anyOrAll = (column: PgColumn, own: string | null, type: "text" | "uuid") =>
+  own
+    ? sql`(cardinality(${column}) = 0 OR ${type === "uuid" ? sql`${own}::uuid` : sql`${own}::text`} = ANY(${column}))`
+    : sql`cardinality(${column}) = 0`;
 
 class AnnouncementRepository extends TenantRepository<typeof announcementTable> {
   constructor() {
@@ -36,9 +39,9 @@ class AnnouncementRepository extends TenantRepository<typeof announcementTable> 
         eq(announcementTable.authorId, audience.userId),
         and(
           eq(announcementTable.scope, "audience"),
-          sameOrAll(announcementTable.countryCode, audience.countryCode),
-          sameOrAll(announcementTable.branchId, audience.branchId),
-          sameOrAll(announcementTable.departmentId, audience.departmentId),
+          anyOrAll(announcementTable.countryCodes, audience.countryCode, "text"),
+          anyOrAll(announcementTable.branchIds, audience.branchId, "uuid"),
+          anyOrAll(announcementTable.departmentIds, audience.departmentId, "uuid"),
         )!,
       ];
       if (audience.departmentId) {
@@ -63,6 +66,9 @@ class AnnouncementRepository extends TenantRepository<typeof announcementTable> 
         branchId: announcementTable.branchId,
         country: announcementTable.country,
         countryCode: announcementTable.countryCode,
+        countryCodes: announcementTable.countryCodes,
+        branchIds: announcementTable.branchIds,
+        departmentIds: announcementTable.departmentIds,
         severity: announcementTable.severity,
         title: announcementTable.title,
         body: announcementTable.body,
