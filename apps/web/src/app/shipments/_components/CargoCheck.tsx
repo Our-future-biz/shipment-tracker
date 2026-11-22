@@ -18,6 +18,8 @@ interface CheckPillProps {
   unit?: string;
   /** What declares the figure, for the hover text: a container, a shipment with none, or nothing (lines outside the containers). */
   against?: CheckAgainst;
+  /** What the left figure sums, for the hover text: the table's own lines, or (under Booked Dimensions) the Dimensions. */
+  sumLabel?: string;
 }
 
 /** One figure: what the lines add up to / what the container declares - green when they
@@ -26,7 +28,7 @@ interface CheckPillProps {
  * has one - and grey when there is nothing to compare with: a shipment with no container that
  * doesn't declare the figure, or lines outside the containers (user council O22). Hovering says
  * which number is which ("Lines: 11 · Container: 11"). */
-export function CheckPill({ label, m, decimals, unit = "", against = "Container" }: CheckPillProps) {
+export function CheckPill({ label, m, decimals, unit = "", against = "Container", sumLabel = "Lines" }: CheckPillProps) {
   const declared = !!m.declared;
   const nothingToCompare = !declared && against !== "Container";
   const tone = m.empty || nothingToCompare
@@ -35,7 +37,7 @@ export function CheckPill({ label, m, decimals, unit = "", against = "Container"
       ? "bg-emerald-50 text-emerald-700 ring-emerald-200"
       : "bg-red-50 text-red-700 ring-red-200";
   const u = unit ? ` ${unit}` : "";
-  const explain = `Lines: ${fmtFixed(m.sum, decimals)}${u} · ${against}: ${declared ? `${fmtFixed(m.declared, decimals)}${u}` : "not declared"}${m.near ? ` · within ${FIGURE_TOLERANCE * 100} %` : ""}`;
+  const explain = `${sumLabel}: ${fmtFixed(m.sum, decimals)}${u} · ${against}: ${declared ? `${fmtFixed(m.declared, decimals)}${u}` : "not declared"}${m.near ? ` · within ${FIGURE_TOLERANCE * 100} %` : ""}`;
   return (
     <Tooltip title={explain}>
       <span className={`${CHECK_PILL_CLASS} ${tone}`}>

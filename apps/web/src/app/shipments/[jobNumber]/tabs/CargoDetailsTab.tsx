@@ -44,8 +44,6 @@ import {
   civByCurrency,
   shipmentDeclaredFigures,
   bookedDeclaredFigures,
-  dimensionTotals,
-  fmtFixed,
   cargoContainers,
   type CargoItemLine,
   type CargoDimensionLine,
@@ -518,12 +516,9 @@ export function CargoDetailsTab({
     [containers.length, shipment],
   );
   // What was booked (Booked Dimensions, the lines of the quote the shipment was made from - owner's answer
-  // 22 Nov): a shipment with no container checks its Dimensions against that instead; nothing booked, as
-  // before. Its Description is checked as before.
-  const bookedDeclared = useMemo<DeclaredFigures | null>(
-    () => (containers.length > 0 ? null : bookedDeclaredFigures(shipment.bookedDimensions)),
-    [containers.length, shipment.bookedDimensions],
-  );
+  // 22 Nov): the Booked Dimensions tile holds all the shipment's Dimensions lines against it. The Dimensions
+  // and Description tables are checked as before.
+  const bookedDeclared = useMemo<DeclaredFigures | null>(() => bookedDeclaredFigures(shipment.bookedDimensions), [shipment.bookedDimensions]);
 
   // Everything one tab shows: its lines, their totals and how they compare with what the
   // container declares (dimensions always; descriptions once there are any).
@@ -533,13 +528,11 @@ export function CargoDetailsTab({
     // own. Lines outside the containers of a shipment that has some have none ("/ —"): the pills
     // still show, as every table shows them.
     const declared: DeclaredFigures = container ?? shipmentDeclared ?? NOTHING_DECLARED;
-    // The Dimensions of a shipment with no container: against what was booked, when anything was.
-    const dimsDeclared: DeclaredFigures = container ?? bookedDeclared ?? declared;
     const panelItems = items.map((l, idx) => ({ l, idx })).filter(({ l }) => lineKey(l.containerId) === key);
     const panelDims = dims.map((l, idx) => ({ l, idx })).filter(({ l }) => lineKey(l.containerId) === key);
     const filledDims = panelDims.filter(({ l }) => !dimIsEmpty(l)).length;
     const filledItems = panelItems.filter(({ l }) => !itemIsEmpty(l)).length;
-    const check = checkConsistency(dimsDeclared, panelDims.map(({ l }) => lineInCm(l)));
+    const check = checkConsistency(declared, panelDims.map(({ l }) => lineInCm(l)));
     const descPcs = panelItems.reduce((s, { l }) => s + num(l.pieces), 0);
     const descKg = panelItems.reduce((s, { l }) => s + num(l.grossWeight), 0);
     const descCheck = { pcs: compareFigure(descPcs, num(declared.packages), 0), kg: compareFigure(descKg, num(declared.grossWeight), declared.kgDecimals ?? 2) };
@@ -556,7 +549,6 @@ export function CargoDetailsTab({
   const { check, descCheck } = active;
   // whose figures the pills hold: the tab's container, the container-less shipment's own, or none
   const against: CheckAgainst = active.container ? "Container" : shipmentDeclared ? "Shipment" : "No container";
-  const dimsAgainst: CheckAgainst = !active.container && bookedDeclared ? "Booked" : against;
   // Read-only, the empty line each table keeps to type into is not shown.
   const panelItems = readOnly ? active.panelItems.filter(({ l }) => !itemIsEmpty(l)) : active.panelItems;
   const panelDims = readOnly ? active.panelDims.filter(({ l }) => !dimIsEmpty(l)) : active.panelDims;
@@ -565,7 +557,8 @@ export function CargoDetailsTab({
     readOnly ? <span /> : <RowActionsMenu label={label} onCopy={onCopy} onDelete={onDelete} />;
   // What was booked, as the quote had it: shown as it is, each line in cm.
   const booked = shipment.bookedDimensions ?? [];
-  const bookedTotals = dimensionTotals(booked);
+  // Every Dimensions line, of every container, against what was booked.
+  const bookedCheck = bookedDeclared ? checkConsistency(bookedDeclared, dims.filter((l) => !dimIsEmpty(l)).map(lineInCm)) : null;
   // The table's two header rows (the bands and the column names), the same over Dimensions and Booked Dimensions.
   const dimsHead = (
     <>
@@ -906,9 +899,9 @@ export function CargoDetailsTab({
             {/* The sums of the lines against what is declared, under every table. */}
             {checkStrip(
                 <>
-                  <CheckPill against={dimsAgainst} label="Colli" m={check.pcs} decimals={0} />
-                  <CheckPill against={dimsAgainst} label="Weight" m={check.kg} decimals={check.kg.decimals} unit="kg" />
-                  <CheckPill against={dimsAgainst} label="Volume" m={check.m3} decimals={3} unit="m³" />
+                  <CheckPill against={against} label="Colli" m={check.pcs} decimals={0} />
+                  <CheckPill against={against} label="Weight" m={check.kg} decimals={check.kg.decimals} unit="kg" />
+                  <CheckPill against={against} label="Volume" m={check.m3} decimals={3} unit="m³" />
                 </>,
               )}
             {airWithBoxes && (
@@ -1040,7 +1033,7 @@ export function CargoDetailsTab({
       </SectionCard>
 
       {/* Booked Dimensions (owner's answer 22 Nov): the lines of the quote the shipment was made from, copied by the
-          server and never edited - what the Dimensions above are checked against. */}
+          server and never edited - and the shipment's Dimensions held against them. */}
       <SectionCard title="Booked Dimensions" extra={booked.length > 0 && shipment.salesNumber ? <span className={HINT}>From quote {shipment.salesNumber} · locked</span> : undefined}>
         <div className="overflow-x-auto">
           <div className="min-w-[1000px]">
@@ -1048,24 +1041,13 @@ export function CargoDetailsTab({
             {booked.map((l, i) => dimReadRow(l, rowLine(i, booked.length), undefined, <span />))}
             {booked.length === 0 && <div className={EMPTY_STATE}>Nothing booked: the shipment was not made from a quote with package lines.</div>}
           </div>
-          {booked.length > 0 &&
+          {/* The shipment's Dimensions against what was booked (owner's answer 22 Nov): "Dimensions: 2 · Booked: 1". */}
+          {bookedCheck &&
             checkStrip(
               <>
-                {(
-                  [
-                    ["Colli", fmtFixed(bookedTotals.pcs, 0), ""],
-                    ["Weight", fmtFixed(bookedTotals.kg, 2), " kg"],
-                    ["Volume", fmtFixed(bookedTotals.m3, 3), " m³"],
-                  ] as const
-                ).map(([label, value, unit]) => (
-                  <span key={label} className={`${CHECK_PILL_CLASS} bg-slate-50 text-slate-600 ring-slate-200`}>
-                    <span className="font-semibold uppercase tracking-wide text-[10px] opacity-80">{label}</span>
-                    <span className="font-semibold">
-                      {value}
-                      {unit}
-                    </span>
-                  </span>
-                ))}
+                <CheckPill against="Booked" sumLabel="Dimensions" label="Colli" m={bookedCheck.pcs} decimals={0} />
+                <CheckPill against="Booked" sumLabel="Dimensions" label="Weight" m={bookedCheck.kg} decimals={bookedCheck.kg.decimals} unit="kg" />
+                <CheckPill against="Booked" sumLabel="Dimensions" label="Volume" m={bookedCheck.m3} decimals={3} unit="m³" />
               </>,
             )}
         </div>
