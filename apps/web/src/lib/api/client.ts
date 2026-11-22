@@ -25954,6 +25954,13 @@ export namespace interfaces {
         cargoDimensions: CargoDimensionLine[] | null
         commercialInvoices: CommercialInvoiceLine[] | null
         /**
+         * Booked Dimensions (owner's answer 22 Nov): the package lines of the quote the shipment was made from,
+         * copied by the server and never edited (lib/bookedDimensions); none for a shipment not made from one.
+         * Cargo Details holds its Dimensions against them.
+         */
+        bookedDimensions: CargoDimensionLine[]
+
+        /**
          * Read-only projections computed from the rows above (never stored).
          * containerNumber/sealNumber/pcs/typeOfPackages/hsCode/cargoDescription are
          * also overridden with computed values when detail rows exist.

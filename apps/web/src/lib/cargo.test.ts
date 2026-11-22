@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  bookedDeclaredFigures,
   cargoContainers,
   shipmentDeclaredFigures,
   piecesOf,
@@ -413,5 +414,24 @@ describe("hasAdr", () => {
     expect(hasAdr(line({ adrClass: "3" }))).toBe(true);
     expect(hasAdr(line({ adrPackingGroup: "II" }))).toBe(true);
     expect(hasAdr(line({ adrLimitedQuantity: true }))).toBe(true);
+  });
+});
+
+describe("bookedDeclaredFigures (Booked Dimensions, owner's answer 22 Nov)", () => {
+  const line = (over: Partial<CargoDimensionLine>): CargoDimensionLine =>
+    ({ containerId: null, pieces: "", lengthCm: "", widthCm: "", heightCm: "", weightPerPcKg: "", packageType: "", stackable: "", ...over }) as CargoDimensionLine;
+
+  it("is the booked lines' colli, kg and m³, what the Dimensions are checked against", () => {
+    const booked = [line({ pieces: "4", lengthCm: "120", widthCm: "80", heightCm: "150", weightPerPcKg: "450" }), line({ pieces: "2", weightPerPcKg: "10", volumePerPcM3: "0.5" })];
+    const declared = bookedDeclaredFigures(booked)!;
+    expect([declared.packages, declared.grossWeight, declared.volume]).toEqual(["6", "1820", "6.76"]);
+    const check = checkConsistency(declared, booked);
+    expect(check.matched).toBe(true);
+  });
+
+  it("is nothing when no line was booked with colli", () => {
+    expect(bookedDeclaredFigures([])).toBeNull();
+    expect(bookedDeclaredFigures(undefined)).toBeNull();
+    expect(bookedDeclaredFigures([line({ weightPerPcKg: "10" })])).toBeNull();
   });
 });

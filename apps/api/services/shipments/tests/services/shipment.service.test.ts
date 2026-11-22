@@ -24,6 +24,7 @@ vi.mock("../../repositories/shipment.repository", () => ({
   shipmentRepository: {
     createWithJobNumber: vi.fn(),
     createFromQuote: vi.fn(),
+    setBookedDimensionsOnce: vi.fn(),
     createForHouseBol: vi.fn(),
     getByIdForCompany: vi.fn(),
     updateForCompany: vi.fn(),
@@ -3993,5 +3994,48 @@ describe("the Invoicing lists' jobs with a charge added after their invoice", ()
   it("says nothing of late charges when they were read, or for a list that does not take them in (S5-2)", async () => {
     expect(await listOf("billing")).not.toHaveProperty("lateChargesNotRead");
     expect(await listOf("invoiced")).not.toHaveProperty("lateChargesNotRead");
+  });
+});
+
+describe("Booked Dimensions (owner's answer 22 Nov)", () => {
+  const packages = [{ qty: 30, type: "Pallets", length: 120, width: 80, height: 100, weight: 50 }];
+
+  it("books the quote's package lines with a shipment made from it", async () => {
+    salesQuoteGet.mockResolvedValue(quote({ data: { packages } }));
+    await shipmentService.create(COMPANY, { fromQuoteNumber: REF } as never);
+    const data = repository.createFromQuote.mock.calls[0]![2] as Record<string, unknown>;
+    expect(data.bookedDimensions).toEqual([
+      expect.objectContaining({ pieces: "30", lengthCm: "120", widthCm: "80", heightCm: "100", weightPerPcKg: "50", packageType: "Pallet(s)" }),
+    ]);
+  });
+
+  it("fills them once from the quote of a shipment made from one before, on its first read", async () => {
+    repository.getByIdForCompany.mockResolvedValueOnce(row({ createdFromQuote: true, salesNumber: REF, bookedDimensions: null }) as never);
+    salesQuoteGet.mockResolvedValue(quote({ data: { packages } }));
+    const item = await shipmentService.getById(SHIPMENT, COMPANY);
+    expect(salesQuoteGet).toHaveBeenCalledWith({ quoteNumber: REF });
+    expect(repository.setBookedDimensionsOnce).toHaveBeenCalledWith(SHIPMENT, COMPANY, [expect.objectContaining({ pieces: "30" })]);
+    expect(item!.bookedDimensions).toEqual([expect.objectContaining({ pieces: "30" })]);
+  });
+
+  it("books none when the quote is gone, and tries again later when it can't be read now", async () => {
+    repository.getByIdForCompany.mockResolvedValueOnce(row({ createdFromQuote: true, salesNumber: REF, bookedDimensions: null }) as never);
+    salesQuoteGet.mockRejectedValueOnce(APIError.notFound("Quote not found"));
+    expect((await shipmentService.getById(SHIPMENT, COMPANY))!.bookedDimensions).toEqual([]);
+    expect(repository.setBookedDimensionsOnce).toHaveBeenCalledWith(SHIPMENT, COMPANY, []);
+
+    repository.setBookedDimensionsOnce.mockClear();
+    repository.getByIdForCompany.mockResolvedValueOnce(row({ createdFromQuote: true, salesNumber: REF, bookedDimensions: null }) as never);
+    salesQuoteGet.mockRejectedValueOnce(new Error("quotes is unreachable"));
+    expect((await shipmentService.getById(SHIPMENT, COMPANY))!.bookedDimensions).toEqual([]);
+    expect(repository.setBookedDimensionsOnce).not.toHaveBeenCalled();
+  });
+
+  it("asks no quote for a shipment that has its Booked Dimensions", async () => {
+    repository.getByIdForCompany.mockResolvedValueOnce(row({ createdFromQuote: true, salesNumber: REF, bookedDimensions: [] }) as never);
+    salesQuoteGet.mockClear();
+    await shipmentService.getById(SHIPMENT, COMPANY);
+    expect(salesQuoteGet).not.toHaveBeenCalled();
+    expect(repository.setBookedDimensionsOnce).not.toHaveBeenCalled();
   });
 });

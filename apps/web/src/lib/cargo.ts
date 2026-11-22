@@ -423,6 +423,19 @@ export function shipmentDeclaredFigures(s: { pcs?: string | null; totalWeightTon
   } as DeclaredFigures;
 }
 
+/**
+ * What a shipment booked (Booked Dimensions, the lines of the quote it was made from - owner's answer
+ * 22 Nov) as the figures its Dimensions lines are checked against: the booked lines' colli, kg and m³
+ * (kg to 0.01, as the lines' own). Null when nothing was booked: the lines are then checked as before.
+ */
+export function bookedDeclaredFigures(booked: readonly CargoDimensionLine[] | null | undefined): DeclaredFigures | null {
+  const lines = (booked ?? []).filter((l) => num(l.pieces) > 0);
+  if (!lines.length) return null;
+  const t = dimensionTotals(lines);
+  const text = (n: number) => (n > 0 ? String(n) : "");
+  return { packages: text(t.pcs), grossWeight: text(t.kg), volume: text(Math.round(t.m3 * 1000) / 1000), kgDecimals: 2 } as DeclaredFigures;
+}
+
 export function checkConsistency(container: DeclaredFigures, dims: CargoDimensionLine[]): ConsistencyCheck {
   const t = dimensionTotals(dims);
   const pcs = compareFigure(t.pcs, num(container.packages), 0);

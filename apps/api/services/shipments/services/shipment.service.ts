@@ -61,6 +61,7 @@ import { billOfLadingKey } from "../../../lib/billOfLading";
 import { deliverShipmentPushes, owePushes } from "./shipmentPush.service";
 import { isUuid } from "../../../lib/uuid";
 import { publicFields } from "../lib/rows";
+import { bookedDimensionsFromQuote } from "../lib/bookedDimensions";
 import { jobPortText } from "../lib/jobPorts";
 import { changesTaxDate } from "../lib/taxDate";
 import { masterJobNumberFor } from "../lib/masterJobNumber";
@@ -365,6 +366,8 @@ function enrich(
     commercialInvoice: commercialInvoices.length
       ? uniqueJoin(commercialInvoices.map((i) => i.invoiceNumber))
       : shipment.commercialInvoice,
+    // Null only until a shipment made from a quote before Booked Dimensions has them filled (getById).
+    bookedDimensions: shipment.bookedDimensions ?? [],
     containerNumber: aggregate(containers, "containerNumber"),
     sealNumber: aggregate(containers, "sealNumber"),
     // With no lines the projection gives "" for each, so the typed value shows as before.
@@ -1092,6 +1095,7 @@ class ShipmentService {
   async getById(id: string, companyId: string): Promise<ShipmentItem | null> {
     const shipment = await shipmentRepository.getByIdForCompany(id, companyId);
     if (!shipment) return null;
+    if (shipment.bookedDimensions === null) await this.fillBookedDimensions(shipment, companyId);
     let masterJobMczNumber: string | null = null;
     if (shipment.masterJobId) {
       const mj = await masterJobRepository.getByIdForCompany(shipment.masterJobId, companyId);
@@ -1111,6 +1115,28 @@ class ShipmentService {
       customsStatus: customsStatusFor(shipment.customsStatus, documents),
       lastEvent: lastEventOf(shipment, (await shipmentTrackingEventRepository.latestPerShipment([id], companyId)).get(id) ?? null),
     });
+  }
+
+  /**
+   * Booked Dimensions of a shipment made from a quote before there were any (stored null): its quote's
+   * package lines, read from the quote once and kept - none when the quote is gone. A quote that can't
+   * be read now (no login to ask with, the quotes service down) leaves it null, to be tried on a later read.
+   */
+  private async fillBookedDimensions(shipment: ShipmentRecord, companyId: string): Promise<void> {
+    let lines: CargoDimensionLine[] = [];
+    const reference = shipment.salesNumber.trim();
+    if (shipment.createdFromQuote && reference) {
+      try {
+        lines = bookedDimensionsFromQuote((await quotes.salesQuoteGet({ quoteNumber: reference })).quote.data);
+      } catch (err) {
+        if (!(err instanceof APIError && err.code === ErrCode.NotFound)) {
+          log.warn(err, "the booked dimensions of a shipment could not be read from its quote", { companyId, shipmentId: shipment.id, reference });
+          return;
+        }
+      }
+    }
+    await shipmentRepository.setBookedDimensionsOnce(shipment.id, companyId, lines);
+    shipment.bookedDimensions = lines;
   }
 
   /**
@@ -1289,6 +1315,8 @@ class ShipmentService {
       if (owner) shipmentData.salesPerson = owner;
     }
 
+    // The quote's package lines, booked with the shipment as the quote has them: never edited after.
+    shipmentData.bookedDimensions = bookedDimensionsFromQuote(quote.data);
     const made = await shipmentRepository.createFromQuote(companyId, reference, shipmentData, allowSecond);
     if ("existing" in made) {
       const { id, jobNumber } = made.existing;

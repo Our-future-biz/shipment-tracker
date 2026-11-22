@@ -8,7 +8,8 @@ import { FIGURE_TOLERANCE, fmtFixed, type FigureCheck } from "@/lib/cargo";
 // as the invoice value in Cargo Details, which nothing declares).
 export const CHECK_PILL_CLASS = "inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs ring-1 ring-inset tabular-nums whitespace-nowrap cursor-default";
 
-export type CheckAgainst = "Container" | "Shipment" | "No container";
+// "Booked": the shipment's Booked Dimensions, the lines of the quote it was made from (owner's answer 22 Nov).
+export type CheckAgainst = "Container" | "Shipment" | "Booked" | "No container";
 
 interface CheckPillProps {
   label: string;

@@ -1,3 +1,4 @@
+import type { CargoDimensionLine } from "../interfaces/interfaces";
 import { and, eq, ne, or, ilike, inArray, isNotNull, isNull, notInArray, desc, asc, count, sql, getTableColumns, type SQL } from "drizzle-orm";
 import { unionAll, type PgColumn } from "drizzle-orm/pg-core";
 import { TenantRepository } from "../../../lib/db/repository";
@@ -811,6 +812,17 @@ class ShipmentRepository extends TenantRepository<typeof shipmentTable> {
       if (alongside) await alongside(tx, created!);
       return { created: created! };
     });
+  }
+
+  /**
+   * Booked Dimensions of a shipment that has none stored yet (null): written once, never over lines set
+   * meanwhile, and without touching updatedAt - nobody changed the shipment.
+   */
+  async setBookedDimensionsOnce(id: string, companyId: string, lines: CargoDimensionLine[]): Promise<void> {
+    await this.db
+      .update(shipmentTable)
+      .set({ bookedDimensions: lines })
+      .where(and(eq(shipmentTable.id, id), eq(shipmentTable.companyId, companyId), isNull(shipmentTable.bookedDimensions)));
   }
 
   /** The company's live shipments whose House B/L is one of `houseBols` (by billOfLadingKey), with that key, the oldest first. */

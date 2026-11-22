@@ -43,6 +43,9 @@ import {
   compareFigure,
   civByCurrency,
   shipmentDeclaredFigures,
+  bookedDeclaredFigures,
+  dimensionTotals,
+  fmtFixed,
   cargoContainers,
   type CargoItemLine,
   type CargoDimensionLine,
@@ -514,6 +517,13 @@ export function CargoDetailsTab({
     () => (containers.length > 0 ? null : shipmentDeclaredFigures(shipment)),
     [containers.length, shipment],
   );
+  // What was booked (Booked Dimensions, the lines of the quote the shipment was made from - owner's answer
+  // 22 Nov): a shipment with no container checks its Dimensions against that instead; nothing booked, as
+  // before. Its Description is checked as before.
+  const bookedDeclared = useMemo<DeclaredFigures | null>(
+    () => (containers.length > 0 ? null : bookedDeclaredFigures(shipment.bookedDimensions)),
+    [containers.length, shipment.bookedDimensions],
+  );
 
   // Everything one tab shows: its lines, their totals and how they compare with what the
   // container declares (dimensions always; descriptions once there are any).
@@ -523,11 +533,13 @@ export function CargoDetailsTab({
     // own. Lines outside the containers of a shipment that has some have none ("/ —"): the pills
     // still show, as every table shows them.
     const declared: DeclaredFigures = container ?? shipmentDeclared ?? NOTHING_DECLARED;
+    // The Dimensions of a shipment with no container: against what was booked, when anything was.
+    const dimsDeclared: DeclaredFigures = container ?? bookedDeclared ?? declared;
     const panelItems = items.map((l, idx) => ({ l, idx })).filter(({ l }) => lineKey(l.containerId) === key);
     const panelDims = dims.map((l, idx) => ({ l, idx })).filter(({ l }) => lineKey(l.containerId) === key);
     const filledDims = panelDims.filter(({ l }) => !dimIsEmpty(l)).length;
     const filledItems = panelItems.filter(({ l }) => !itemIsEmpty(l)).length;
-    const check = checkConsistency(declared, panelDims.map(({ l }) => lineInCm(l)));
+    const check = checkConsistency(dimsDeclared, panelDims.map(({ l }) => lineInCm(l)));
     const descPcs = panelItems.reduce((s, { l }) => s + num(l.pieces), 0);
     const descKg = panelItems.reduce((s, { l }) => s + num(l.grossWeight), 0);
     const descCheck = { pcs: compareFigure(descPcs, num(declared.packages), 0), kg: compareFigure(descKg, num(declared.grossWeight), declared.kgDecimals ?? 2) };
@@ -544,12 +556,115 @@ export function CargoDetailsTab({
   const { check, descCheck } = active;
   // whose figures the pills hold: the tab's container, the container-less shipment's own, or none
   const against: CheckAgainst = active.container ? "Container" : shipmentDeclared ? "Shipment" : "No container";
+  const dimsAgainst: CheckAgainst = !active.container && bookedDeclared ? "Booked" : against;
   // Read-only, the empty line each table keeps to type into is not shown.
   const panelItems = readOnly ? active.panelItems.filter(({ l }) => !itemIsEmpty(l)) : active.panelItems;
   const panelDims = readOnly ? active.panelDims.filter(({ l }) => !dimIsEmpty(l)) : active.panelDims;
   // A row's "⋯" (Copy, Delete), or the empty cell that keeps its column when read-only.
   const rowMenu = (label: string, onCopy: () => void, onDelete: () => void) =>
     readOnly ? <span /> : <RowActionsMenu label={label} onCopy={onCopy} onDelete={onDelete} />;
+  // What was booked, as the quote had it: shown as it is, each line in cm.
+  const booked = shipment.bookedDimensions ?? [];
+  const bookedTotals = dimensionTotals(booked);
+  // The table's two header rows (the bands and the column names), the same over Dimensions and Booked Dimensions.
+  const dimsHead = (
+    <>
+              {/* The group labels over the banded columns, each the top of its band. */}
+              <div className={`${DIM_GRID} px-1 ${GROUP_ROW}`}>
+                <span className="col-span-2" />
+                <span className="col-span-4 text-center bg-slate-100/70 rounded-t-lg pt-1.5 pb-0.5">Size</span>
+                {/* The band's label is its switch: weight and volume per piece, or for all the pieces of a line. */}
+                <span className="col-span-2 flex justify-center gap-0.5 bg-slate-100/70 rounded-t-lg pt-1 pb-0.5 border-l-4 border-white" role="radiogroup" aria-label="Weight and volume">
+                  {(
+                    [
+                      ["piece", "Per piece"],
+                      ["total", "All colli"],
+                    ] as const
+                  ).map(([f, text]) => (
+                    <button
+                      key={f}
+                      type="button"
+                      role="radio"
+                      aria-checked={figures === f}
+                      onClick={() => chooseFigures(f)}
+                      title={f === "piece" ? "Weight and volume of one piece" : "Weight and volume of all the colli of a line together"}
+                      className={[
+                        "px-1.5 rounded uppercase tracking-wider cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-indigo-400",
+                        figures === f ? "bg-indigo-600 text-white" : "text-slate-500 hover:text-slate-700",
+                      ].join(" ")}
+                    >
+                      {text}
+                    </button>
+                  ))}
+                </span>
+                <span className="col-span-3" />
+              </div>
+              <div className={`${DIM_BANDS} px-1 ${LABEL_TEXT} border-b border-slate-200 [&>*]:!pt-0 [&>*]:!pb-1.5`}>
+                <span className="text-center truncate">Colli</span>
+                <span className="text-center truncate">Packages</span>
+                <span className="text-center truncate">Length</span>
+                <span className="text-center truncate">Width</span>
+                <span className="text-center truncate">Height</span>
+                <span className="text-center truncate">Unit</span>
+                <span className="text-center truncate">Weight (kg)</span>
+                <span className="text-center truncate">Volume (m³)</span>
+                <span className="text-center truncate">Cargo Stackability</span>
+                {/* The longest header: it wraps onto two lines on a narrow screen rather than being cut. */}
+                <span className="text-center leading-tight">Dangerous goods</span>
+                <span />
+              </div>
+    </>
+  );
+  // A dimension line as text - in Dimensions until double-clicked (`onOpen`), and every line of Booked
+  // Dimensions, which is never edited (no `onOpen`, no menu).
+  const dimReadRow = (l: CargoDimensionLine, lineClass: string, onOpen: (() => void) | undefined, menu: React.ReactNode) => {
+    const vpc = dimensionVolumePerPiece(lineInCm(l));
+    // With length, width and height the volume is worked out; without them it is typed.
+    const sized = hasAllSizes(lineInCm(l));
+    return (
+                    <div
+                      key={rowKey(l)}
+                      className={`${DIM_BANDS} px-1 ${lineClass} text-[13px] text-slate-700 ${onOpen ? "cursor-pointer hover:bg-slate-50/60" : ""}`}
+                      onDoubleClick={onOpen}
+                      title={onOpen ? "Double-click to edit" : undefined}
+                    >
+                      <span className="text-center tabular-nums font-medium text-slate-900">{l.pieces || DASH}</span>
+                      <span className="text-center truncate">{l.packageType || DASH}</span>
+                      <span className="text-center tabular-nums">{l.lengthCm || DASH}</span>
+                      <span className="text-center tabular-nums">{l.widthCm || DASH}</span>
+                      <span className="text-center tabular-nums">{l.heightCm || DASH}</span>
+                      <span className="text-center text-xs font-semibold uppercase text-slate-500">{l.dimensionUnit === "in" ? "inch" : "cm"}</span>
+                      {figures === "total" ? (
+                        // Without pieces a line has no totals (it counts nothing): "—", and why.
+                        <>
+                          <span className="text-center tabular-nums" title={!piecesOf(l) && num(l.weightPerPcKg) ? NO_PIECES_HINT : undefined}>
+                            {totalText(num(l.weightPerPcKg), piecesOf(l), 2) || DASH}
+                          </span>
+                          <span
+                            className={`text-center tabular-nums ${sized ? "text-slate-500" : ""}`}
+                            title={!piecesOf(l) && vpc ? NO_PIECES_HINT : vpc && !sized ? "Typed (no dimensions)" : undefined}
+                          >
+                            {vpc && piecesOf(l) ? (vpc * piecesOf(l)).toFixed(3) : DASH}
+                          </span>
+                        </>
+                      ) : (
+                        <>
+                          <span className="text-center tabular-nums">{l.weightPerPcKg || DASH}</span>
+                          <span className={`text-center tabular-nums ${sized ? "text-slate-500" : ""}`} title={vpc && !sized ? "Typed (no dimensions)" : undefined}>
+                            {vpc ? vpc.toFixed(3) : DASH}
+                          </span>
+                        </>
+                      )}
+                      <span className="text-center leading-snug break-words" title={l.stackable || undefined}>{l.stackable || DASH}</span>
+                      {/* The whole ADR summary, wrapping onto a second line rather than being cut. */}
+                      <span className="text-center text-amber-700 font-medium leading-snug break-words" title={adrSummary(l)}>
+                        {hasAdr(l) ? adrSummary(l) : <span className={`${EMPTY} font-normal`}>—</span>}
+                      </span>
+                      {menu}
+                    </div>
+                  );
+  };
+
   const noLines = (what: string) => (readOnly ? <div className={EMPTY_STATE}>No {what} lines yet.</div> : null);
 
   const descCiv = civByCurrency(panelItems.map(({ l }) => l));
@@ -644,99 +759,15 @@ export function CargoDetailsTab({
           {addButton("dims")}
           <div className="overflow-x-auto">
             <div className="min-w-[1000px]">
-              {/* The group labels over the banded columns, each the top of its band. */}
-              <div className={`${DIM_GRID} px-1 ${GROUP_ROW}`}>
-                <span className="col-span-2" />
-                <span className="col-span-4 text-center bg-slate-100/70 rounded-t-lg pt-1.5 pb-0.5">Size</span>
-                {/* The band's label is its switch: weight and volume per piece, or for all the pieces of a line. */}
-                <span className="col-span-2 flex justify-center gap-0.5 bg-slate-100/70 rounded-t-lg pt-1 pb-0.5 border-l-4 border-white" role="radiogroup" aria-label="Weight and volume">
-                  {(
-                    [
-                      ["piece", "Per piece"],
-                      ["total", "All colli"],
-                    ] as const
-                  ).map(([f, text]) => (
-                    <button
-                      key={f}
-                      type="button"
-                      role="radio"
-                      aria-checked={figures === f}
-                      onClick={() => chooseFigures(f)}
-                      title={f === "piece" ? "Weight and volume of one piece" : "Weight and volume of all the colli of a line together"}
-                      className={[
-                        "px-1.5 rounded uppercase tracking-wider cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-indigo-400",
-                        figures === f ? "bg-indigo-600 text-white" : "text-slate-500 hover:text-slate-700",
-                      ].join(" ")}
-                    >
-                      {text}
-                    </button>
-                  ))}
-                </span>
-                <span className="col-span-3" />
-              </div>
-              <div className={`${DIM_BANDS} px-1 ${LABEL_TEXT} border-b border-slate-200 [&>*]:!pt-0 [&>*]:!pb-1.5`}>
-                <span className="text-center truncate">Colli</span>
-                <span className="text-center truncate">Packages</span>
-                <span className="text-center truncate">Length</span>
-                <span className="text-center truncate">Width</span>
-                <span className="text-center truncate">Height</span>
-                <span className="text-center truncate">Unit</span>
-                <span className="text-center truncate">Weight (kg)</span>
-                <span className="text-center truncate">Volume (m³)</span>
-                <span className="text-center truncate">Cargo Stackability</span>
-                {/* The longest header: it wraps onto two lines on a narrow screen rather than being cut. */}
-                <span className="text-center leading-tight">Dangerous goods</span>
-                <span />
-              </div>
+              {dimsHead}
 
               {panelDims.map(({ l, idx }, i) => {
+                if (!dimIsOpen(idx)) {
+                  return dimReadRow(l, rowLine(i, panelDims.length), readOnly ? undefined : () => openDims.open(idx), rowMenu("Dimension line actions", () => copyDim(idx), () => askDelete({ table: "dims", line: l })));
+                }
                 const vpc = dimensionVolumePerPiece(lineInCm(l));
                 // With length, width and height the volume is worked out; without them it is typed.
                 const sized = hasAllSizes(lineInCm(l));
-                if (!dimIsOpen(idx)) {
-                  return (
-                    <div
-                      key={rowKey(l)}
-                      className={`${DIM_BANDS} px-1 ${rowLine(i, panelDims.length)} text-[13px] text-slate-700 ${readOnly ? "" : "cursor-pointer hover:bg-slate-50/60"}`}
-                      onDoubleClick={readOnly ? undefined : () => openDims.open(idx)}
-                      title={readOnly ? undefined : "Double-click to edit"}
-                    >
-                      <span className="text-center tabular-nums font-medium text-slate-900">{l.pieces || DASH}</span>
-                      <span className="text-center truncate">{l.packageType || DASH}</span>
-                      <span className="text-center tabular-nums">{l.lengthCm || DASH}</span>
-                      <span className="text-center tabular-nums">{l.widthCm || DASH}</span>
-                      <span className="text-center tabular-nums">{l.heightCm || DASH}</span>
-                      <span className="text-center text-xs font-semibold uppercase text-slate-500">{l.dimensionUnit === "in" ? "inch" : "cm"}</span>
-                      {figures === "total" ? (
-                        // Without pieces a line has no totals (it counts nothing): "—", and why.
-                        <>
-                          <span className="text-center tabular-nums" title={!piecesOf(l) && num(l.weightPerPcKg) ? NO_PIECES_HINT : undefined}>
-                            {totalText(num(l.weightPerPcKg), piecesOf(l), 2) || DASH}
-                          </span>
-                          <span
-                            className={`text-center tabular-nums ${sized ? "text-slate-500" : ""}`}
-                            title={!piecesOf(l) && vpc ? NO_PIECES_HINT : vpc && !sized ? "Typed (no dimensions)" : undefined}
-                          >
-                            {vpc && piecesOf(l) ? (vpc * piecesOf(l)).toFixed(3) : DASH}
-                          </span>
-                        </>
-                      ) : (
-                        <>
-                          <span className="text-center tabular-nums">{l.weightPerPcKg || DASH}</span>
-                          <span className={`text-center tabular-nums ${sized ? "text-slate-500" : ""}`} title={vpc && !sized ? "Typed (no dimensions)" : undefined}>
-                            {vpc ? vpc.toFixed(3) : DASH}
-                          </span>
-                        </>
-                      )}
-                      <span className="text-center leading-snug break-words" title={l.stackable || undefined}>{l.stackable || DASH}</span>
-                      {/* The whole ADR summary, wrapping onto a second line rather than being cut. */}
-                      <span className="text-center text-amber-700 font-medium leading-snug break-words" title={adrSummary(l)}>
-                        {hasAdr(l) ? adrSummary(l) : <span className={`${EMPTY} font-normal`}>—</span>}
-                      </span>
-                      {rowMenu("Dimension line actions", () => copyDim(idx), () => askDelete({ table: "dims", line: l }))}
-                    </div>
-                  );
-                }
                 const adrShown = hasAdr(l) || adrOn.has(rowKey(l));
                 return (
                   <div
@@ -875,9 +906,9 @@ export function CargoDetailsTab({
             {/* The sums of the lines against what is declared, under every table. */}
             {checkStrip(
                 <>
-                  <CheckPill against={against} label="Colli" m={check.pcs} decimals={0} />
-                  <CheckPill against={against} label="Weight" m={check.kg} decimals={check.kg.decimals} unit="kg" />
-                  <CheckPill against={against} label="Volume" m={check.m3} decimals={3} unit="m³" />
+                  <CheckPill against={dimsAgainst} label="Colli" m={check.pcs} decimals={0} />
+                  <CheckPill against={dimsAgainst} label="Weight" m={check.kg} decimals={check.kg.decimals} unit="kg" />
+                  <CheckPill against={dimsAgainst} label="Volume" m={check.m3} decimals={3} unit="m³" />
                 </>,
               )}
             {airWithBoxes && (
@@ -1005,6 +1036,38 @@ export function CargoDetailsTab({
                 </>,
               )}
           </div>
+        </div>
+      </SectionCard>
+
+      {/* Booked Dimensions (owner's answer 22 Nov): the lines of the quote the shipment was made from, copied by the
+          server and never edited - what the Dimensions above are checked against. */}
+      <SectionCard title="Booked Dimensions" extra={booked.length > 0 && shipment.salesNumber ? <span className={HINT}>From quote {shipment.salesNumber} · locked</span> : undefined}>
+        <div className="overflow-x-auto">
+          <div className="min-w-[1000px]">
+            {dimsHead}
+            {booked.map((l, i) => dimReadRow(l, rowLine(i, booked.length), undefined, <span />))}
+            {booked.length === 0 && <div className={EMPTY_STATE}>Nothing booked: the shipment was not made from a quote with package lines.</div>}
+          </div>
+          {booked.length > 0 &&
+            checkStrip(
+              <>
+                {(
+                  [
+                    ["Colli", fmtFixed(bookedTotals.pcs, 0), ""],
+                    ["Weight", fmtFixed(bookedTotals.kg, 2), " kg"],
+                    ["Volume", fmtFixed(bookedTotals.m3, 3), " m³"],
+                  ] as const
+                ).map(([label, value, unit]) => (
+                  <span key={label} className={`${CHECK_PILL_CLASS} bg-slate-50 text-slate-600 ring-slate-200`}>
+                    <span className="font-semibold uppercase tracking-wide text-[10px] opacity-80">{label}</span>
+                    <span className="font-semibold">
+                      {value}
+                      {unit}
+                    </span>
+                  </span>
+                ))}
+              </>,
+            )}
         </div>
       </SectionCard>
     </div>

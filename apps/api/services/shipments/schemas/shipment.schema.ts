@@ -1,8 +1,8 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, numeric, date, uuid, boolean, index, uniqueIndex, check } from "drizzle-orm/pg-core";
+import { pgTable, text, numeric, date, uuid, boolean, index, uniqueIndex, check, jsonb } from "drizzle-orm/pg-core";
 import { defaultTableColumns, defaultTableIndexes, tenantColumns, tenantIndex } from "../../../lib/db/defaults";
 import { masterJobTable } from "./masterJob.schema";
-import type { CustomsPriority, CustomsReceivedOverride } from "../interfaces/interfaces";
+import type { CargoDimensionLine, CustomsPriority, CustomsReceivedOverride } from "../interfaces/interfaces";
 
 export const shipmentTable = pgTable(
   "shipment",
@@ -234,6 +234,11 @@ export const shipmentTable = pgTable(
     // Set only by the server when the shipment is created from the quote in salesNumber: the one
     // fact that lets a later retry mark that quote Won (shipmentQuoteLink, markWon).
     createdFromQuote: boolean("created_from_quote").notNull().default(false),
+    // Booked Dimensions (owner's answer 22 Nov): the package lines of the quote it was made from, set
+    // only by the server and never edited (lib/bookedDimensions), so Cargo Details holds the shipment's
+    // Dimensions against what was booked. [] for none; null until a shipment made from a quote before
+    // there were Booked Dimensions has them filled from its quote (on its first read, shipment.service).
+    bookedDimensions: jsonb("booked_dimensions").$type<CargoDimensionLine[]>().default(sql`'[]'::jsonb`),
     // Set only by the server, under the shipment's write turn, when Invoicing takes the Internal
     // Reference for an invoice number: from then on its letters no longer follow the Freight Mode
     // and Load Type (lib/jobNumber). Never cleared - a credited invoice keeps its number.
