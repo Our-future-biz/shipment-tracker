@@ -944,6 +944,11 @@ class GateMovementService {
       // judged on the load, a status released meanwhile and sent back as loaded was logged as changed, and its
       // OK line kept).
       const customsLineChanged = input.customsStatus !== undefined && input.customsStatus !== before.customsStatus;
+      // A linked record's status follows its shipment (CUSTOMS_FROM_SHIPMENT above), judged again on the row as stored:
+      // one the shipment set between the load and the lock is not typed back over by a status sent as loaded
+      // (security review of system-22).
+      const shipmentLocked = patch.warehouseTaskId === undefined ? before.shipmentId : shipmentAfter;
+      if (customsLineChanged && shipmentLocked && !isDomestic(patch.handling ?? before.handling)) throw APIError.failedPrecondition(CUSTOMS_FROM_SHIPMENT);
       const editEvents: GateEvent[] = [
         ...customsEditEvents(before, patch, clockAt, editBy),
         ...(patch.transportLegs ? legEditEvents(normalizeLegs(before.transportLegs), patch.transportLegs, clockAt, editBy) : []),

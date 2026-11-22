@@ -4,6 +4,7 @@ import { gateMovementService } from "../services/gateMovement.service";
 import { warehouseImportService } from "../services/warehouseImport.service";
 import { gateMovementRepository } from "../repositories/gateMovement.repository";
 import { failingShipments, shipmentData } from "./shipmentFakes";
+import { db } from "../db/db";
 
 const { shipmentGet } = vi.hoisted(() => ({ shipmentGet: vi.fn() }));
 vi.mock("~encore/clients", async () => ({
@@ -129,6 +130,22 @@ describe("customs status follows the shipment", () => {
     expect((await gateMovementService.update(id, c, user, { customsStatus: "Paperwork Verified", note: "two pallets" })).note).toBe("two pallets");
     const own = await gateMovementService.create(c, user, { gateRef: "WCZ2026112101", visit: "výdej" });
     expect(customsOf(await gateMovementService.update(own.id, c, user, { customsStatus: "Customs Cleared/Released" }))).toMatchObject({ s: "OK" });
+  });
+
+  // Security review of system-22: the refusal is judged again under the row lock, not only on the load before it.
+  it("refuses a status sent as loaded over one the shipment set between the load and the lock", async () => {
+    const { c, id } = await linked();
+    const transaction = db.transaction.bind(db);
+    const spy = vi.spyOn(db, "transaction").mockImplementationOnce(async (run) => {
+      await gateMovementRepository.update(id, c, { customsStatus: "Customs Cleared/Released" });
+      return transaction(run as never);
+    });
+    await expect(
+      gateMovementService.update(id, c, user, { customsStatus: "Paperwork Verified", note: "two pallets" }).finally(() => spy.mockRestore()),
+    ).rejects.toMatchObject({ code: "failed_precondition", message: expect.stringMatching(/follows the shipment/) });
+    const m = await gateMovementService.get(id, c);
+    expect(m.customsStatus).toBe("Customs Cleared/Released");
+    expect(m.note ?? "").not.toBe("two pallets");
   });
 
   it("leaves the record unchanged when the shipment cannot be read", async () => {
