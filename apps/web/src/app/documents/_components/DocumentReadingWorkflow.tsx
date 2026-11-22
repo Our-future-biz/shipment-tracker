@@ -44,8 +44,8 @@ import { SectionCard } from "@/components/SectionCard";
 import { BTN, BTN_PRIMARY, CARD, CARD_BAR, CARD_ICON, CARD_TITLE, HINT, LABEL_TEXT, LINK, REF } from "@/styles/ui";
 import { FieldReviewTable } from "./FieldReviewTable";
 import { HouseBolMatchCard } from "./HouseBolMatchCard";
-import { readRemeasuredLines } from "@/app/shipments/[jobNumber]/tabs/warehouse/remeasuredLines";
-import { BL_FIGURES, HOUSE_BOL, asRemeasurement, asksHouseBol, besideShipment, blRemeasuredLine, houseBolOf, sameHouseBol, withoutBlFigures } from "../_lib/houseBolMatch";
+import { HOUSE_BL_KEY } from "@/app/shipments/[jobNumber]/tabs/warehouse/houseBlFigures";
+import { BL_FIGURES, HOUSE_BOL, asBlDetails, asksHouseBol, besideShipment, blFigures, houseBolOf, sameHouseBol, withoutBlFigures } from "../_lib/houseBolMatch";
 import { QuoteOpenButton, QuoteReview, QuoteTarget } from "./QuoteReading";
 import {
   baseCreatePayload,
@@ -828,7 +828,7 @@ export function DocumentReadingWorkflow() {
           return choices ? { ...f, choices, approved: false } : f;
         });
         // The shipment's own House B/L: its Colli, weight and volume go to the Warehouse, not set against the shipment's.
-        setFields(target && sameHouseBol(target.houseBolNumber, houseBol) ? asRemeasurement(built) : built);
+        setFields(target && sameHouseBol(target.houseBolNumber, houseBol) ? asBlDetails(built) : built);
         setShipmentDocs(
           reads.flatMap((r) =>
             r.file ? [{ file: r.file, fields: recordToFields(r.values), save: true, nameEdit: null, typeEdit: null }] : [],
@@ -970,8 +970,8 @@ export function DocumentReadingWorkflow() {
     setShipmentMode("existing");
     setTargetShipment(match);
     createdShipment.current = null;
-    // Its House B/L is the one read: the B/L's Colli, weight and volume go to its Warehouse as the remeasurement.
-    setFields((prev) => asRemeasurement(besideShipment(prev, (label) => shipmentValueFor(match, label, values))));
+    // Its House B/L is the one read: the B/L's Colli, weight and volume go to its Warehouse as its Bill Of Lading Details.
+    setFields((prev) => asBlDetails(besideShipment(prev, (label) => shipmentValueFor(match, label, values))));
     setHouseBolMatch(null);
   };
   // Not that shipment: a new job is created with the House B/L, and it is not asked about again.
@@ -981,27 +981,25 @@ export function DocumentReadingWorkflow() {
   };
   const houseBolMatchShown = destination === "shipment" && shipmentMode === "new" ? houseBolMatch : null;
   // Written into the shipment whose own House B/L was read (owner's answer 22 Nov): it keeps its Colli, Total
-  // Weight and Total Volume, and the B/L's are its remeasurement in the Warehouse tab.
+  // Weight and Total Volume, and the B/L's are its Bill Of Lading Details in the Warehouse tab.
   const blOfTarget = destination === "shipment" && shipmentMode === "existing" && !!targetShipment && sameHouseBol(targetShipment.houseBolNumber, houseBolOf(fields));
 
-  // The B/L's figures as the warehouse's remeasured line, unless the warehouse has remeasured lines of its own,
-  // which stay (owner's answer 22 Nov). Said, never failing the write: the shipment's fields are written already.
-  const writeBlRemeasurement = async (shipmentId: string, jobNumber: string, approved: Record<string, string>) => {
+  // The B/L's figures as the shipment's Bill Of Lading Details in its Warehouse tab (owner's answer 22 Nov), beside
+  // the warehouse's remeasured figures, never one of them: a B/L read again replaces the ones read before. Said,
+  // never failing the write: the shipment's fields are written already.
+  const writeBlDetails = async (shipmentId: string, jobNumber: string, approved: Record<string, string>) => {
     if (!BL_FIGURES.some((label) => approved[label])) return;
-    const line = blRemeasuredLine(approved);
-    if (!line) return toast.warning(`The House B/L names no whole Colli: nothing was written to ${jobNumber}'s Warehouse tab.`);
+    const figures = blFigures(approved);
+    if (!figures) return toast.warning(`The House B/L gives no Colli, weight or volume: nothing was written to ${jobNumber}'s Warehouse tab.`);
     try {
       const { section } = await api.warehouse.warehouseSectionGet(shipmentId, "job");
-      const saved = (section?.data as Record<string, unknown> | undefined)?.remeasure_rows;
-      const savedText = typeof saved === "string" ? saved : "";
-      if (readRemeasuredLines(savedText).length > 0) {
-        return toast.info(`${jobNumber}'s Warehouse tab has remeasured lines of its own: they stay, the B/L's Colli, weight and volume were not written there.`);
-      }
-      await api.warehouse.warehouseSectionPatch(shipmentId, "job", { changes: [{ key: "remeasure_rows", value: JSON.stringify([line]), expected: savedText }] });
+      const saved = (section?.data as Record<string, unknown> | undefined)?.[HOUSE_BL_KEY];
+      const value = JSON.stringify({ houseBol: houseBolOf(fields), ...figures, readAt: new Date().toISOString() });
+      await api.warehouse.warehouseSectionPatch(shipmentId, "job", { changes: [{ key: HOUSE_BL_KEY, value, expected: typeof saved === "string" ? saved : "" }] });
       queryClient.invalidateQueries({ queryKey: ["warehouse-section", shipmentId, "job"] });
-      toast.success(`The B/L's Colli, weight and volume are ${jobNumber}'s remeasurement in its Warehouse tab.`);
+      toast.success(`The House B/L's Colli, weight and volume are ${jobNumber}'s Bill Of Lading Details in its Warehouse tab.`);
     } catch (err) {
-      toast.warning(`The fields were written, but the B/L's Colli, weight and volume could not be put in ${jobNumber}'s Warehouse tab: ${apiErrorMessage(err)}`);
+      toast.warning(`The fields were written, but the House B/L's Colli, weight and volume could not be put in ${jobNumber}'s Warehouse tab: ${apiErrorMessage(err)}`);
     }
   };
 
@@ -1078,7 +1076,7 @@ export function DocumentReadingWorkflow() {
         jobNumber = written || created.jobNumber;
       }
       setCommittedJobNumber(jobNumber);
-      if (blFor) await writeBlRemeasurement(shipmentId, jobNumber, blFor);
+      if (blFor) await writeBlDetails(shipmentId, jobNumber, blFor);
     } catch (err) {
       const made = shipmentMode === "new" ? createdShipment.current?.shipment : null;
       return toast.error(
@@ -2031,7 +2029,7 @@ export function DocumentReadingWorkflow() {
               type="info"
               showIcon
               message={`House B/L ${houseBolOf(fields)} is ${targetShipment?.jobNumber}'s own`}
-              description={`Its COLLI, Total Weight and Total Volume are not written onto the shipment, which keeps its own: they go to its Warehouse tab as the remeasurement and are compared there — unless the warehouse has remeasured lines of its own, which stay.`}
+              description={`Its COLLI, Total Weight and Total Volume are not written onto the shipment, which keeps its own: they go to its Warehouse tab as its Bill Of Lading Details, compared there beside the warehouse's remeasured figures.`}
             />
           )}
           {destination === "shipment" && shipmentReadFailures.length > 0 && (

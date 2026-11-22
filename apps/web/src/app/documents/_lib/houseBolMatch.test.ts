@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ExtractedField } from "./extraction";
-import { asksHouseBol, asRemeasurement, besideShipment, blRemeasuredLine, houseBolOf, sameHouseBol, withoutBlFigures } from "./houseBolMatch";
+import { asBlDetails, asksHouseBol, besideShipment, blFigures, houseBolOf, sameHouseBol, withoutBlFigures } from "./houseBolMatch";
 
 const field = (column: string, extractedValue: string, over: Partial<ExtractedField> = {}): ExtractedField => ({
   column,
@@ -57,29 +57,18 @@ describe("the House B/L of the shipment written into (owner's answer 22 Nov)", (
     expect(sameHouseBol("", "")).toBe(false);
   });
 
-  it("makes the B/L's Colli, weight and volume one remeasured line with the same totals", () => {
-    expect(blRemeasuredLine({ PCS: "30", "Total Weight In Tons": "1.5", "Total Volume In CBM": "3.5" })).toEqual({
-      pieces: "30",
-      lengthCm: "",
-      widthCm: "",
-      heightCm: "",
-      weightPerPcKg: "50",
-      volumePerPcM3: "0.1166667",
-    });
-    const odd = blRemeasuredLine({ PCS: "7", "Total Weight In Tons": "1.234", "Total Volume In CBM": "2" })!;
-    expect(Math.round(7 * Number(odd.weightPerPcKg) * 10) / 10).toBe(1234);
-    expect(Math.round(7 * Number(odd.volumePerPcM3) * 1000) / 1000).toBe(2);
+  it("takes the B/L's Colli, weight (tons as kg) and volume as its Bill Of Lading Details", () => {
+    expect(blFigures({ PCS: "30", "Total Weight In Tons": "1.5", "Total Volume In CBM": "3.5" })).toEqual({ colli: 30, weightKg: 1500, volumeCbm: 3.5 });
+    expect(blFigures({ PCS: "30 PLTS", "Total Weight In Tons": "1,5" })).toEqual({ colli: 30, weightKg: 1500, volumeCbm: 0 });
   });
 
-  it("writes no line without whole colli, and leaves out a figure the B/L lacks", () => {
-    expect(blRemeasuredLine({ "Total Weight In Tons": "1.5" })).toBeNull();
-    expect(blRemeasuredLine({ PCS: "2.5" })).toBeNull();
-    expect(blRemeasuredLine({ PCS: "4" })).toEqual({ pieces: "4", lengthCm: "", widthCm: "", heightCm: "", weightPerPcKg: "" });
+  it("gives none when the B/L names no Colli, weight or volume", () => {
+    expect(blFigures({ Vessel: "MSC" })).toBeNull();
   });
 
   it("keeps the figures off the shipment and shows them as new to the Warehouse", () => {
     expect(withoutBlFigures({ PCS: "30", "Total Weight In Tons": "1.5", "Total Volume In CBM": "3.5", Vessel: "MSC" })).toEqual({ Vessel: "MSC" });
-    const [pcs, vessel] = asRemeasurement([field("PCS", "30", { existingValue: "20", hasConflict: true, approved: false }), field("Vessel", "MSC", { existingValue: "X", hasConflict: true, approved: false })]);
+    const [pcs, vessel] = asBlDetails([field("PCS", "30", { existingValue: "20", hasConflict: true, approved: false }), field("Vessel", "MSC", { existingValue: "X", hasConflict: true, approved: false })]);
     expect(pcs).toEqual(field("PCS", "30"));
     expect(vessel!.approved).toBe(false);
   });

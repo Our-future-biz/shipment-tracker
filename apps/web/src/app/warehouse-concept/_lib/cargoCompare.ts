@@ -2,17 +2,12 @@
 // warehouse — with the variance rule: any difference in pieces, or more than 5 % on weight or
 // volume. Pure helpers (tested in cargoCompare.test.ts).
 
-import { dimensionVolumePerPiece, num as cargoNum, shipmentDeclaredFigures, withoutTypedVolumeWhenSized } from "@/lib/cargo";
+import { dimensionVolumePerPiece, num as cargoNum, shipmentDeclaredFigures } from "@/lib/cargo";
 
 export type CargoTotals = { pieces: number; kg: number; cbm: number };
 
-/**
- * One remeasured line as stored (numbers as text): pieces, L × W × H in cm, kg per piece. A line
- * written from a House B/L (Document Reading, owner's answer 22 Nov) has no sizes, only the B/L's
- * m³ per piece (volumePerPcM3) - there is no input for it, so it is carried along untouched until
- * the warehouse types all three sizes, which then give the volume.
- */
-export type RemeasureLine = { pieces: string; lengthCm: string; widthCm: string; heightCm: string; weightPerPcKg: string; volumePerPcM3?: string };
+/** One remeasured line as stored (numbers as text): pieces, L × W × H in cm, kg per piece. */
+export type RemeasureLine = { pieces: string; lengthCm: string; widthCm: string; heightCm: string; weightPerPcKg: string };
 
 export const LINE_FIELDS = ["pieces", "lengthCm", "widthCm", "heightCm", "weightPerPcKg"] as const;
 export type LineField = (typeof LINE_FIELDS)[number];
@@ -36,22 +31,8 @@ export const fieldInvalid = (r: RemeasureLine, f: LineField) => {
   const n = toNum(r[f]);
   return Number.isNaN(n) || (f === "pieces" && !Number.isInteger(n));
 };
-// Only the typed fields: the B/L's volume per piece cannot be re-entered here, so it never blocks a
-// save (a value that is no number counts as no volume, as in Cargo Details).
 export const lineInvalid = (r: RemeasureLine) => LINE_FIELDS.some((f) => fieldInvalid(r, f));
-// A line with none of its visible fields left is gone, even if it still carries a B/L volume: with
-// no pieces that volume adds nothing, and it would be kept where nobody can see it.
 export const lineFilled = (r: RemeasureLine) => LINE_FIELDS.some((f) => r[f].trim() !== "");
-
-/**
- * A line with one field changed. Once that gives it all three sizes, its B/L volume per piece is
- * dropped (withoutTypedVolumeWhenSized, as in Cargo Details): the sizes give the volume now, and a
- * hidden old value must not come back when a size is cleared again.
- */
-export const editLine = (r: RemeasureLine, field: LineField, value: string): RemeasureLine => withoutTypedVolumeWhenSized({ ...r, [field]: value });
-
-// The stored volume per piece as text, or nothing: absent, null and blank are all "no volume".
-const volumeText = (v: unknown) => (v == null || String(v).trim() === "" ? undefined : String(v).trim());
 
 /** The saved lines (JSON text) as editable lines; anything unreadable is no lines. */
 export function parseLines(json: unknown): RemeasureLine[] {
@@ -61,67 +42,24 @@ export function parseLines(json: unknown): RemeasureLine[] {
     if (!Array.isArray(arr)) return [];
     return arr
       .filter((r): r is Record<string, unknown> => !!r && typeof r === "object" && !Array.isArray(r))
-      .map((r) => {
-        const line = Object.fromEntries(LINE_FIELDS.map((f) => [f, r[f] == null ? "" : String(r[f])])) as RemeasureLine;
-        // Kept as read: rebuilding the line from the typed fields alone dropped the B/L's volume.
-        const volume = volumeText(r.volumePerPcM3);
-        return volume ? { ...line, volumePerPcM3: volume } : line;
-      });
+      .map((r) => Object.fromEntries(LINE_FIELDS.map((f) => [f, r[f] == null ? "" : String(r[f])])) as RemeasureLine);
   } catch {
     return [];
   }
 }
 
-/**
- * The lines as stored: only filled lines, numbers normalised (the same JSON shape Shipments reads).
- * A line's B/L volume per piece goes along while it lacks a size, so saving another field keeps
- * it; a line with all three sizes is stored without it (its sizes give the volume).
- */
+/** The lines as stored: only filled lines, numbers normalised (the same JSON shape Shipments reads). */
 export function serializeLines(rows: RemeasureLine[]): string {
-  const filled = rows.filter(lineFilled).map((row) => {
-    const r = withoutTypedVolumeWhenSized(row);
-    const line = Object.fromEntries(LINE_FIELDS.map((f) => [f, r[f].trim() ? String(toNum(r[f])) : ""])) as RemeasureLine;
-    const volume = volumeText(r.volumePerPcM3);
-    if (!volume) return line;
-    // A number is normalised like the typed fields; anything else is kept as it came, not ours to change.
-    const n = toNum(volume);
-    return { ...line, volumePerPcM3: Number.isNaN(n) ? volume : String(n) };
-  });
+  const filled = rows
+    .filter(lineFilled)
+    .map((r) => Object.fromEntries(LINE_FIELDS.map((f) => [f, r[f].trim() ? String(toNum(r[f])) : ""])) as RemeasureLine);
   return JSON.stringify(filled);
 }
 
-/** Whether all three sizes are typed (each a number above 0): then they give the line's volume. */
-export const lineSized = (r: RemeasureLine) => toNum(r.lengthCm) > 0 && toNum(r.widthCm) > 0 && toNum(r.heightCm) > 0;
-
-/**
- * Volume of one piece in cbm by the Cargo Details rule (lib/cargo dimensionVolumePerPiece): L × W × H
- * / 1 000 000 when all three sizes are above 0, else the B/L's volume per piece (0 when none).
- * Invalid values count as 0, so a size that is no number does not make the line sized.
- */
-export function linePieceCbm(r: RemeasureLine): number {
-  const n = (v: string | undefined) => String(toNum(v) || 0);
-  return dimensionVolumePerPiece({ lengthCm: n(r.lengthCm), widthCm: n(r.widthCm), heightCm: n(r.heightCm), volumePerPcM3: n(r.volumePerPcM3) });
-}
-
-/** A line without all three sizes whose volume comes from the House B/L's m³ per piece. */
-export const volumeFromBl = (r: RemeasureLine) => !lineSized(r) && linePieceCbm(r) > 0;
-
-// Saved lines in a few words, for the "saved meanwhile" notices: a line from the House B/L, without
-// its sizes, by its m³ per piece.
-export function describeLines(json: unknown): string {
-  const lines = parseLines(json);
-  if (!lines.length) return "(no lines)";
-  return lines
-    .map((r) => {
-      const size = volumeFromBl(r) ? `${r.volumePerPcM3} m³/pc` : `${r.lengthCm || "—"} × ${r.widthCm || "—"} × ${r.heightCm || "—"} cm`;
-      return `${r.pieces || "—"} × ${size}, ${r.weightPerPcKg || "—"} kg/pc`;
-    })
-    .join("\n");
-}
-
-/** Volume of one line in cbm: its pieces × the volume of one (linePieceCbm); invalid values count as 0. */
+/** Volume of one line in cbm (pieces × L × W × H / 1 000 000); invalid values count as 0. */
 export function lineCbm(r: RemeasureLine): number {
-  return (toNum(r.pieces) || 0) * linePieceCbm(r);
+  const n = (f: LineField) => toNum(r[f]) || 0;
+  return (n("pieces") * n("lengthCm") * n("widthCm") * n("heightCm")) / 1_000_000;
 }
 
 /** Totals of the lines: pieces, gross kg (pieces × kg per piece) and cbm — rounded as the server does. */
@@ -139,7 +77,7 @@ export function linesTotals(rows: RemeasureLine[]): CargoTotals {
 }
 
 /** A cargo dimension line of the shipment: its sizes in cm, or the m³ per piece typed for a line without them. */
-type DeclaredLine = RemeasureLine;
+type DeclaredLine = RemeasureLine & { volumePerPcM3?: string };
 
 type DeclaredShipment = {
   pcs?: string | null;
@@ -155,8 +93,8 @@ const num = (v: string | null | undefined) => {
 
 /**
  * The shipment's own lines added up, as its supplier e-mail declares them: a piece's volume by the
- * rule Shipments counts it by (dimensionVolumePerPiece - from its sizes, else its typed m³), the same
- * rule a remeasured line is counted by (lineCbm), here with the lenient reading Shipments uses.
+ * rule Shipments counts it by (dimensionVolumePerPiece - from its sizes, else its typed m³), where a
+ * remeasured line only has its sizes (lineCbm).
  */
 function declaredLinesTotals(lines: DeclaredLine[]): CargoTotals {
   let pieces = 0;

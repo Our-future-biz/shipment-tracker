@@ -11,7 +11,7 @@ import { buildRowData, getFieldValue, type ShipmentItem } from "@/hooks/useShipm
 import type { interfaces } from "@/lib/api/client";
 import { formatDateTime } from "@/lib/date";
 import { loadTypeLabel } from "@/lib/enums";
-import { NOT_STACKABLE, STACKABLE, adrUnText, dimensionLineVolume, dimensionTotals, hasAdr, isDangerousShipment, numberInput, shipmentStackability, withoutTypedVolumeWhenSized } from "@/lib/cargo";
+import { NOT_STACKABLE, STACKABLE, adrUnText, dimensionLineVolume, dimensionTotals, hasAdr, isDangerousShipment, numberInput, shipmentStackability } from "@/lib/cargo";
 import { SectionChangedError, useWarehouseSection } from "@/hooks/useWarehouseSection";
 import { apiErrorMessage } from "@/lib/api";
 import { informedText } from "@/lib/informOperations";
@@ -27,12 +27,15 @@ import { PickupSection } from "./warehouse/PickupSection";
 import { JobNotes, ActionPushButtons } from "./warehouse/JobExtras";
 import { RemeasureCompare, figuresCompared, figuresDiffer, noFigures } from "./warehouse/RemeasureCompare";
 import { roundedFigures, shipmentCargoFigures, tidyNumber } from "./warehouse/remeasuredLines";
+import { readHouseBlFigures } from "./warehouse/houseBlFigures";
 
 interface JobSectionData {
   inform_operations_sent?: string;
   // The warehouse's own remeasured lines (JSON of DimensionRow[]), kept apart from the
   // shipment's cargo dimensions.
   remeasure_rows?: string;
+  // The Colli, weight and volume of the shipment's own House B/L, as Document Reading read it (JSON, houseBlFigures).
+  house_bl_figures?: string;
   [key: string]: string | undefined;
 }
 function asJobSection(data: unknown): JobSectionData {
@@ -202,10 +205,7 @@ function DangerousGoodsDialog({ shipment, open, onClose }: { shipment: ShipmentI
 
 const DIM_FIELDS = ["pieces", "lengthCm", "widthCm", "heightCm", "weightPerPcKg"] as const;
 type DimField = (typeof DIM_FIELDS)[number];
-// A line written from a House B/L (Document Reading, owner's answer 22 Nov) has no sizes: it carries the
-// volume of one piece instead, as a Cargo Details line can. Not typed here; once all three sizes are
-// typed the sizes give the volume and it is dropped.
-type DimensionRow = Record<DimField, string> & { volumePerPcM3?: string };
+type DimensionRow = Record<DimField, string>;
 
 const EMPTY_DIM: DimensionRow = { pieces: "", lengthCm: "", widthCm: "", heightCm: "", weightPerPcKg: "" };
 
@@ -221,42 +221,23 @@ function parseRemeasure(json: string | undefined): DimensionRow[] {
 // The lines as stored: only the filled ones, each figure tidied - "120." as 120, ".5" as 0.5
 // (council finding m7), as Cargo Details and the server read them.
 const serializeRows = (rows: DimensionRow[]) =>
-  JSON.stringify(
-    rows
-      .filter((r) => DIM_FIELDS.some((f) => r[f].trim()))
-      .map((r) => {
-        const line: Record<string, string> = Object.fromEntries(DIM_FIELDS.map((f) => [f, tidyNumber(r[f])]));
-        const volume = withoutTypedVolumeWhenSized({ ...r, volumePerPcM3: r.volumePerPcM3 ?? "" }).volumePerPcM3;
-        return volume ? { ...line, volumePerPcM3: tidyNumber(volume) } : line;
-      }),
-  );
+  JSON.stringify(rows.filter((r) => DIM_FIELDS.some((f) => r[f].trim())).map((r) => Object.fromEntries(DIM_FIELDS.map((f) => [f, tidyNumber(r[f])]))));
 
 // A copy of a line: its figures only, so it gets a row key of its own.
-const copyOf = (r: DimensionRow): DimensionRow => ({
-  pieces: r.pieces,
-  lengthCm: r.lengthCm,
-  widthCm: r.widthCm,
-  heightCm: r.heightCm,
-  weightPerPcKg: r.weightPerPcKg,
-  ...(r.volumePerPcM3 ? { volumePerPcM3: r.volumePerPcM3 } : {}),
-});
+const copyOf = (r: DimensionRow): DimensionRow => ({ pieces: r.pieces, lengthCm: r.lengthCm, widthCm: r.widthCm, heightCm: r.heightCm, weightPerPcKg: r.weightPerPcKg });
 
 const FIELD_NAMES: Record<DimField, string> = { pieces: "Qty", lengthCm: "Length", widthCm: "Width", heightCm: "Height", weightPerPcKg: "Weight per piece" };
 
-const dropVolumeWhenSized = (r: DimensionRow): DimensionRow => {
-  if (!r.volumePerPcM3) return r;
-  const { volumePerPcM3, ...rest } = withoutTypedVolumeWhenSized({ ...r, volumePerPcM3: r.volumePerPcM3 });
-  return volumePerPcM3 ? { ...rest, volumePerPcM3 } : rest;
-};
-
 // A remeasured line counted as a cargo dimension line (lib/cargo): its volume from its sizes.
-const asLine = (r: DimensionRow): interfaces.CargoDimensionLine => ({ containerId: null, packageType: "", stackable: "", ...r, volumePerPcM3: r.volumePerPcM3 ?? "" });
+const asLine = (r: DimensionRow): interfaces.CargoDimensionLine => ({ containerId: null, packageType: "", stackable: "", volumePerPcM3: "", ...r });
 
 function DimensionsEditor({ shipment, messageApi }: { shipment: ShipmentItem; messageApi: Messages }) {
   const { data: jobSectionData, saveKeys, isSaving, informOperations: inform, isInforming } = useWarehouseSection(shipment.id, "job");
   const jobSection = asJobSection(jobSectionData);
   const informedAt = jobSection.inform_operations_sent;
   const saved = jobSection.remeasure_rows;
+  // What the shipment's own House B/L says (Document Reading): a row of the Compared table, not a remeasured line.
+  const houseBl = readHouseBlFigures(jobSection.house_bl_figures);
 
   // Each line keeps its own key (rowKey), so a delete or an open line always means the line it was
   // asked for, also after the lines changed meanwhile.
@@ -377,8 +358,7 @@ function DimensionsEditor({ shipment, messageApi }: { shipment: ShipmentItem; me
   const updateRow = (key: string, field: DimField, value: string) => {
     // typing keeps the line open, so it cannot close mid-number
     if (!openRef.current.has(key)) setOpen(new Set(openRef.current).add(key));
-    // A House B/L's volume per piece goes once all three sizes are typed: they give the volume then.
-    setRows((prev) => prev.map((r) => (rowKey(r) === key ? dropVolumeWhenSized({ ...r, [field]: value }) : r)));
+    setRows((prev) => prev.map((r) => (rowKey(r) === key ? { ...r, [field]: value } : r)));
     setDirty(true);
   };
   // A new line is empty, so nothing is saved until it is filled and left; the cursor goes into it.
@@ -594,7 +574,13 @@ function DimensionsEditor({ shipment, messageApi }: { shipment: ShipmentItem; me
 
       {/* Shipment against remeasured, figure by figure (each centred under its title); a figure that differs is marked */}
       <div className="mt-5">
-        <RemeasureCompare ship={shipmentDims} re={remeasured} freightMode={shipment.freightMode} loadType={shipment.loadType} />
+        <RemeasureCompare
+          ship={shipmentDims}
+          re={remeasured}
+          bl={houseBl ? roundedFigures(houseBl) : null}
+          freightMode={shipment.freightMode}
+          loadType={shipment.loadType}
+        />
       </div>
 
       {hasData && hasMismatch && (

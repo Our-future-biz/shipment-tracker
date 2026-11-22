@@ -1,7 +1,5 @@
 // The warehouse's remeasured lines (Shipment Details → remeasure_rows): a JSON list of
-// { pieces, lengthCm, widthCm, heightCm, weightPerPcKg, volumePerPcM3? } with the numbers as text.
-// volumePerPcM3 (m³ per piece) is there when the line was written from a House B/L by Document
-// Reading, which knows the B/L's volume but no sizes. Pure helpers.
+// { pieces, lengthCm, widthCm, heightCm, weightPerPcKg } with the numbers as text. Pure helpers.
 
 import { InputError } from "./inputError";
 
@@ -23,10 +21,8 @@ function num(v: unknown, label: string, line: number, whole = false): number {
 }
 
 /**
- * Totals of the saved lines: pieces, gross kg (pieces × kg per piece, 0.1 kg) and cbm (pieces ×
- * the m³ of a piece, 0.001 cbm). A piece's m³ follows the Cargo Details rule: L × W × H when all
- * three sizes are above 0, else the line's m³ per piece (0 when it has none). Throws an Error
- * naming the line when a value is not a number.
+ * Totals of the saved lines: pieces, gross kg (pieces × kg per piece, 0.1 kg) and cbm
+ * (pieces × L × W × H, 0.001 cbm). Throws an Error naming the line when a value is not a number.
  */
 export function remeasureTotals(raw: unknown): RemeasureTotals {
   let list: unknown = raw;
@@ -47,14 +43,7 @@ export function remeasureTotals(raw: unknown): RemeasureTotals {
     const n = num(o.pieces, "Qty", i + 1, true);
     pieces += n;
     kg += n * num(o.weightPerPcKg, "kg per piece", i + 1);
-    // Every value is read strictly, so a typo is refused even where the rule would not use it. The
-    // rule is lib/cargoVolume's dimensionVolumePerPiece, applied here to the strictly read numbers
-    // (that helper reads text leniently, which would let a typo count as a number).
-    const l = num(o.lengthCm, "length", i + 1);
-    const w = num(o.widthCm, "width", i + 1);
-    const h = num(o.heightCm, "height", i + 1);
-    const m3 = num(o.volumePerPcM3, "m³ per piece", i + 1);
-    cbm += n * (l > 0 && w > 0 && h > 0 ? (l * w * h) / 1_000_000 : m3);
+    cbm += (n * num(o.lengthCm, "length", i + 1) * num(o.widthCm, "width", i + 1) * num(o.heightCm, "height", i + 1)) / 1_000_000;
   });
   return { lines: list.length, pieces, weightKg: Math.round(kg * 10) / 10, cbm: Math.round(cbm * 1000) / 1000 };
 }

@@ -5,7 +5,7 @@ import { Button, InputNumber } from "antd";
 import { DeleteOutlined, PlusOutlined } from "@ant-design/icons";
 import { SavedMeanwhile } from "@/app/warehouse-concept/_components/shipmentPart/JobExtras";
 import { Card } from "../tabs/shared";
-import { EMPTY_LINE, LINE_FIELDS, describeLines, editLine, fieldInvalid, lineCbm, lineInvalid, linesTotals, toNum, volumeFromBl, type LineField } from "../../_lib/cargoCompare";
+import { EMPTY_LINE, LINE_FIELDS, fieldInvalid, lineCbm, lineInvalid, linesTotals, parseLines, toNum, type LineField } from "../../_lib/cargoCompare";
 import type { JobDraft } from "./useJobDraft";
 import { useListKeys } from "@/hooks/useListKeys";
 import { Badge } from "@/components/Badge";
@@ -22,6 +22,13 @@ const INPUT: Record<LineField, { label: string; suffix: string; step: number; pr
   heightCm: { label: "H", suffix: "cm", step: 0.1 },
   weightPerPcKg: { label: "Weight / pc", suffix: "kg", step: 0.1 },
 };
+
+// Saved lines in a few words, for the "saved meanwhile" notice.
+function describe(json: string): string {
+  const lines = parseLines(json);
+  if (!lines.length) return "(no lines)";
+  return lines.map((r) => `${r.pieces || "—"} × ${r.lengthCm || "—"} × ${r.widthCm || "—"} × ${r.heightCm || "—"} cm, ${r.weightPerPcKg || "—"} kg/pc`).join("\n");
+}
 
 interface RemeasureLinesProps {
   draft: JobDraft;
@@ -42,8 +49,7 @@ export function RemeasureLines({ draft, readOnly }: RemeasureLinesProps) {
     setFocusLine(null);
   }, [focusLine, rows.length]);
 
-  // editLine keeps the line's B/L volume per piece, and drops it once all three sizes are typed.
-  const update = (idx: number, field: LineField, value: string) => setRows((prev) => prev.map((r, i) => (i === idx ? editLine(r, field, value) : r)));
+  const update = (idx: number, field: LineField, value: string) => setRows((prev) => prev.map((r, i) => (i === idx ? { ...r, [field]: value } : r)));
   const addAfter = (idx: number) => {
     rowKeys.insert(idx + 1);
     setRows((prev) => [...prev.slice(0, idx + 1), { ...EMPTY_LINE }, ...prev.slice(idx + 1)]);
@@ -73,7 +79,7 @@ export function RemeasureLines({ draft, readOnly }: RemeasureLinesProps) {
       }
     >
       {!readOnly && draft.linesConflict && (
-        <SavedMeanwhile theirs={describeLines(draft.savedLines)} onUseTheirs={draft.linesUseTheirs} onKeepMine={draft.linesKeepMine} />
+        <SavedMeanwhile theirs={describe(draft.savedLines)} onUseTheirs={draft.linesUseTheirs} onKeepMine={draft.linesKeepMine} />
       )}
       <div className="overflow-x-auto">
         <table ref={tableRef} className="w-full min-w-[640px] border-collapse text-[13px]">
@@ -126,10 +132,7 @@ export function RemeasureLines({ draft, readOnly }: RemeasureLinesProps) {
                     </td>
                   );
                 })}
-                <td
-                  className="p-0.5 px-2 text-right text-slate-700 tabular-nums"
-                  title={volumeFromBl(row) ? `From the House B/L: ${row.volumePerPcM3} m³ per piece — type L, W and H to measure it` : undefined}
-                >
+                <td className="p-0.5 px-2 text-right text-slate-700 tabular-nums">
                   {lineInvalid(row) ? (
                     <Badge tone="r">invalid — re-enter</Badge>
                   ) : lineCbm(row) > 0 ? (

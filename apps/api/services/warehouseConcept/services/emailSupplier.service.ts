@@ -116,15 +116,7 @@ function remeasureLines(raw: unknown): EmailRemeasureLine[] {
   if (!Array.isArray(list)) return [];
   return list
     .filter((r): r is Record<string, unknown> => !!r && typeof r === "object" && !Array.isArray(r))
-    .map((r) => ({
-      pieces: numOf(r.pieces),
-      lengthCm: numOf(r.lengthCm),
-      widthCm: numOf(r.widthCm),
-      heightCm: numOf(r.heightCm),
-      weightPerPcKg: numOf(r.weightPerPcKg),
-      // A line written from a House B/L has the B/L's m³ per piece and no sizes; the e-mail shows that volume.
-      volumePerPcM3: numOf(r.volumePerPcM3),
-    }));
+    .map((r) => ({ pieces: numOf(r.pieces), lengthCm: numOf(r.lengthCm), widthCm: numOf(r.widthCm), heightCm: numOf(r.heightCm), weightPerPcKg: numOf(r.weightPerPcKg) }));
 }
 
 function positionOf(ref: string, m: GateMovementRow | null): EmailPosition {

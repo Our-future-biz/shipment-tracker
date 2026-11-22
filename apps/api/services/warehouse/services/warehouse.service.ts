@@ -73,6 +73,10 @@ const JOB_KEYS: Record<string, number> = {
   survey_sent: 2_000,
   remeasurement_sent: 2_000,
   remeasure_rows: 100_000,
+  // The Colli, weight and volume of the shipment's own House B/L, as Document Reading read it (owner's answer
+  // 22 Nov): JSON { houseBol, colli, weightKg, volumeCbm, readAt }. Shown beside the warehouse's remeasured
+  // figures as "Bill Of Lading Details", never one of them.
+  house_bl_figures: 2_000,
 };
 const KEYED_SECTIONS: readonly string[] = ["job"];
 const MAX_KEYS_PER_SAVE = 10;
@@ -83,6 +87,7 @@ const FIELD_LABELS: Record<string, string> = {
   survey_sent: "survey sent",
   remeasurement_sent: "remeasurement sent",
   remeasure_rows: "remeasured lines",
+  house_bl_figures: "Bill Of Lading details",
   inform_operations_sent: "operations informed",
 };
 
@@ -108,6 +113,15 @@ function checkChanges(section: string, changes: SectionKeyWrite[]) {
         throw APIError.invalidArgument(`Remeasured lines must be a list of up to ${MAX_REMEASURE_ROWS} lines`);
       }
     }
+    if (c.key === "house_bl_figures" && c.value) {
+      let figures: unknown;
+      try {
+        figures = JSON.parse(c.value);
+      } catch {
+        throw APIError.invalidArgument("Bill Of Lading details must be a JSON object");
+      }
+      if (!figures || typeof figures !== "object" || Array.isArray(figures)) throw APIError.invalidArgument("Bill Of Lading details must be a JSON object");
+    }
   }
 }
 
@@ -119,9 +133,7 @@ function settled(res: { row: WarehouseSectionRecord; conflicts: null } | { row: 
 
 /**
  * The totals of the remeasured lines as saved (Shipments → Warehouse): pieces, pieces × kg per
- * piece and pieces × the m³ of a piece - the numbers read as that screen reads them. A piece's m³
- * is L × W × H when all three sizes are measured, else the m³ per piece the line carries: a line
- * written from a House B/L (Document Reading) has the B/L's volume but no sizes.
+ * piece and pieces × L × W × H - the numbers read as that screen reads them.
  */
 export function remeasuredFigures(raw: unknown): RemeasuredFigures {
   let list: unknown = [];
@@ -140,7 +152,7 @@ export function remeasuredFigures(raw: unknown): RemeasuredFigures {
     const pieces = cargoNum(text("pieces"));
     colli += pieces;
     kg += pieces * cargoNum(text("weightPerPcKg"));
-    m3 += pieces * dimensionVolumePerPiece({ lengthCm: text("lengthCm"), widthCm: text("widthCm"), heightCm: text("heightCm"), volumePerPcM3: text("volumePerPcM3") });
+    m3 += pieces * dimensionVolumePerPiece({ lengthCm: text("lengthCm"), widthCm: text("widthCm"), heightCm: text("heightCm"), volumePerPcM3: "" });
   }
   return { colli, weightKg: Math.round(kg * 10) / 10, volumeCbm: Math.round(m3 * 1000) / 1000 };
 }

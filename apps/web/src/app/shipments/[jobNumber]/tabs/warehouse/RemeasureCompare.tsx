@@ -56,9 +56,16 @@ export function RemeasureCompare({
   loadType,
   shipLabel = "Shipment values",
   reLabel = "Remeasured values",
+  bl,
 }: {
   ship: CargoFigures;
   re: CargoFigures;
+  /**
+   * The shipment's own House B/L figures (owner's answer 22 Nov), a row of their own under the shipment's -
+   * "—" while no B/L was read; left out (undefined) where the table shows none. The Difference stays the
+   * remeasured against the shipment's.
+   */
+  bl?: CargoFigures | null;
   freightMode: string | null | undefined;
   loadType: string | null | undefined;
   shipLabel?: string;
@@ -66,14 +73,18 @@ export function RemeasureCompare({
 }) {
   const shipCharge = chargeBasis(freightMode, ship.weightKg, ship.volumeCbm);
   const reCharge = chargeBasis(freightMode, re.weightKg, re.volumeCbm);
+  const blCharge = chargeBasis(freightMode, bl?.weightKg ?? 0, bl?.volumeCbm ?? 0);
   const columns = [
-    { key: "colli", label: "Colli", ship: ship.colli, re: re.colli, digits: 0 },
-    { key: "weight", label: "Weight (kg)", ship: ship.weightKg, re: re.weightKg, digits: 1 },
-    { key: "volume", label: "Volume (CBM)", ship: ship.volumeCbm, re: re.volumeCbm, digits: 3 },
-    ...(chargedByWeightOrMeasure(freightMode, loadType) ? [{ key: "charge", label: shipCharge.label, ship: shipCharge.value, re: reCharge.value, digits: shipCharge.digits }] : []),
+    { key: "colli", label: "Colli", ship: ship.colli, re: re.colli, bl: bl?.colli ?? 0, digits: 0 },
+    { key: "weight", label: "Weight (kg)", ship: ship.weightKg, re: re.weightKg, bl: bl?.weightKg ?? 0, digits: 1 },
+    { key: "volume", label: "Volume (CBM)", ship: ship.volumeCbm, re: re.volumeCbm, bl: bl?.volumeCbm ?? 0, digits: 3 },
+    ...(chargedByWeightOrMeasure(freightMode, loadType)
+      ? [{ key: "charge", label: shipCharge.label, ship: shipCharge.value, re: reCharge.value, bl: bl ? blCharge.value : 0, digits: shipCharge.digits }]
+      : []),
   ];
   const rows = [
     { key: "ship", label: shipLabel, pick: (c: (typeof columns)[number]) => fmt(c.digits)(c.ship) },
+    ...(bl !== undefined ? [{ key: "bl", label: "Bill Of Lading Details", pick: (c: (typeof columns)[number]) => fmt(c.digits)(c.bl) }] : []),
     { key: "re", label: reLabel, pick: (c: (typeof columns)[number]) => fmt(c.digits)(c.re) },
     { key: "diff", label: "Difference", pick: (c: (typeof columns)[number]) => diffText(c.re, c.ship, c.digits) },
   ];

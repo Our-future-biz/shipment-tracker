@@ -158,6 +158,19 @@ describe("Shipment Details saved field by field", () => {
     await expect(warehouseService.patchSection(SHIPMENT, "pickup", COMPANY, [{ key: "rows", value: "[]" }])).rejects.toThrow(/saved whole/);
     expect(sections.patchKeys).not.toHaveBeenCalled();
   });
+
+  it("keeps the House B/L's figures as their own field, a JSON object (owner's answer 22 Nov)", async () => {
+    sections.findByShipmentAndSection.mockResolvedValue(row({}));
+    const value = JSON.stringify({ houseBol: "HBL1", colli: 30, weightKg: 1500, volumeCbm: 3.5, readAt: "2026-11-22T12:00:00Z" });
+    sections.patchKeys.mockResolvedValueOnce({ row: row({ house_bl_figures: value }), conflicts: null });
+    await warehouseService.patchSection(SHIPMENT, "job", COMPANY, [{ key: "house_bl_figures", value, expected: "" }]);
+    expect(sections.patchKeys).toHaveBeenCalledWith(SHIPMENT, "job", COMPANY, [{ key: "house_bl_figures", value, expected: "" }]);
+    for (const bad of ["[]", "30", "not json"]) {
+      await expect(warehouseService.patchSection(SHIPMENT, "job", COMPANY, [{ key: "house_bl_figures", value: bad, expected: "" }])).rejects.toThrow(
+        expect.objectContaining({ code: "invalid_argument" }),
+      );
+    }
+  });
 });
 
 describe("Inform Operations", () => {
@@ -203,14 +216,6 @@ describe("remeasuredFigures", () => {
     expect(remeasuredFigures(lines)).toEqual({ colli: 5, weightKg: 531, volumeCbm: 1.92 });
     expect(remeasuredFigures("not json")).toEqual({ colli: 0, weightKg: 0, volumeCbm: 0 });
     expect(remeasuredFigures(undefined)).toEqual({ colli: 0, weightKg: 0, volumeCbm: 0 });
-  });
-
-  // A House B/L read by Document Reading is saved as one line with the B/L's m³ per piece and no
-  // sizes: its volume counts. Measured sizes still win over a carried m³.
-  it("counts the m³ per piece of a line without sizes; all three sizes win over it", () => {
-    expect(remeasuredFigures(JSON.stringify([{ pieces: "30", weightPerPcKg: "50", volumePerPcM3: "0.1166667" }]))).toEqual({ colli: 30, weightKg: 1500, volumeCbm: 3.5 });
-    const sized = JSON.stringify([{ pieces: "2", lengthCm: "100", widthCm: "100", heightCm: "100", weightPerPcKg: "", volumePerPcM3: "9" }]);
-    expect(remeasuredFigures(sized)).toEqual({ colli: 2, weightKg: 0, volumeCbm: 2 });
   });
 });
 

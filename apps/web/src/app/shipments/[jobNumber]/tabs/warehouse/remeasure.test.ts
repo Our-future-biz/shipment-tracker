@@ -9,7 +9,6 @@ import {
   descriptionNote,
   figuresText,
   keptText,
-  lineCbm,
   pcsAfterText,
   readRemeasuredLines,
   remeasuredFigures,
@@ -272,23 +271,5 @@ describe("sameRemeasuredLines", () => {
     expect(sameRemeasuredLines(saved, JSON.stringify([{ pieces: "6", lengthCm: "140", widthCm: "220", heightCm: "225", weightPerPcKg: "50" }]))).toBe(false);
     expect(sameRemeasuredLines("", saved)).toBe(false);
     expect(ALREADY_ACCEPTED).toBe("These remeasured lines were already accepted: the warehouse has saved nothing new since");
-  });
-});
-
-describe("a House B/L's line: Colli, weight and volume, no sizes (owner's answer 22 Nov)", () => {
-  const bl = JSON.stringify([{ pieces: "30", lengthCm: "", widthCm: "", heightCm: "", weightPerPcKg: "50", volumePerPcM3: "0.1166667" }]);
-
-  it("counts its volume per piece, as Cargo Details does", () => {
-    const lines = readRemeasuredLines(bl);
-    expect(lines[0]!.volumePerPcM3).toBe("0.1166667");
-    expect(remeasuredFigures(lines)).toEqual({ colli: 30, weightKg: 1500, volumeCbm: 3.5 });
-  });
-
-  it("takes the sizes over it once all three are measured", () => {
-    expect(lineCbm({ pieces: "2", lengthCm: "100", widthCm: "100", heightCm: "100", weightPerPcKg: "", volumePerPcM3: "9" })).toBe(2);
-  });
-
-  it("is not accepted into Cargo Details until the warehouse measures its sizes", () => {
-    expect(unmeasuredReason(bl)).toMatch(/^Remeasured line 1 has no length, width or height/);
   });
 });
