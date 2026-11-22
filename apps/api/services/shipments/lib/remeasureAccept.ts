@@ -19,7 +19,12 @@ export interface AcceptedFigures {
   volumeCbm: number;
 }
 
-/** One remeasured line as the warehouse saves it: numbers as text, sizes in cm. */
+/**
+ * One remeasured line as the warehouse saves it: numbers as text, sizes in cm. A saved line may
+ * also carry volumePerPcM3 (m³ per piece; a line written from a House B/L by Document Reading has
+ * it and no sizes): exactFiguresOf counts it when the sizes are not all there, but an acceptance
+ * takes over measured lines only (unmeasuredProblem), so it is not read here.
+ */
 export interface RemeasuredLine {
   pieces: string;
   lengthCm: string;

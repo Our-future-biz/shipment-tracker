@@ -88,6 +88,8 @@ export interface EmailRemeasureLine {
   widthCm: number;
   heightCm: number;
   weightPerPcKg: number;
+  /** m³ per piece, counted only when the line lacks one of its sizes (a line written from a House B/L has none). */
+  volumePerPcM3?: number;
 }
 
 export interface EmailTotals {
@@ -204,6 +206,16 @@ function surveyBody(c: Extract<EmailContent, { kind: "survey" }>, files: EmailFi
 
 const dims = (l: EmailRemeasureLine) => `${group(l.lengthCm, l.lengthCm % 1 ? 1 : 0)} × ${group(l.widthCm, l.widthCm % 1 ? 1 : 0)} × ${group(l.heightCm, l.heightCm % 1 ? 1 : 0)} cm`;
 
+// What a line says about its size. All three sizes measured: L × W × H, from which its volume is
+// worked out (as in Cargo Details). Otherwise its m³ per piece, when it has one, counts - shown as
+// the line's volume, which is what the total adds up (a per-piece m³ rounded to 0.001 would not add
+// up to it). A line with neither keeps the sizes it has.
+function sizeOf(l: EmailRemeasureLine): string {
+  const perPiece = l.volumePerPcM3 ?? 0;
+  const sized = l.lengthCm > 0 && l.widthCm > 0 && l.heightCm > 0;
+  return sized || perPiece <= 0 ? dims(l) : `${cbm(l.pieces * perPiece)} in all (no sizes)`;
+}
+
 function totalsLine(label: string, t: EmailTotals) {
   return `${label}: ${t.pieces} colli · ${kg(t.kg)} · ${cbm(t.cbm)}`;
 }
@@ -224,7 +236,7 @@ function remeasureBody(c: Extract<EmailContent, { kind: "remeasurement" }>, p: E
     out.push("No remeasured lines have been saved for this position yet.");
   } else {
     c.lines.forEach((l, i) => {
-      out.push(`  ${i + 1}. Qty ${l.pieces} · ${dims(l)} · ${kg(l.weightPerPcKg)} per piece`);
+      out.push(`  ${i + 1}. Qty ${l.pieces} · ${sizeOf(l)} · ${kg(l.weightPerPcKg)} per piece`);
     });
     out.push("");
     out.push(totalsLine("Remeasured total", c.totals));

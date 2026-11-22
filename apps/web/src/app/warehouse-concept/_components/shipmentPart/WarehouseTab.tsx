@@ -20,10 +20,25 @@ import { pickupHref } from "@/app/warehouse-concept/_lib/glossary";
 import { PickupSection } from "./PickupSection";
 import { JobNotes, ActionPushButtons, SaveStatus, SavedMeanwhile, sectionSaveError } from "./JobExtras";
 import { differs, figuresDiffer } from "@/app/shipments/[jobNumber]/tabs/warehouse/RemeasureCompare";
+import {
+  EMPTY_LINE,
+  LINE_FIELDS,
+  describeLines,
+  editLine,
+  fieldInvalid,
+  lineCbm,
+  lineInvalid,
+  parseLines,
+  serializeLines,
+  toNum,
+  volumeFromBl,
+  type LineField,
+  type RemeasureLine,
+} from "@/app/warehouse-concept/_lib/cargoCompare";
 
 interface JobSectionData {
   inform_operations_sent?: string;
-  // The warehouse's own remeasured lines (JSON of RemeasureRow[]), kept apart from the
+  // The warehouse's own remeasured lines (JSON of RemeasureLine[]), kept apart from the
   // shipment's cargo dimensions.
   remeasure_rows?: string;
   [key: string]: string | undefined;
@@ -149,14 +164,11 @@ function StackabilityBadge({ shipment }: { shipment: ShipmentItem }) {
 // The warehouse's own remeasured lines, stored in its job section (remeasure_rows) and
 // compared with the shipment's cargo dimensions, which stay untouched.
 
-type DimensionRow = { pieces: string; lengthCm: string; widthCm: string; heightCm: string; weightPerPcKg: string };
+// The same line helpers as the Remeasurement tab (cargoCompare): a line from the House B/L keeps
+// its m³ per piece through edits and saves, and is counted by it until all three sizes are typed.
 
-const EMPTY_DIM: DimensionRow = { pieces: "", lengthCm: "", widthCm: "", heightCm: "", weightPerPcKg: "" };
-
-const DIM_FIELDS = ["pieces", "lengthCm", "widthCm", "heightCm", "weightPerPcKg"] as const;
-type DimField = (typeof DIM_FIELDS)[number];
 // Input rules per column: qty is a whole number of pieces, the rest are cm / kg with one decimal step.
-const DIM_INPUT: Record<DimField, { suffix: string; step: number; precision?: number }> = {
+const DIM_INPUT: Record<LineField, { suffix: string; step: number; precision?: number }> = {
   pieces: { suffix: "colli", step: 1, precision: 0 },
   lengthCm: { suffix: "cm", step: 0.1 },
   widthCm: { suffix: "cm", step: 0.1 },
@@ -164,73 +176,35 @@ const DIM_INPUT: Record<DimField, { suffix: string; step: number; precision?: nu
   weightPerPcKg: { suffix: "kg", step: 0.1 },
 };
 
-// Strict number from a stored value: "" is empty (0), a plain non-negative number (a decimal
-// comma is accepted) is that number, anything else is NaN — never silently 0.
-function toNum(v: string | undefined): number {
-  const t = (v ?? "").trim().replace(",", ".");
-  if (!t) return 0;
-  return /^\d+(\.\d+)?$/.test(t) ? Number(t) : NaN;
-}
-const fieldInvalid = (r: DimensionRow, f: DimField) => {
-  const n = toNum(r[f]);
-  return Number.isNaN(n) || (f === "pieces" && !Number.isInteger(n));
-};
-const rowInvalid = (r: DimensionRow) => DIM_FIELDS.some((f) => fieldInvalid(r, f));
-
-function parseRemeasure(json: string | undefined): DimensionRow[] {
-  try {
-    const arr = JSON.parse(json || "[]");
-    return Array.isArray(arr) ? arr.map((r) => ({ ...EMPTY_DIM, ...r })) : [];
-  } catch {
-    return [];
-  }
-}
-
-// The lines as stored: only filled lines, numbers normalised (the same JSON shape as before).
-function serializeRows(rows: DimensionRow[]): string {
-  const filtered = rows
-    .filter((r) => r.pieces || r.lengthCm || r.widthCm || r.heightCm || r.weightPerPcKg)
-    .map((r) => Object.fromEntries(DIM_FIELDS.map((f) => [f, r[f].trim() ? String(toNum(r[f])) : ""])) as DimensionRow);
-  return JSON.stringify(filtered);
-}
-
-// Saved lines in a few words, for the "saved meanwhile" notice.
-function describeRows(json: string | undefined): string {
-  const lines = parseRemeasure(json);
-  if (!lines.length) return "(no lines)";
-  return lines
-    .map((r) => `${r.pieces || "—"} × ${r.lengthCm || "—"} × ${r.widthCm || "—"} × ${r.heightCm || "—"} cm, ${r.weightPerPcKg || "—"} kg/pc`)
-    .join("\n");
-}
-
 function DimensionsEditor({ shipment, messageApi, readOnly }: { shipment: ShipmentItem; messageApi: Messages; readOnly: boolean }) {
   const { data: jobSectionData, saveKeys, isSaving, informOperations: inform, isInforming } = useWarehouseSection(shipment.id, "job");
   const jobSection = asJobSection(jobSectionData);
   const informedAt = jobSection.inform_operations_sent;
   const saved = jobSection.remeasure_rows;
 
-  const [rows, setRows] = useState<DimensionRow[]>([{ ...EMPTY_DIM }]);
+  const [rows, setRows] = useState<RemeasureLine[]>([{ ...EMPTY_LINE }]);
   const [dirty, setDirty] = useState(false);
   // The saved lines the user's edit started from; a save only replaces exactly those.
   const [base, setBase] = useState(saved ?? "");
   const [savedAt, setSavedAt] = useState<Date | null>(null);
-  const invalidRows = rows.filter(rowInvalid).length;
+  const invalidRows = rows.filter(lineInvalid).length;
   // The saved lines fill the table only while it holds no unsaved edit, so the user's lines stay
   // when someone else saves meanwhile; their lines are then shown beside them until the user
   // chooses which to keep (Save is held back).
   useEffect(() => {
     if (dirty) return;
-    const parsed = parseRemeasure(saved);
-    setRows(parsed.length > 0 ? parsed : [{ ...EMPTY_DIM }]);
+    const parsed = parseLines(saved);
+    setRows(parsed.length > 0 ? parsed : [{ ...EMPTY_LINE }]);
     setBase(saved ?? "");
   }, [saved, dirty]);
-  const conflict = dirty && (saved ?? "") !== base && serializeRows(rows) !== (saved ?? "");
+  const conflict = dirty && (saved ?? "") !== base && serializeLines(rows) !== (saved ?? "");
 
-  const updateRow = (idx: number, field: DimField, value: string) => {
-    setRows((prev) => prev.map((r, i) => (i === idx ? { ...r, [field]: value } : r)));
+  const updateRow = (idx: number, field: LineField, value: string) => {
+    // editLine keeps the line's B/L volume per piece, and drops it once all three sizes are typed.
+    setRows((prev) => prev.map((r, i) => (i === idx ? editLine(r, field, value) : r)));
     setDirty(true);
   };
-  const addRow = () => { setRows((prev) => [...prev, { ...EMPTY_DIM }]); setDirty(true); };
+  const addRow = () => { setRows((prev) => [...prev, { ...EMPTY_LINE }]); setDirty(true); };
   const deleteRow = (idx: number) => { setRows((prev) => prev.filter((_, i) => i !== idx)); setDirty(true); };
 
   const save = async () => {
@@ -242,7 +216,7 @@ function DimensionsEditor({ shipment, messageApi, readOnly }: { shipment: Shipme
       messageApi.warning("Someone else saved the lines meanwhile — choose which version to keep first");
       return;
     }
-    const value = serializeRows(rows);
+    const value = serializeLines(rows);
     try {
       // Only the remeasured lines are written, and only if nobody saved them since the edit began.
       await saveKeys([{ key: "remeasure_rows", value, expected: base }]);
@@ -261,11 +235,9 @@ function DimensionsEditor({ shipment, messageApi, readOnly }: { shipment: Shipme
   const num = (v: string) => toNum(v) || 0;
   for (const r of rows) {
     const c = num(r.pieces);
-    const L = num(r.lengthCm);
-    const W = num(r.widthCm);
-    const H = num(r.heightCm);
     const w = num(r.weightPerPcKg);
-    const cbm = (c * (L * W * H)) / 1_000_000;
+    // From the sizes, or the B/L's m³ per piece for a line without them (the Cargo Details rule).
+    const cbm = lineCbm(r);
     rowCbms.push(cbm);
     totalColli += c;
     totalWeightKg += c * w;
@@ -349,7 +321,7 @@ function DimensionsEditor({ shipment, messageApi, readOnly }: { shipment: Shipme
       }
     >
       {!readOnly && conflict && (
-        <SavedMeanwhile theirs={describeRows(saved)} onUseTheirs={() => setDirty(false)} onKeepMine={() => setBase(saved ?? "")} />
+        <SavedMeanwhile theirs={describeLines(saved)} onUseTheirs={() => setDirty(false)} onKeepMine={() => setBase(saved ?? "")} />
       )}
       <table className="w-full border-collapse text-[13px]">
         <thead>
@@ -365,8 +337,8 @@ function DimensionsEditor({ shipment, messageApi, readOnly }: { shipment: Shipme
         </thead>
         <tbody>
           {rows.map((row, idx) => (
-            <tr key={idx} className={`border-b border-slate-100 ${rowInvalid(row) ? "bg-red-50" : ""}`}>
-              {DIM_FIELDS.map((field) => {
+            <tr key={idx} className={`border-b border-slate-100 ${lineInvalid(row) ? "bg-red-50" : ""}`}>
+              {LINE_FIELDS.map((field) => {
                 const bad = fieldInvalid(row, field);
                 return (
                   <td key={field} className="p-0.5 px-1">
@@ -395,8 +367,11 @@ function DimensionsEditor({ shipment, messageApi, readOnly }: { shipment: Shipme
                   </td>
                 );
               })}
-              <td className="p-0.5 px-1 text-right text-slate-700 tabular-nums">
-                {rowInvalid(row) ? (
+              <td
+                className="p-0.5 px-1 text-right text-slate-700 tabular-nums"
+                title={volumeFromBl(row) ? `From the House B/L: ${row.volumePerPcM3} m³ per piece — type L, W and H to measure it` : undefined}
+              >
+                {lineInvalid(row) ? (
                   <Badge tone="r">invalid — re-enter</Badge>
                 ) : (rowCbms[idx] ?? 0) > 0 ? (
                   rowCbms[idx]!.toFixed(4)

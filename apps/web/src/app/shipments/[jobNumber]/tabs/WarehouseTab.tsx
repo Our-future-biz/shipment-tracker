@@ -11,7 +11,7 @@ import { buildRowData, getFieldValue, type ShipmentItem } from "@/hooks/useShipm
 import type { interfaces } from "@/lib/api/client";
 import { formatDateTime } from "@/lib/date";
 import { loadTypeLabel } from "@/lib/enums";
-import { NOT_STACKABLE, STACKABLE, adrUnText, dimensionLineVolume, dimensionTotals, hasAdr, isDangerousShipment, numberInput, shipmentStackability } from "@/lib/cargo";
+import { NOT_STACKABLE, STACKABLE, adrUnText, dimensionLineVolume, dimensionTotals, hasAdr, isDangerousShipment, numberInput, shipmentStackability, withoutTypedVolumeWhenSized } from "@/lib/cargo";
 import { SectionChangedError, useWarehouseSection } from "@/hooks/useWarehouseSection";
 import { apiErrorMessage } from "@/lib/api";
 import { informedText } from "@/lib/informOperations";
@@ -202,7 +202,10 @@ function DangerousGoodsDialog({ shipment, open, onClose }: { shipment: ShipmentI
 
 const DIM_FIELDS = ["pieces", "lengthCm", "widthCm", "heightCm", "weightPerPcKg"] as const;
 type DimField = (typeof DIM_FIELDS)[number];
-type DimensionRow = Record<DimField, string>;
+// A line written from a House B/L (Document Reading, owner's answer 22 Nov) has no sizes: it carries the
+// volume of one piece instead, as a Cargo Details line can. Not typed here; once all three sizes are
+// typed the sizes give the volume and it is dropped.
+type DimensionRow = Record<DimField, string> & { volumePerPcM3?: string };
 
 const EMPTY_DIM: DimensionRow = { pieces: "", lengthCm: "", widthCm: "", heightCm: "", weightPerPcKg: "" };
 
@@ -218,15 +221,36 @@ function parseRemeasure(json: string | undefined): DimensionRow[] {
 // The lines as stored: only the filled ones, each figure tidied - "120." as 120, ".5" as 0.5
 // (council finding m7), as Cargo Details and the server read them.
 const serializeRows = (rows: DimensionRow[]) =>
-  JSON.stringify(rows.filter((r) => DIM_FIELDS.some((f) => r[f].trim())).map((r) => Object.fromEntries(DIM_FIELDS.map((f) => [f, tidyNumber(r[f])]))));
+  JSON.stringify(
+    rows
+      .filter((r) => DIM_FIELDS.some((f) => r[f].trim()))
+      .map((r) => {
+        const line: Record<string, string> = Object.fromEntries(DIM_FIELDS.map((f) => [f, tidyNumber(r[f])]));
+        const volume = withoutTypedVolumeWhenSized({ ...r, volumePerPcM3: r.volumePerPcM3 ?? "" }).volumePerPcM3;
+        return volume ? { ...line, volumePerPcM3: tidyNumber(volume) } : line;
+      }),
+  );
 
 // A copy of a line: its figures only, so it gets a row key of its own.
-const copyOf = (r: DimensionRow): DimensionRow => ({ pieces: r.pieces, lengthCm: r.lengthCm, widthCm: r.widthCm, heightCm: r.heightCm, weightPerPcKg: r.weightPerPcKg });
+const copyOf = (r: DimensionRow): DimensionRow => ({
+  pieces: r.pieces,
+  lengthCm: r.lengthCm,
+  widthCm: r.widthCm,
+  heightCm: r.heightCm,
+  weightPerPcKg: r.weightPerPcKg,
+  ...(r.volumePerPcM3 ? { volumePerPcM3: r.volumePerPcM3 } : {}),
+});
 
 const FIELD_NAMES: Record<DimField, string> = { pieces: "Qty", lengthCm: "Length", widthCm: "Width", heightCm: "Height", weightPerPcKg: "Weight per piece" };
 
+const dropVolumeWhenSized = (r: DimensionRow): DimensionRow => {
+  if (!r.volumePerPcM3) return r;
+  const { volumePerPcM3, ...rest } = withoutTypedVolumeWhenSized({ ...r, volumePerPcM3: r.volumePerPcM3 });
+  return volumePerPcM3 ? { ...rest, volumePerPcM3 } : rest;
+};
+
 // A remeasured line counted as a cargo dimension line (lib/cargo): its volume from its sizes.
-const asLine = (r: DimensionRow): interfaces.CargoDimensionLine => ({ containerId: null, packageType: "", stackable: "", volumePerPcM3: "", ...r });
+const asLine = (r: DimensionRow): interfaces.CargoDimensionLine => ({ containerId: null, packageType: "", stackable: "", ...r, volumePerPcM3: r.volumePerPcM3 ?? "" });
 
 function DimensionsEditor({ shipment, messageApi }: { shipment: ShipmentItem; messageApi: Messages }) {
   const { data: jobSectionData, saveKeys, isSaving, informOperations: inform, isInforming } = useWarehouseSection(shipment.id, "job");
@@ -353,7 +377,8 @@ function DimensionsEditor({ shipment, messageApi }: { shipment: ShipmentItem; me
   const updateRow = (key: string, field: DimField, value: string) => {
     // typing keeps the line open, so it cannot close mid-number
     if (!openRef.current.has(key)) setOpen(new Set(openRef.current).add(key));
-    setRows((prev) => prev.map((r) => (rowKey(r) === key ? { ...r, [field]: value } : r)));
+    // A House B/L's volume per piece goes once all three sizes are typed: they give the volume then.
+    setRows((prev) => prev.map((r) => (rowKey(r) === key ? dropVolumeWhenSized({ ...r, [field]: value }) : r)));
     setDirty(true);
   };
   // A new line is empty, so nothing is saved until it is filled and left; the cursor goes into it.

@@ -44,7 +44,8 @@ import { SectionCard } from "@/components/SectionCard";
 import { BTN, BTN_PRIMARY, CARD, CARD_BAR, CARD_ICON, CARD_TITLE, HINT, LABEL_TEXT, LINK, REF } from "@/styles/ui";
 import { FieldReviewTable } from "./FieldReviewTable";
 import { HouseBolMatchCard } from "./HouseBolMatchCard";
-import { HOUSE_BOL, asksHouseBol, besideShipment, houseBolOf } from "../_lib/houseBolMatch";
+import { readRemeasuredLines } from "@/app/shipments/[jobNumber]/tabs/warehouse/remeasuredLines";
+import { BL_FIGURES, HOUSE_BOL, asRemeasurement, asksHouseBol, besideShipment, blRemeasuredLine, houseBolOf, sameHouseBol, withoutBlFigures } from "../_lib/houseBolMatch";
 import { QuoteOpenButton, QuoteReview, QuoteTarget } from "./QuoteReading";
 import {
   baseCreatePayload,
@@ -821,13 +822,13 @@ export function DocumentReadingWorkflow() {
         // A new job's House B/L may be on a shipment already: it is shown on the review to approve or not.
         const houseBol = (merged.values[HOUSE_BOL] ?? "").trim();
         if (shipmentMode === "new" && asksHouseBol(houseBol, "")) setHouseBolMatch(await shipmentOfHouseBol(houseBol, (m) => toast.warning(m)));
-        setFields(
-          buildFields(merged.values, (label) => (target ? shipmentValueFor(target, label, merged.values) : "")).map((f) => {
-            const choices = merged.choices[f.column];
-            // Where the files disagree, nothing is written until the user picks or ticks a value.
-            return choices ? { ...f, choices, approved: false } : f;
-          }),
-        );
+        const built = buildFields(merged.values, (label) => (target ? shipmentValueFor(target, label, merged.values) : "")).map((f) => {
+          const choices = merged.choices[f.column];
+          // Where the files disagree, nothing is written until the user picks or ticks a value.
+          return choices ? { ...f, choices, approved: false } : f;
+        });
+        // The shipment's own House B/L: its Colli, weight and volume go to the Warehouse, not set against the shipment's.
+        setFields(target && sameHouseBol(target.houseBolNumber, houseBol) ? asRemeasurement(built) : built);
         setShipmentDocs(
           reads.flatMap((r) =>
             r.file ? [{ file: r.file, fields: recordToFields(r.values), save: true, nameEdit: null, typeEdit: null }] : [],
@@ -969,7 +970,8 @@ export function DocumentReadingWorkflow() {
     setShipmentMode("existing");
     setTargetShipment(match);
     createdShipment.current = null;
-    setFields((prev) => besideShipment(prev, (label) => shipmentValueFor(match, label, values)));
+    // Its House B/L is the one read: the B/L's Colli, weight and volume go to its Warehouse as the remeasurement.
+    setFields((prev) => asRemeasurement(besideShipment(prev, (label) => shipmentValueFor(match, label, values))));
     setHouseBolMatch(null);
   };
   // Not that shipment: a new job is created with the House B/L, and it is not asked about again.
@@ -978,6 +980,30 @@ export function DocumentReadingWorkflow() {
     setHouseBolMatch(null);
   };
   const houseBolMatchShown = destination === "shipment" && shipmentMode === "new" ? houseBolMatch : null;
+  // Written into the shipment whose own House B/L was read (owner's answer 22 Nov): it keeps its Colli, Total
+  // Weight and Total Volume, and the B/L's are its remeasurement in the Warehouse tab.
+  const blOfTarget = destination === "shipment" && shipmentMode === "existing" && !!targetShipment && sameHouseBol(targetShipment.houseBolNumber, houseBolOf(fields));
+
+  // The B/L's figures as the warehouse's remeasured line, unless the warehouse has remeasured lines of its own,
+  // which stay (owner's answer 22 Nov). Said, never failing the write: the shipment's fields are written already.
+  const writeBlRemeasurement = async (shipmentId: string, jobNumber: string, approved: Record<string, string>) => {
+    if (!BL_FIGURES.some((label) => approved[label])) return;
+    const line = blRemeasuredLine(approved);
+    if (!line) return toast.warning(`The House B/L names no whole Colli: nothing was written to ${jobNumber}'s Warehouse tab.`);
+    try {
+      const { section } = await api.warehouse.warehouseSectionGet(shipmentId, "job");
+      const saved = (section?.data as Record<string, unknown> | undefined)?.remeasure_rows;
+      const savedText = typeof saved === "string" ? saved : "";
+      if (readRemeasuredLines(savedText).length > 0) {
+        return toast.info(`${jobNumber}'s Warehouse tab has remeasured lines of its own: they stay, the B/L's Colli, weight and volume were not written there.`);
+      }
+      await api.warehouse.warehouseSectionPatch(shipmentId, "job", { changes: [{ key: "remeasure_rows", value: JSON.stringify([line]), expected: savedText }] });
+      queryClient.invalidateQueries({ queryKey: ["warehouse-section", shipmentId, "job"] });
+      toast.success(`The B/L's Colli, weight and volume are ${jobNumber}'s remeasurement in its Warehouse tab.`);
+    } catch (err) {
+      toast.warning(`The fields were written, but the B/L's Colli, weight and volume could not be put in ${jobNumber}'s Warehouse tab: ${apiErrorMessage(err)}`);
+    }
+  };
 
   // ─── Commit: shipment ────────────────────────────────────────────
   const commitShipment = async () => {
@@ -994,25 +1020,32 @@ export function DocumentReadingWorkflow() {
     const containersRead = !!(approved["Container Number"] || approved[SEAL_LABEL]);
     let shipmentId = targetShipmentId;
     let jobNumber = "";
+    // The approved figures of the shipment's own House B/L, put in its Warehouse once the fields are written.
+    let blFor: Record<string, string> | null = null;
     try {
       if (shipmentMode === "existing") {
         // Read as it is now: its containers and cargo lines are sent back whole, so a copy from
         // before would drop the rows added since.
         const { shipment: target } = await api.shipments.shipmentGet(targetShipmentId);
-        let data = toShipmentUpdate(approved);
+        // The shipment's own House B/L: its Colli, Total Weight and Total Volume stay; the B/L's go to the Warehouse.
+        const ownBl = sameHouseBol(target.houseBolNumber, houseBolOf(fields));
+        if (ownBl) blFor = approved;
+        const forShipment = ownBl ? withoutBlFigures(approved) : approved;
+        let data = toShipmentUpdate(forShipment);
         data = await withPartyLinks(data, async () => target, keptPartyDetails);
         // Extracted containers join the shipment's existing rows (never replace).
         const after = containersRead ? containersFrom(target.containers ?? []) : [];
         if (after.length > 0) data.containers = after;
         // An approved package type goes onto all of the shipment's containers and cargo lines.
-        if (approved["Type Of Packages"] && !data.containers?.length && target.containers?.length) {
+        if (forShipment["Type Of Packages"] && !data.containers?.length && target.containers?.length) {
           data.containers = target.containers;
         }
-        data = withContainerType(data, approved);
-        data = withCargoLine(data, approved, target.cargoItems ?? []);
-        data = withPackageType(data, approved["Type Of Packages"], target.cargoItems ?? []);
-        // The job number as the write left it: its letters follow a Load Type the read wrote.
-        jobNumber = (await updateShipment({ id: targetShipmentId, data })).shipment.jobNumber;
+        data = withContainerType(data, forShipment);
+        data = withCargoLine(data, forShipment, target.cargoItems ?? []);
+        data = withPackageType(data, forShipment["Type Of Packages"], target.cargoItems ?? []);
+        // The job number as the write left it: its letters follow a Load Type the read wrote. Only the B/L's
+        // figures ticked: nothing goes onto the shipment itself.
+        jobNumber = Object.keys(data).length > 0 ? (await updateShipment({ id: targetShipmentId, data })).shipment.jobNumber : target.jobNumber;
       } else {
         // Asked again as the review has it now (edited, or a shipment made since the read): a House B/L on a
         // shipment is shown to approve or not, and no new job is created until the user answers.
@@ -1045,6 +1078,7 @@ export function DocumentReadingWorkflow() {
         jobNumber = written || created.jobNumber;
       }
       setCommittedJobNumber(jobNumber);
+      if (blFor) await writeBlRemeasurement(shipmentId, jobNumber, blFor);
     } catch (err) {
       const made = shipmentMode === "new" ? createdShipment.current?.shipment : null;
       return toast.error(
@@ -1989,6 +2023,15 @@ export function DocumentReadingWorkflow() {
               disabled={writing}
               onApprove={approveHouseBolMatch}
               onCreateNew={createNewJobAnyway}
+            />
+          )}
+          {blOfTarget && (
+            <Alert
+              className="mb-3"
+              type="info"
+              showIcon
+              message={`House B/L ${houseBolOf(fields)} is ${targetShipment?.jobNumber}'s own`}
+              description={`Its COLLI, Total Weight and Total Volume are not written onto the shipment, which keeps its own: they go to its Warehouse tab as the remeasurement and are compared there — unless the warehouse has remeasured lines of its own, which stay.`}
             />
           )}
           {destination === "shipment" && shipmentReadFailures.length > 0 && (

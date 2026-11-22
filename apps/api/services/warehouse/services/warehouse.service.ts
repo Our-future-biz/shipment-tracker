@@ -119,7 +119,9 @@ function settled(res: { row: WarehouseSectionRecord; conflicts: null } | { row: 
 
 /**
  * The totals of the remeasured lines as saved (Shipments → Warehouse): pieces, pieces × kg per
- * piece and pieces × L × W × H - the numbers read as that screen reads them.
+ * piece and pieces × the m³ of a piece - the numbers read as that screen reads them. A piece's m³
+ * is L × W × H when all three sizes are measured, else the m³ per piece the line carries: a line
+ * written from a House B/L (Document Reading) has the B/L's volume but no sizes.
  */
 export function remeasuredFigures(raw: unknown): RemeasuredFigures {
   let list: unknown = [];
@@ -138,7 +140,7 @@ export function remeasuredFigures(raw: unknown): RemeasuredFigures {
     const pieces = cargoNum(text("pieces"));
     colli += pieces;
     kg += pieces * cargoNum(text("weightPerPcKg"));
-    m3 += pieces * dimensionVolumePerPiece({ lengthCm: text("lengthCm"), widthCm: text("widthCm"), heightCm: text("heightCm"), volumePerPcM3: "" });
+    m3 += pieces * dimensionVolumePerPiece({ lengthCm: text("lengthCm"), widthCm: text("widthCm"), heightCm: text("heightCm"), volumePerPcM3: text("volumePerPcM3") });
   }
   return { colli, weightKg: Math.round(kg * 10) / 10, volumeCbm: Math.round(m3 * 1000) / 1000 };
 }

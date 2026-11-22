@@ -192,6 +192,25 @@ describe("supplier e-mail text", () => {
     expect(text).toContain("Compared with the declared figures: colli match, weight +10.0 % (more than 5 %), volume +1.1 %");
     expect(text).toContain("Warehouse gate record: 10 colli · 1,000 kg · 4.200 cbm");
   });
+
+  // A House B/L read by Document Reading is saved as one line with its m³ per piece and no sizes.
+  it("Remeasurement: a line without sizes shows its volume; measured sizes win over its m³", () => {
+    const text = emailText(
+      base({
+        kind: "remeasurement",
+        lines: [
+          { pieces: 30, lengthCm: 0, widthCm: 0, heightCm: 0, weightPerPcKg: 50, volumePerPcM3: 0.1166667 },
+          { pieces: 2, lengthCm: 100, widthCm: 100, heightCm: 100, weightPerPcKg: 10, volumePerPcM3: 9 },
+        ],
+        totals: { pieces: 32, kg: 1520, cbm: 5.5 },
+        declared: null,
+        savedAt: "",
+      }),
+    );
+    expect(text).toContain("1. Qty 30 · 3.500 cbm in all (no sizes) · 50 kg per piece");
+    expect(text).toContain("2. Qty 2 · 100 × 100 × 100 cm · 10 kg per piece");
+    expect(text).toContain("Remeasured total: 32 colli · 1,520 kg · 5.500 cbm");
+  });
 });
 
 describe("attachment limits", () => {

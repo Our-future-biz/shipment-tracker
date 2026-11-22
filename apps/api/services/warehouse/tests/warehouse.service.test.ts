@@ -204,6 +204,14 @@ describe("remeasuredFigures", () => {
     expect(remeasuredFigures("not json")).toEqual({ colli: 0, weightKg: 0, volumeCbm: 0 });
     expect(remeasuredFigures(undefined)).toEqual({ colli: 0, weightKg: 0, volumeCbm: 0 });
   });
+
+  // A House B/L read by Document Reading is saved as one line with the B/L's m³ per piece and no
+  // sizes: its volume counts. Measured sizes still win over a carried m³.
+  it("counts the m³ per piece of a line without sizes; all three sizes win over it", () => {
+    expect(remeasuredFigures(JSON.stringify([{ pieces: "30", weightPerPcKg: "50", volumePerPcM3: "0.1166667" }]))).toEqual({ colli: 30, weightKg: 1500, volumeCbm: 3.5 });
+    const sized = JSON.stringify([{ pieces: "2", lengthCm: "100", widthCm: "100", heightCm: "100", weightPerPcKg: "", volumePerPcM3: "9" }]);
+    expect(remeasuredFigures(sized)).toEqual({ colli: 2, weightKg: 0, volumeCbm: 2 });
+  });
 });
 
 describe("taskChanges", () => {

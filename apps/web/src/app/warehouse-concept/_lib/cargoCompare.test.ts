@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { copiedCargoFigures, declaredTotals, EMPTY_LINE, lineInvalid, linesTotals, parseLines, pctText, reweighVariance, serializeLines, toNum, variance, wm } from "./cargoCompare";
+import { copiedCargoFigures, declaredTotals, describeLines, editLine, EMPTY_LINE, lineCbm, lineInvalid, linesTotals, parseLines, pctText, reweighVariance, serializeLines, toNum, variance, volumeFromBl, wm } from "./cargoCompare";
 
 const line = (pieces: string, l: string, w: string, h: string, kg: string) => ({ pieces, lengthCm: l, widthCm: w, heightCm: h, weightPerPcKg: kg });
 
@@ -27,6 +27,50 @@ describe("lines", () => {
     expect(parseLines("not json")).toEqual([]);
     expect(parseLines(undefined)).toEqual([]);
     expect(parseLines(JSON.stringify([{ pieces: 3 }]))).toEqual([line("3", "", "", "", "")]);
+  });
+});
+
+// Owner's answer 22 Nov: Document Reading writes a House B/L's Colli / weight / volume into the
+// shipment's Warehouse as one remeasured line without sizes, carrying the m³ per piece.
+describe("a line from the House B/L", () => {
+  const bl = { pieces: "30", lengthCm: "", widthCm: "", heightCm: "", weightPerPcKg: "100", volumePerPcM3: "0.11666666666666667" };
+  const stored = JSON.stringify([{ pieces: "30", weightPerPcKg: "100", volumePerPcM3: "0.11666666666666667" }]);
+
+  it("counts a line without sizes by its m³ per piece", () => {
+    expect(lineCbm(bl)).toBeCloseTo(3.5, 9);
+    expect(linesTotals([bl])).toEqual({ pieces: 30, kg: 3000, cbm: 3.5 });
+    expect(linesTotals([bl, line("2", "100", "100", "100", "50")])).toEqual({ pieces: 32, kg: 3100, cbm: 5.5 });
+    expect(volumeFromBl(bl)).toBe(true);
+    // A volume that is no number counts as none, and never makes the line invalid (it cannot be re-entered).
+    expect(lineCbm({ ...bl, volumePerPcM3: "abc" })).toBe(0);
+    expect(lineInvalid({ ...bl, volumePerPcM3: "abc" })).toBe(false);
+  });
+  it("goes by the sizes once all three are there, whatever volume it carries", () => {
+    expect(lineCbm({ ...line("2", "100", "100", "100", "50"), volumePerPcM3: "9" })).toBe(2);
+    // Two sizes are not enough: the B/L volume still counts.
+    expect(lineCbm({ ...bl, lengthCm: "100", widthCm: "100" })).toBeCloseTo(3.5, 9);
+    expect(volumeFromBl({ ...line("2", "100", "100", "100", "50"), volumePerPcM3: "9" })).toBe(false);
+  });
+  it("keeps the m³ per piece through reading, an edit of another field and saving", () => {
+    const [read] = parseLines(stored);
+    expect(read).toEqual(bl);
+    const edited = editLine(read!, "weightPerPcKg", "110");
+    expect(edited.volumePerPcM3).toBe(bl.volumePerPcM3);
+    expect(JSON.parse(serializeLines([edited]))).toEqual([{ pieces: "30", lengthCm: "", widthCm: "", heightCm: "", weightPerPcKg: "110", volumePerPcM3: "0.11666666666666667" }]);
+    expect(linesTotals(parseLines(serializeLines([edited])))).toEqual({ pieces: 30, kg: 3300, cbm: 3.5 });
+    // A plain line gets no volume key, as before.
+    expect(JSON.parse(serializeLines([line("1", "10", "10", "10", "1")]))[0]).not.toHaveProperty("volumePerPcM3");
+    expect(describeLines(stored)).toBe("30 × 0.11666666666666667 m³/pc, 100 kg/pc");
+  });
+  it("drops the m³ per piece once an edit gives the line all three sizes", () => {
+    const sized = editLine(editLine(editLine(bl, "lengthCm", "120"), "widthCm", "80"), "heightCm", "100");
+    expect(sized.volumePerPcM3).toBe("");
+    expect(lineCbm(sized)).toBeCloseTo(28.8, 9);
+    expect(JSON.parse(serializeLines([sized]))[0]).not.toHaveProperty("volumePerPcM3");
+    // Clearing a size again brings no hidden old volume back.
+    expect(lineCbm(editLine(sized, "heightCm", ""))).toBe(0);
+    // Stored with sizes and a volume beside them: saved without the volume.
+    expect(JSON.parse(serializeLines([{ ...line("2", "100", "100", "100", "50"), volumePerPcM3: "9" }]))[0]).not.toHaveProperty("volumePerPcM3");
   });
 });
 

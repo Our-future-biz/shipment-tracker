@@ -61,6 +61,15 @@ describe("parseRemeasuredLines", () => {
     expect(() => parseRemeasuredLines(JSON.stringify([{ pieces: "3" }]))).toThrow(`Remeasured line 1 has no kg per piece, length, width or height: ${rule}`);
   });
 
+  // Owner decision (22 Nov 2026): a House B/L read by Document Reading is saved as one line with the
+  // B/L's m³ per piece and no sizes. Its volume counts where lines are compared and totalled, but
+  // Accept still needs the sizes measured - the B/L's volume is no remeasurement of the pieces.
+  it("still refuses a line written from a House B/L: its m³ per piece is no measured sizes", () => {
+    const rule = "the warehouse must measure weight and sizes of every line before it can be accepted";
+    const bl = JSON.stringify([{ pieces: "30", weightPerPcKg: "50", volumePerPcM3: "0.1166667" }]);
+    expect(() => parseRemeasuredLines(bl)).toThrow(`Remeasured line 1 has no length, width or height: ${rule}`);
+  });
+
   it("refuses nothing to accept, unreadable text and a figure that is not a number", () => {
     expect(() => parseRemeasuredLines("")).toThrow(/nothing to accept/);
     expect(() => parseRemeasuredLines("[]")).toThrow(/nothing to accept/);
@@ -78,6 +87,12 @@ describe("figuresOf", () => {
 
   it("takes a line's typed m³ when its sizes are not all known", () => {
     expect(figuresOf([{ ...declared, lengthCm: "", volumePerPcM3: "0.5" }]).volumeCbm).toBe(2.5);
+  });
+
+  it("totals a line written from a House B/L by its m³ per piece; all three sizes win over it", () => {
+    const bl = { pieces: "30", lengthCm: "", widthCm: "", heightCm: "", weightPerPcKg: "50", volumePerPcM3: "0.1166667" };
+    expect(figuresOf([bl])).toEqual({ colli: 30, weightKg: 1500, volumeCbm: 3.5 });
+    expect(figuresOf([{ ...bl, pieces: "2", lengthCm: "100", widthCm: "100", heightCm: "100" }]).volumeCbm).toBe(2);
   });
 });
 

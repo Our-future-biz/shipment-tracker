@@ -2,7 +2,8 @@ import { dimensionTotals, dimensionVolumePerPiece, hasAdr, num, roundFigure, shi
 import type { CargoFigures } from "./RemeasureCompare";
 
 // The warehouse's saved remeasured lines (its job section's remeasure_rows: a JSON list of
-// { pieces, lengthCm, widthCm, heightCm, weightPerPcKg }, numbers as text), as Cargo Details shows
+// { pieces, lengthCm, widthCm, heightCm, weightPerPcKg }, numbers as text, and a volumePerPcM3 on a
+// line written from a House B/L, which gives no sizes - owner's answer 22 Nov), as Cargo Details shows
 // them, and what the shipment's own figures are compared with. The server holds the same rules
 // (services/shipments/lib/remeasureAccept and remeasureNotice). Pure.
 
@@ -12,6 +13,8 @@ export interface RemeasuredLine {
   widthCm: string;
   heightCm: string;
   weightPerPcKg: string;
+  /** m³ of one piece, for a line without all three sizes (a House B/L's figures): as Cargo Details' lines. */
+  volumePerPcM3?: string;
 }
 
 // The warehouse's saved lines, those with pieces; none when they can't be read.
@@ -23,7 +26,8 @@ export function readRemeasuredLines(json: string | undefined): RemeasuredLine[] 
       .filter((r): r is Record<string, unknown> => !!r && typeof r === "object" && !Array.isArray(r))
       .map((r) => {
         const t = (k: string) => (typeof r[k] === "string" || typeof r[k] === "number" ? String(r[k]).trim() : "");
-        return { pieces: t("pieces"), lengthCm: t("lengthCm"), widthCm: t("widthCm"), heightCm: t("heightCm"), weightPerPcKg: t("weightPerPcKg") };
+        const line: RemeasuredLine = { pieces: t("pieces"), lengthCm: t("lengthCm"), widthCm: t("widthCm"), heightCm: t("heightCm"), weightPerPcKg: t("weightPerPcKg") };
+        return t("volumePerPcM3") ? { ...line, volumePerPcM3: t("volumePerPcM3") } : line;
       })
       .filter((l) => num(l.pieces) > 0);
   } catch {
@@ -31,7 +35,7 @@ export function readRemeasuredLines(json: string | undefined): RemeasuredLine[] 
   }
 }
 
-const FIELDS: [keyof RemeasuredLine, string][] = [
+const FIELDS: [Exclude<keyof RemeasuredLine, "volumePerPcM3">, string][] = [
   ["pieces", "Qty"],
   ["lengthCm", "length"],
   ["widthCm", "width"],
@@ -39,7 +43,7 @@ const FIELDS: [keyof RemeasuredLine, string][] = [
   ["weightPerPcKg", "kg per piece"],
 ];
 // In the server's order: the weight first, then the sizes.
-const MEASURED: [keyof RemeasuredLine, string][] = [
+const MEASURED: [Exclude<keyof RemeasuredLine, "volumePerPcM3">, string][] = [
   ["weightPerPcKg", "kg per piece"],
   ["lengthCm", "length"],
   ["widthCm", "width"],
@@ -101,11 +105,13 @@ export function unmeasuredReason(json: string | undefined): string | null {
  */
 export function sameRemeasuredLines(a: string, b: string): boolean {
   if (a === b) return true;
-  const read = (t: string) => JSON.stringify(readRemeasuredLines(t).map((l) => Object.fromEntries(FIELDS.map(([k]) => [k, tidyNumber(l[k])]))));
+  const read = (t: string) =>
+    JSON.stringify(readRemeasuredLines(t).map((l) => ({ ...Object.fromEntries(FIELDS.map(([k]) => [k, tidyNumber(l[k])])), volumePerPcM3: tidyNumber(l.volumePerPcM3 ?? "") })));
   return readRemeasuredLines(a).length > 0 && read(a) === read(b);
 }
 
-export const lineCbm = (l: RemeasuredLine) => (num(l.pieces) * num(l.lengthCm) * num(l.widthCm) * num(l.heightCm)) / 1_000_000;
+/** A line's m³: from its sizes when all three are known, else its volume per piece (a House B/L's), as Cargo Details. */
+export const lineCbm = (l: RemeasuredLine) => num(l.pieces) * dimensionVolumePerPiece({ ...l, volumePerPcM3: l.volumePerPcM3 ?? "" });
 
 /**
  * Figures rounded as they are compared and shown everywhere - kg to 0.1, m³ to 0.001 - on both

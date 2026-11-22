@@ -35,3 +35,67 @@ export function besideShipment(fields: readonly ExtractedField[], existingFor: (
     return { ...f, existingValue, hasConflict, approved: hasConflict ? false : f.approved };
   });
 }
+
+// ─── The House B/L of the shipment written into (owner's answer 22 Nov) ─────────────────────────
+// When the House B/L read is the shipment's own, the shipment keeps its Colli, Total Weight and Total
+// Volume: the B/L's go to its Warehouse tab as the remeasurement (the warehouse's job section,
+// remeasure_rows), compared there with the shipment's - unless the warehouse has remeasured lines of
+// its own, which stay.
+
+/** The read's figures that go to the Warehouse as the remeasurement, not onto the shipment. */
+export const BL_FIGURES = ["PCS", "Total Weight In Tons", "Total Volume In CBM"] as const;
+
+/** Whether two House B/L numbers are the same B/L (letters and digits, any case), both filled. */
+export const sameHouseBol = (a: string | null | undefined, b: string | null | undefined): boolean => !!bolKey(a ?? "") && bolKey(a ?? "") === bolKey(b ?? "");
+
+/**
+ * The review's fields when the B/L is the shipment's own: its figures are new to the Warehouse, not
+ * set against the shipment's, so they show as new and ticked (where the files gave one value).
+ */
+export function asRemeasurement(fields: readonly ExtractedField[]): ExtractedField[] {
+  return fields.map((f) =>
+    (BL_FIGURES as readonly string[]).includes(f.column) ? { ...f, existingValue: "", hasConflict: false, approved: f.choices ? f.approved : true } : f,
+  );
+}
+
+/** The approved fields without the B/L's figures: what is written onto the shipment. */
+export function withoutBlFigures(approved: Record<string, string>): Record<string, string> {
+  const rest = { ...approved };
+  for (const label of BL_FIGURES) delete rest[label];
+  return rest;
+}
+
+// A figure as read: "1,500.5" or "1 500,5" or "30 PLTS" → its number; NaN when there is none.
+const figure = (v: string | undefined) => {
+  const t = (v ?? "").trim().replace(/\s/g, "");
+  const n = /,\d{1,2}$/.test(t) && !t.includes(".") ? t.replace(",", ".") : t.replace(/,/g, "");
+  const m = n.match(/^\d+(\.\d+)?/);
+  return m ? Number(m[0]) : NaN;
+};
+// A per-piece figure as stored: plain, at most `decimals` places, no trailing zeros.
+const plain = (n: number, decimals: number) => (Number.isFinite(n) && n > 0 ? String(Number(n.toFixed(decimals))) : "");
+
+/** A remeasured line as the Warehouse keeps it: numbers as text; a B/L's has no sizes, its volume per piece instead. */
+export interface BlRemeasuredLine {
+  pieces: string;
+  lengthCm: string;
+  widthCm: string;
+  heightCm: string;
+  weightPerPcKg: string;
+  volumePerPcM3?: string;
+}
+
+/**
+ * The B/L's Colli, Total Weight (tons) and Total Volume (m³) as one remeasured line: Qty the colli,
+ * weight and volume per piece so its totals are the B/L's. Null when the B/L names no whole colli
+ * above 0 (a line is counted by its pieces).
+ */
+export function blRemeasuredLine(approved: Record<string, string>): BlRemeasuredLine | null {
+  const colli = figure(approved["PCS"]);
+  if (!(colli > 0) || !Number.isInteger(colli)) return null;
+  const kg = figure(approved["Total Weight In Tons"]) * 1000;
+  const m3 = figure(approved["Total Volume In CBM"]);
+  const line: BlRemeasuredLine = { pieces: String(colli), lengthCm: "", widthCm: "", heightCm: "", weightPerPcKg: plain(kg / colli, 6) };
+  const volume = plain(m3 / colli, 7);
+  return volume ? { ...line, volumePerPcM3: volume } : line;
+}
