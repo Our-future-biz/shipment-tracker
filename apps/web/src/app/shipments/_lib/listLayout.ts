@@ -7,8 +7,12 @@
  * gives back let Internal Reference hold the longest reference whole (review of the S21-058 fix).
  */
 export const CELL_PADDING = 12;
-/** The class that gives the list's cells their CELL_PADDING (the Shipments list's own; AppGrid lists keep antd's). */
-export const CELL_PADDING_CLASS = "[&_.ant-table-cell]:!px-1.5";
+/**
+ * The class that gives the list's cells their CELL_PADDING (the Shipments list's own; AppGrid lists keep antd's). Not
+ * the pinned icon cells' (fixed right): `.list .ant-table-cell` with !important outranks a cell's own `!pl-0`, and each
+ * 22 px icon would get 6 px a side, the chat button spilling into the warning cell (review of system-22).
+ */
+export const CELL_PADDING_CLASS = "[&_.ant-table-cell:not(.ant-table-cell-fix-right)]:!px-1.5";
 
 /** The tick box column on the left. */
 export const TICK_BOX_WIDTH = 44;

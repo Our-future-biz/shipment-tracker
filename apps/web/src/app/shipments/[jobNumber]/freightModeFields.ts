@@ -143,9 +143,10 @@ const ROAD_UNTOUCHED: Readonly<Record<string, string>> = {
 };
 
 /**
- * A road export's too: the OBL the server starts an export's House and Master BoL Type with
- * (fieldDefaults exportBolDefaults). No other job gets a type seeded, so an OBL on an import was
- * set - and makes the job wait for an original B/L (waitsForOriginalBl).
+ * A road export's too: the OBL the server started an export's House and Master BoL Type with before
+ * it stopped seeding them on road - fieldDefaults exportBolDefaults seeds them on sea and rail exports
+ * only now - which road exports made before still hold (review of system-22). No road import ever got
+ * a type seeded, so an OBL on one was set - and makes the job wait for an original B/L (waitsForOriginalBl).
  */
 const ROAD_EXPORT_UNTOUCHED: Readonly<Record<string, string>> = { ...ROAD_UNTOUCHED, houseBolType: "OBL", masterBolType: "OBL" };
 

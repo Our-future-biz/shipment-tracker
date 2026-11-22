@@ -536,7 +536,7 @@ export const ShipmentsTable = ({
       fixed: isFixedColumn(col.key) || col.key === leadColumn ? ("left" as const) : undefined,
       // A title wraps to two lines rather than being cut: the columns are held at their widths, some
       // narrower than their title in one line (mock test S21-058).
-      onHeaderCell: () => ({ id: col.key, style: { whiteSpace: "normal" } }) as React.HTMLAttributes<HTMLTableCellElement>,
+      onHeaderCell: () => ({ id: col.key, className: "!whitespace-normal" }) as React.HTMLAttributes<HTMLTableCellElement>,
       // Per-column conditional background tint (applies on every row).
       onCell: (record: ShipmentItem) => {
         const info = rowInfo.get(record.id);
@@ -817,8 +817,9 @@ export const ShipmentsTable = ({
       },
     });
 
-    // Each titled column's width can be dragged (not the icon columns).
-    return resizableColumns(cols, { widthOf, resizeProps });
+    // Each titled column's width can be dragged (not the icon columns). The table is drawn fixed-layout: a dragged
+    // column's title still wraps and its cells keep their own look (review of system-22).
+    return resizableColumns(cols, { widthOf, resizeProps }, { fixedLayout: true });
   }, [user, canChangeOffice, visible, leadColumn, viewReadonly, rowInfo, router, updateField, updateShipment, message, unreadBy, detailHref, widthOf, resizeProps]);
 
   // The table as wide as its columns' widths together (the dragged ones included), drawn with a fixed

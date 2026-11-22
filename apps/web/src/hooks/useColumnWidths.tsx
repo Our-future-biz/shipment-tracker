@@ -109,10 +109,12 @@ function columnKeyOf(col: { key?: unknown; dataIndex?: unknown }): string | unde
  * a column is never narrower than its text: one the user sized is held at that width on every
  * cell, and a value too long for it fades out at the end (the whole of it shows after a 1 s
  * hover), as the editable cells do. The table's header cell must be DraggableHeaderCell. In a
- * fixed-layout table (the Shipments list since mock test S21-058) every column holds its width
- * anyway; the one the user sized simply wins over the default.
+ * fixed-layout table (the Shipments list since mock test S21-058; `fixedLayout`) every column holds its
+ * width anyway; the one the user sized simply wins over the default, and its title and cells are left
+ * as they are: a one-line fade around them would stop its title wrapping as the others do, and put a
+ * read-only value's own FadeText inside another (review of system-22).
  */
-export function resizableColumns<T>(columns: ColumnsType<T>, sizing: ColumnSizing): ColumnsType<T> {
+export function resizableColumns<T>(columns: ColumnsType<T>, sizing: ColumnSizing, { fixedLayout = false }: { fixedLayout?: boolean } = {}): ColumnsType<T> {
   return columns.map((col) => {
     const key = columnKeyOf(col as { key?: unknown; dataIndex?: unknown });
     if (!key || !col.title || "children" in col) return col;
@@ -125,8 +127,8 @@ export function resizableColumns<T>(columns: ColumnsType<T>, sizing: ColumnSizin
     return {
       ...col,
       width: width ?? col.width,
-      // Only a held column can be narrower than its text.
-      ...(held && {
+      // Only a held column can be narrower than its text (in a table as wide as its content).
+      ...(held && !fixedLayout && {
         title: typeof col.title === "function" ? col.title : fade(col.title),
         render: (value: unknown, record: T, index: number) => fade((ownRender ? ownRender(value, record, index) : value) as ReactNode),
       }),

@@ -13,7 +13,8 @@ import type { ShipmentItem } from "@/hooks/useShipments";
 import { businessDayOf, formatDate, formatDateTime } from "@/lib/date";
 import { amountInBox, normaliseAmount } from "@/lib/money";
 import { onAmountBlur } from "./amountBox";
-import { realCostQueue } from "./realCostQueue";
+import { RealCostInput } from "./RealCostInput";
+import { realCostSaves, shownRealCost, type ShownRealCost } from "./realCostQueue";
 import { billedRealCostOpen, closesRow, curBoxAfter, ownDirectionFirst, typedNumbersAfterSave } from "./costRowRules";
 import { asData, computeTotals, isSalesQuoteRef, quoteProfitIn } from "@/app/sales/_lib/salesQuote";
 import { useSalesQuoteByRef } from "@/hooks/useSalesQuote";
@@ -630,11 +631,21 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
      currency picked at once otherwise reach the server side by side, and on a billed shipment the second, read before
      the first was written, is refused as changed meanwhile (mock council S1-06) though nobody else typed. Each sends
      all three was-values, read as the line's previous own save left it (realCostQueue, mock test run F1); once one is
-     refused as changed meanwhile, the row's saves still waiting are dropped and the costs loaded again. */
-  const [realCostSaves] = useState(realCostQueue);
+     refused as changed meanwhile, the row's saves still waiting are dropped and the costs loaded again. The queue is
+     the page's (realCostSaves), not the tab's, which is drawn afresh each time it is opened (review of system-22). */
+  /* What each line's Qty and Real Cost boxes show (RealCostInput): a save with none of its own still running goes on
+     that, not on the row as last loaded - a real cost loaded while the user typed is refused, not typed over unseen
+     (review of system-22). */
+  const shownReal = useRef(new Map<string, ShownRealCost>());
+  const showReal = (id: string, part: keyof ShownRealCost) => (drawn: string | null) => {
+    const shown = { ...shownReal.current.get(id) };
+    if (drawn === null) delete shown[part];
+    else shown[part] = drawn;
+    shownReal.current.set(id, shown);
+  };
   const saveRealCost = (r: BuyingRow, change: Pick<controllers.UpdateBuyingRequest, "realQty" | "realAmount" | "realCurrency">) =>
     realCostSaves(r.id, {
-      drawn: r,
+      drawn: shownRealCost(r, shownReal.current.get(r.id)),
       after: afterNumber(r.id),
       save: (was) => updateBuy.mutateAsync({ id: r.id, ...change, ...was }).then((res) => res.cost),
       changedMeanwhile: (err) => isAPIError(err) && err.code === ErrCode.Aborted,
@@ -981,15 +992,17 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
                     )}
                   </td>
                   {/* Real. Each save sends the whole real cost it was typed on (saveRealCost): on a billed job one typed over
-                      someone else's newer real cost is refused instead of overwriting it (mock test run F1). */}
+                      someone else's newer real cost is refused instead of overwriting it (mock test run F1). Its boxes
+                      follow the line as it is loaded again, and say what they show (RealCostInput, review of system-22). */}
                   <td className={`${CELL} ${SPLIT}`}>
-                    <input
+                    <RealCostInput
                       className={`${FIELD} text-center${realCost}`}
                       {...closed(realCostLocked)}
-                      defaultValue={amountInBox(r.realQty)}
+                      stored={r.realQty}
                       inputMode="decimal"
                       onKeyDown={onlyNumbers}
-                      onBlur={onAmountBlur(r.realQty, (realQty, refused) => saveRealCost(r, { realQty }).catch(refused))}
+                      onShown={showReal(r.id, "realQty")}
+                      onSave={(realQty) => saveRealCost(r, { realQty })}
                     />
                   </td>
                   <RealPair
@@ -1004,14 +1017,15 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
                             : t.buyRowUnder[r.id] ? "Real Cost is lower than Estimated" : undefined
                         }
                       >
-                        <input
+                        <RealCostInput
                           className={`${FIELD} text-right${realCost} ${t.buyRowUnder[r.id] ? "!text-emerald-700 font-bold" : ""}`}
                           {...closed(realCostLocked)}
-                          defaultValue={amountInBox(r.realAmount)}
+                          stored={r.realAmount}
                           inputMode="decimal"
                           aria-label="Real Cost"
                           onKeyDown={(e) => { onlyNumbers(e); if (!billed) toCurOnEnter(e); }}
-                          onBlur={onAmountBlur(r.realAmount, (realAmount, refused) => saveRealCost(r, { realAmount }).catch(refused))}
+                          onShown={showReal(r.id, "realAmount")}
+                          onSave={(realAmount) => saveRealCost(r, { realAmount })}
                         />
                       </td>
                     }

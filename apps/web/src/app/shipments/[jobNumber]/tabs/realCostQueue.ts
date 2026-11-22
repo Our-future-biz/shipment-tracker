@@ -18,6 +18,21 @@ export const realCostWas = (c: RealCost): RealCostWas => ({
   realCurrencyWas: c.realCurrency,
 });
 
+/** The stored values a line's Qty and Real Cost boxes show (amountBox ShownAmount `drawn`), each while one is drawn. */
+export type ShownRealCost = Partial<Pick<RealCost, "realQty" | "realAmount">>;
+
+/**
+ * The real cost a line's boxes show, which its saves are sent on (review of system-22): Qty and Real Cost as their
+ * boxes last drew them - the one being typed in as it was when the user went in, so a value loaded meanwhile is
+ * refused instead of typed over unseen - and the currency as the row has it, which its (controlled) picker shows.
+ * A part no box draws is the row's.
+ */
+export const shownRealCost = (row: RealCost, shown: ShownRealCost | undefined): RealCost => ({
+  realQty: shown?.realQty ?? row.realQty,
+  realAmount: shown?.realAmount ?? row.realAmount,
+  realCurrency: row.realCurrency,
+});
+
 /** A real-cost save that never ran: one before it on the same line was refused as changed meanwhile. */
 export class RealCostSaveDropped extends Error {
   constructor() {
@@ -35,7 +50,8 @@ interface Line {
 }
 
 export interface RealCostSave<T extends RealCost> {
-  /** The row as drawn when the save was asked for: used only when no own save of the line is still running. */
+  /** The real cost as the line's boxes showed it when the save was asked for (shownRealCost): used only when no own
+   *  save of the line is still running. */
   drawn: RealCost;
   /** What else the save waits for (the line's invoice number save). */
   after?: Promise<unknown>;
@@ -88,3 +104,11 @@ export const realCostQueue = () => {
     return saving;
   };
 };
+
+/**
+ * The job page's one real-cost queue (review of system-22). The Costs tab is drawn afresh each time it is opened: with
+ * a queue of its own, a tab opened again while the save typed before leaving still runs would start one empty, and the
+ * user's next edit - sent on the row as cached from before that save - be refused as changed meanwhile though nobody
+ * else typed. Lines are told apart by their ids, and a line is let go once its saves are done.
+ */
+export const realCostSaves = realCostQueue();

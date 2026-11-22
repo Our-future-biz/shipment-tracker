@@ -80,4 +80,22 @@ describe("resizableColumns", () => {
     expect(other!.render).toBe(own);
     expect(other!.title).toBe("POD");
   });
+
+  it("in a fixed-layout table leaves a sized column's title and cells as they are, still held at its width (review of system-22)", () => {
+    // The Shipments list: its titles wrap, and a read-only value fades in a FadeText of its own - none around either.
+    const own = (v: unknown) => `<${String(v)}>`;
+    const [sized] = resizableColumns<Row>(
+      [{ key: "pol", dataIndex: "pol", title: "POL", render: own, onHeaderCell: () => ({ className: "!whitespace-normal" }) as never }],
+      sizing({ pol: 90 }),
+      { fixedLayout: true },
+    ) as { title?: unknown; render?: unknown; width?: number; onHeaderCell?: (c: never) => unknown; onCell?: (r: Row, i: number) => unknown }[];
+    expect(sized!.title).toBe("POL");
+    expect(sized!.render).toBe(own);
+    expect(sized!.width).toBe(90);
+    const header = sized!.onHeaderCell?.({} as never) as { className?: string; style?: object; onResizeWidth?: unknown };
+    expect(header.className).toBe("!whitespace-normal");
+    expect(header.style).toEqual({ width: 90, minWidth: 90, maxWidth: 90 });
+    expect(typeof header.onResizeWidth).toBe("function");
+    expect(sized!.onCell?.({ id: "1" }, 0)).toEqual({ style: { width: 90, minWidth: 90, maxWidth: 90 } });
+  });
 });
