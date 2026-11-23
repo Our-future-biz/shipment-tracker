@@ -84,6 +84,12 @@ export function useSailingUtilization(id: string) {
   return { box: query.data ?? null, isLoading: query.isLoading, isError: query.isError, refetch: query.refetch };
 }
 
+/** The shipments taken off a sailing, the last one first: who took each off, when and why. */
+export function useSailingRemoved(id: string) {
+  const query = useQuery({ queryKey: [...LIST_KEY, "sailing", id, "removed"], queryFn: () => api.shipments.coLoadingSailingRemoved(id), enabled: isUuid(id) });
+  return { removed: query.data?.data ?? [], isError: query.isError };
+}
+
 /**
  * Linking shipments to a sailing (its box) and taking them off. The shipments lists are read again
  * after either: the sailing's Linked shipments and what Link shipments offers are both lists of them.
@@ -95,6 +101,7 @@ export function useSailingShipmentLinks(sailingId: string) {
     Promise.all([
       qc.invalidateQueries({ queryKey: ["shipments"] }),
       qc.invalidateQueries({ queryKey: [...LIST_KEY, "sailing", sailingId, "utilization"] }),
+      qc.invalidateQueries({ queryKey: [...LIST_KEY, "sailing", sailingId, "removed"] }),
       // The service's list of sailings shows each box's fill too.
       qc.invalidateQueries({ queryKey: [...LIST_KEY, "sailings"] }),
     ]);

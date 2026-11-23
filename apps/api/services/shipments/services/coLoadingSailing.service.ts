@@ -1,12 +1,12 @@
 import { APIError } from "encore.dev/api";
 import { isUuid } from "../../../lib/uuid";
 import { containerCapacity } from "../../../lib/containerCapacity";
-import type { BoxUtilization, CoLoadingSailingItem } from "../interfaces/interfaces";
-import { boxFillOf, boxUtilization, type BoxShipment } from "../lib/boxUtilization";
+import type { BoxUtilization, CoLoadingSailingItem, SailingRemovedShipment } from "../interfaces/interfaces";
+import { boxFillOf, boxUtilization } from "../lib/boxUtilization";
 import { CANCELLED_STATUS } from "../lib/fieldDefaults";
-import { checkSailingInput, linkRefusal, type SailingInput } from "../lib/coLoadingSailing";
+import { checkSailingInput, linkRefusal, oddInBox, type SailingInput } from "../lib/coLoadingSailing";
 import { userNameOf } from "../lib/userName";
-import { coLoadingSailingRepository as repo } from "../repositories/coLoadingSailing.repository";
+import { coLoadingSailingRepository as repo, type LinkedCargo } from "../repositories/coLoadingSailing.repository";
 import type { CoLoadingSailingRecord } from "../schemas/coLoadingSailing.schema";
 import { coLoadingServiceService } from "./coLoadingService.service";
 
@@ -23,12 +23,15 @@ const toItem = (r: CoLoadingSailingRecord): CoLoadingSailingItem => ({
   createdAt: r.createdAt.toISOString(),
 });
 
-/** The fill of a box of this type holding these shipments; a cancelled one is listed, not counted. */
-const fillOf = (containerType: string, shipments: Omit<BoxShipment, "cancelled">[]) =>
+/**
+ * The fill of a box of this type, on a service of this mode, holding these shipments. A cancelled
+ * one is listed, not counted; one of another kind than the box is for is counted and remarked on.
+ */
+const fillOf = (containerType: string, serviceMode: string, shipments: LinkedCargo[]) =>
   boxUtilization(
     containerType,
     containerCapacity(containerType),
-    shipments.map((s) => ({ ...s, cancelled: s.status === CANCELLED_STATUS })),
+    shipments.map(({ freightMode, loadType, ...s }) => ({ ...s, cancelled: s.status === CANCELLED_STATUS, odd: oddInBox(serviceMode, { freightMode, loadType }) })),
   );
 
 // A Co-Loading Concept service's sailings: listed on its page, made with "Create new sailing" by anyone
@@ -36,11 +39,11 @@ const fillOf = (containerType: string, shipments: Omit<BoxShipment, "cancelled">
 class CoLoadingSailingService {
   /** The service's sailings, the newest first; a closed service's too (it stays in the app). */
   async list(serviceId: string, companyId: string): Promise<CoLoadingSailingItem[]> {
-    await coLoadingServiceService.get(serviceId, companyId);
+    const service = await coLoadingServiceService.get(serviceId, companyId);
     const rows = await repo.listByService(serviceId, companyId);
     // Each sailing with how full its box is, so every open box is seen on the one list.
     const cargo = await repo.boxShipmentsOf(rows.map((r) => r.id), companyId);
-    return rows.map((r) => ({ ...toItem(r), fill: boxFillOf(fillOf(r.containerType, cargo.get(r.id) ?? [])) }));
+    return rows.map((r) => ({ ...toItem(r), fill: boxFillOf(fillOf(r.containerType, service.mode, cargo.get(r.id) ?? [])) }));
   }
 
   /** One sailing, for its own page (Box utilization, Linked shipments, Earnings). */
@@ -56,7 +59,18 @@ class CoLoadingSailingService {
    */
   async utilization(id: string, companyId: string): Promise<BoxUtilization> {
     const sailing = await this.get(id, companyId);
-    return fillOf(sailing.containerType, await repo.boxShipments(sailing.id, companyId));
+    const service = await coLoadingServiceService.get(sailing.serviceId, companyId);
+    return fillOf(sailing.containerType, service.mode, await repo.boxShipments(sailing.id, companyId));
+  }
+
+  /** The shipments taken off the sailing, the last one first, with who took each off and why. */
+  async removed(id: string, companyId: string): Promise<SailingRemovedShipment[]> {
+    const sailing = await this.get(id, companyId);
+    return (await repo.removedFrom(sailing.id, companyId)).map((r) => ({
+      ...r,
+      removedAt: (r.removedAt ?? r.linkedAt).toISOString(),
+      linkedAt: r.linkedAt.toISOString(),
+    }));
   }
 
   /**
@@ -80,10 +94,19 @@ class CoLoadingSailingService {
   }
 
   /** Takes a shipment off the sailing. Not while the service is closed. */
-  async unlinkShipment(sailingId: string, shipmentId: string, companyId: string): Promise<void> {
-    const sailing = await this.get(sailingId, companyId);
-    await coLoadingServiceService.requireOpen(sailing.serviceId, companyId);
-    if (!isUuid(shipmentId) || !(await repo.unlink(sailingId, shipmentId, companyId))) throw APIError.notFound("The shipment is not on this sailing.");
+  async unlinkShipment(sailingId: string, shipmentId: string, actor: { userID: string; companyID: string }): Promise<void> {
+    const sailing = await this.get(sailingId, actor.companyID);
+    await coLoadingServiceService.requireOpen(sailing.serviceId, actor.companyID);
+    const by = { id: actor.userID, name: await userNameOf(actor.userID) };
+    if (!isUuid(shipmentId) || !(await repo.unlink(sailingId, shipmentId, actor.companyID, by))) throw APIError.notFound("The shipment is not on this sailing.");
+  }
+
+  /**
+   * A deleted shipment leaves the box it was in, and the sailing's history says so. Best effort:
+   * the shipment is gone either way, and a link left behind is not counted (its shipment is deleted).
+   */
+  async shipmentDeleted(shipmentId: string, companyId: string, userId?: string): Promise<void> {
+    await repo.dropDeletedShipment(shipmentId, companyId, { id: userId ?? null, name: userId ? await userNameOf(userId) : "" });
   }
 
   async create(serviceId: string, input: SailingInput, actor: { userID: string; companyID: string }): Promise<CoLoadingSailingItem> {

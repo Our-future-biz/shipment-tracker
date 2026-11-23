@@ -74,6 +74,7 @@ vi.mock("../../repositories/commercialInvoice.repository", () => ({
   commercialInvoiceRepository: { listByShipmentId: vi.fn(async () => []), listByShipmentIds: vi.fn(), replaceForShipment: vi.fn() },
 }));
 vi.mock("../../topics", () => ({ shipmentDeleted: { publish: vi.fn() }, shipmentPartiesChanged: { publish: vi.fn() } }));
+vi.mock("../../services/coLoadingSailing.service", () => ({ coLoadingSailingService: { shipmentDeleted: vi.fn() } }));
 vi.mock("../../services/quoteLinks.service", () => ({ quoteLinksService: { syncReference: vi.fn(), markDirty: vi.fn() } }));
 vi.mock("../../services/shipmentEvents.service", () => ({ deliverShipmentEvents: vi.fn(async () => ({ sent: 1, retry: 0, failed: 0 })) }));
 vi.mock("../../repositories/shipmentReleaseOverride.repository", () => ({ shipmentReleaseOverrideRepository: { create: vi.fn() } }));
@@ -98,6 +99,7 @@ import { shipmentAuditRepository } from "../../repositories/shipmentAudit.reposi
 import { shipmentTaskRepository } from "../../repositories/shipmentTask.repository";
 import { shipmentTrackingEventRepository } from "../../repositories/shipmentTrackingEvent.repository";
 import { quoteLinksService } from "../../services/quoteLinks.service";
+import { coLoadingSailingService } from "../../services/coLoadingSailing.service";
 import { LATE_CHARGE_IDS_KEPT_MS, shipmentService } from "../../services/shipment.service";
 import { shipmentPartiesChanged } from "../../topics";
 import { RELEASED_BEFORE_RECEIVED } from "../../lib/shipmentEditRule";
@@ -1491,6 +1493,15 @@ describe("normalizeReferences", () => {
 });
 
 describe("softDelete", () => {
+  it("takes the deleted shipment out of its Co-Loading box, and still deletes it when that fails", async () => {
+    stored.set(SHIPMENT, row());
+    await shipmentService.softDelete(SHIPMENT, COMPANY, USER);
+    expect(coLoadingSailingService.shipmentDeleted).toHaveBeenCalledWith(SHIPMENT, COMPANY, USER);
+    stored.set(SHIPMENT, row());
+    vi.mocked(coLoadingSailingService.shipmentDeleted).mockRejectedValueOnce(new Error("down"));
+    await expect(shipmentService.softDelete(SHIPMENT, COMPANY, USER)).resolves.toBeUndefined();
+  });
+
   it("tells the quote the deleted shipment named, after the shipment is gone", async () => {
     stored.set(SHIPMENT, row({ salesNumber: ` ${REF}` }));
     await shipmentService.softDelete(SHIPMENT, COMPANY, USER);

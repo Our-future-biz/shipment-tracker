@@ -15,15 +15,15 @@ import { useQuery } from "@tanstack/react-query";
 import { api, apiErrorMessage } from "@/lib/api";
 import { useDebounced } from "@/hooks/useDebounced";
 import { useShipments, type ShipmentItem } from "@/hooks/useShipments";
-import { useSailingShipmentLinks, useSailingUtilization, type CoLoadingSailing } from "@/hooks/useCoLoadingServices";
+import { useSailingRemoved, useSailingShipmentLinks, useSailingUtilization, type CoLoadingSailing } from "@/hooks/useCoLoadingServices";
 import { linkedCount } from "@/app/shipments/_components/MasterJobDialog";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { EMPTY_CELL } from "@/components/EmptyCell";
-import { formatDate } from "@/lib/date";
+import { formatDate, formatDateTime } from "@/lib/date";
 import { placeCodeOf } from "@/lib/places";
 import { useMessages } from "@/lib/toast";
 import { CARD, EMPTY_STATE, HINT, LINK, MODAL_TITLE, REF, TD, TD_TOTAL, TH } from "@/styles/ui";
-import { overfillWarning, tableCbm, tableKg, type BoxUtilization } from "../_lib/boxUtilization";
+import { oddInBox, oddWarning, overfillWarning, removedReasonWords, tableCbm, tableKg, type BoxUtilization } from "../_lib/boxUtilization";
 import { sailingTitle } from "../_lib/sailings";
 
 // The picker's head stays put while its rows scroll, as the master job's picker does.
@@ -47,10 +47,13 @@ const cell = (v: string | null | undefined) => (v ? <span title={v}>{v}</span> :
 export function SailingShipmentsTab({
   sailing,
   serviceName,
+  serviceMode,
   closed,
 }: {
   sailing: CoLoadingSailing;
   serviceName: string;
+  /** The service's mode of transport: a shipment of another kind is remarked on before it is linked. */
+  serviceMode: string;
   closed: boolean;
 }) {
   const { shipments, isLoading, isError } = useShipments({ sailing: sailing.id });
@@ -59,6 +62,7 @@ export function SailingShipmentsTab({
   // totals, in kg. While they are read, the shipment's typed totals stand in.
   const { box } = useSailingUtilization(sailing.id);
   const partOf = new Map((box?.rows ?? []).map((row) => [row.shipmentId, row]));
+  const { removed } = useSailingRemoved(sailing.id);
   const message = useMessages();
   const [picking, setPicking] = useState(false);
   const [toRemove, setToRemove] = useState<ShipmentItem | null>(null);
@@ -183,6 +187,37 @@ export function SailingShipmentsTab({
         )}
       </div>
 
+      {/* What was taken off this sailing: who did it, when and why. */}
+      {removed.length > 0 && (
+        <details className="border-t border-slate-100 px-5 py-3">
+          <summary className="cursor-pointer text-[13px] font-medium text-slate-700">Taken off this sailing ({removed.length})</summary>
+          <div className="mt-2 overflow-x-auto">
+            <table className="w-full min-w-[640px] border-collapse">
+              <thead>
+                <tr>
+                  <th className={TH}>Shipment</th>
+                  <th className={TH}>Customer</th>
+                  <th className={TH}>Taken off</th>
+                  <th className={TH}>By</th>
+                  <th className={TH}>Why</th>
+                </tr>
+              </thead>
+              <tbody>
+                {removed.map((r) => (
+                  <tr key={`${r.shipmentId}-${r.removedAt}`}>
+                    <td className={`${TD} ${REF} font-semibold`}>{r.jobNumber || EMPTY_CELL}</td>
+                    <td className={TD}>{cell(r.customer)}</td>
+                    <td className={`${TD} whitespace-nowrap tabular-nums`}>{formatDateTime(r.removedAt)}</td>
+                    <td className={TD}>{cell(r.removedByName)}</td>
+                    <td className={TD}>{removedReasonWords(r.reason)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </details>
+      )}
+
       <ConfirmModal
         open={!!toRemove}
         title={toRemove ? `Remove ${toRemove.jobNumber} from ${name}?` : ""}
@@ -207,6 +242,7 @@ export function SailingShipmentsTab({
         open={picking}
         sailingName={name}
         serviceName={serviceName}
+        serviceMode={serviceMode}
         box={box}
         onClose={() => setPicking(false)}
         onLink={async (ids) => {
@@ -226,6 +262,7 @@ function LinkSailingShipmentsModal({
   open,
   sailingName,
   serviceName,
+  serviceMode,
   box,
   onClose,
   onLink,
@@ -233,6 +270,7 @@ function LinkSailingShipmentsModal({
   open: boolean;
   sailingName: string;
   serviceName: string;
+  serviceMode: string;
   /** The box as it stands, to warn before a link would overfill it; null while it is read. */
   box: BoxUtilization | null;
   onClose: () => void;
@@ -242,7 +280,7 @@ function LinkSailingShipmentsModal({
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<string[]>([]);
   // What each ticked shipment would add to the box, kept by id: a tick stays through a new search.
-  const [cargoOf, setCargoOf] = useState<Record<string, { weightKg: number; volumeCbm: number }>>({});
+  const [cargoOf, setCargoOf] = useState<Record<string, { weightKg: number; volumeCbm: number; odd: string | null }>>({});
   const [linking, setLinking] = useState(false);
   const search = useDebounced(query, 300);
   const results = useQuery({
@@ -259,7 +297,7 @@ function LinkSailingShipmentsModal({
   const candidates = results.data?.data ?? [];
   const toggle = (s: ShipmentItem) => {
     setSelected((prev) => (prev.includes(s.id) ? prev.filter((x) => x !== s.id) : [...prev, s.id]));
-    setCargoOf((prev) => ({ ...prev, [s.id]: { weightKg: typedNumber(s.totalWeightTons) * 1000, volumeCbm: typedNumber(s.totalVolumeCbm) } }));
+    setCargoOf((prev) => ({ ...prev, [s.id]: { weightKg: typedNumber(s.totalWeightTons) * 1000, volumeCbm: typedNumber(s.totalVolumeCbm), odd: oddInBox(serviceMode, s) } }));
   };
   // A warning only: the overflow is the user's decision.
   const warning = box
@@ -269,6 +307,8 @@ function LinkSailingShipmentsModal({
         volumeCbm: selected.reduce((total, id) => total + (cargoOf[id]?.volumeCbm ?? 0), 0),
       })
     : null;
+  // A shipment of another kind than the box is for (another mode, a container of its own) is remarked on, not refused.
+  const odd = oddWarning(selected.flatMap((id) => cargoOf[id]?.odd ?? []));
 
   const close = () => {
     setQuery("");
@@ -327,11 +367,14 @@ function LinkSailingShipmentsModal({
           onChange={(e) => setQuery(e.target.value)}
           aria-label="Search shipments"
         />
-        {warning && (
-          <p className="m-0 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[13px] text-amber-800" role="status">
-            <WarningOutlined className="mt-0.5" aria-hidden />
-            <span>{warning}</span>
-          </p>
+        {[warning, odd].map(
+          (text) =>
+            text && (
+              <p key={text} className="m-0 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[13px] text-amber-800" role="status">
+                <WarningOutlined className="mt-0.5" aria-hidden />
+                <span>{text}</span>
+              </p>
+            ),
         )}
         <div className="max-h-[420px] overflow-auto scroll-pt-9 rounded-lg border border-slate-200">
           <table className="w-full min-w-[800px] table-fixed border-separate border-spacing-0">
@@ -381,9 +424,10 @@ function LinkSailingShipmentsModal({
                     </td>
                     <td
                       className={`${TD} truncate ${!s.customer && party ? "!text-slate-400" : ""}`}
-                      title={party || undefined}
+                      title={[party, oddInBox(serviceMode, s)].filter(Boolean).join(" · ") || undefined}
                     >
                       {party || EMPTY_CELL}
+                      {oddInBox(serviceMode, s) && <span className="ml-1.5 text-[11px] font-medium text-amber-700">{oddInBox(serviceMode, s)}</span>}
                     </td>
                     <td
                       className={`${TD} truncate tabular-nums`}

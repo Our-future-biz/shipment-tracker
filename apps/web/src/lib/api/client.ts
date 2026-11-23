@@ -3412,6 +3412,7 @@ export namespace shipments {
             this.coLoadingSailingGet = this.coLoadingSailingGet.bind(this)
             this.coLoadingSailingLinkShipments = this.coLoadingSailingLinkShipments.bind(this)
             this.coLoadingSailingList = this.coLoadingSailingList.bind(this)
+            this.coLoadingSailingRemoved = this.coLoadingSailingRemoved.bind(this)
             this.coLoadingSailingUnlinkShipment = this.coLoadingSailingUnlinkShipment.bind(this)
             this.coLoadingSailingUtilization = this.coLoadingSailingUtilization.bind(this)
             this.coLoadingServiceClose = this.coLoadingServiceClose.bind(this)
@@ -3712,6 +3713,15 @@ export namespace shipments {
          */
         public async coLoadingSailingUnlinkShipment(id: string, shipmentId: string): Promise<void> {
             await this.baseClient.callTypedAPI("DELETE", `/co-loading/sailings/${encodeURIComponent(id)}/shipments/${encodeURIComponent(shipmentId)}`)
+        }
+
+        /**
+         * The shipments taken off the sailing, the last one first: who took each off, when and why.
+         */
+        public async coLoadingSailingRemoved(id: string): Promise<{ data: interfaces.SailingRemovedShipment[] }> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/co-loading/sailings/${encodeURIComponent(id)}/removed`)
+            return await resp.json() as { data: interfaces.SailingRemovedShipment[] }
         }
 
         /**
@@ -15877,6 +15887,26 @@ export namespace interfaces {
     }
 
     /**
+     * A shipment taken off a sailing: who took it off, when and why.
+     */
+    export interface SailingRemovedShipment {
+        shipmentId: string
+        jobNumber: string
+        customer: string
+        removedAt: string
+        /**
+         * Who took it off, as named then; "" for one taken off before this was recorded.
+         */
+        removedByName: string
+        /**
+         * "removed" by hand, "shipment_deleted" when the shipment itself was deleted, "" when not recorded.
+         */
+        reason: string
+        linkedByName: string
+        linkedAt: string
+    }
+
+    /**
      * A box's fill in short, for a list of sailings: both meters' percentages and how they stand.
      */
     export interface BoxFill {
@@ -15958,6 +15988,10 @@ export namespace interfaces {
         dangerous: boolean
         outOfGauge: boolean
         temperatureControlled: boolean
+        /**
+         * Why it is an odd one in this box: another mode ("Air Freight") or a container of its own ("Full Load"); null when it belongs.
+         */
+        odd: string | null
         /**
          * Bigger or heavier than the whole box, or a density no cargo has: a figure to check.
          */

@@ -140,6 +140,7 @@ export function CoLoadingSailingPage() {
             <SailingShipmentsTab
               sailing={sailing}
               serviceName={service.serviceName}
+              serviceMode={service.mode}
               closed={!!service.closedAt}
             />
           ) : (

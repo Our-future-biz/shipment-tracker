@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fillOfBox, fillWords, fullWords, meterBar, meterScale, meterTone, meterWords, missingNote, noVolumeWords, overfillWarning, rowNotes, shareWords, usedOfLimit, type BoxMeter, type BoxRow, type BoxUtilization } from "./boxUtilization";
+import { fillOfBox, fillWords, fullWords, meterBar, meterScale, meterTone, meterWords, missingNote, noVolumeWords, oddInBox, oddWarning, overfillWarning, removedReasonWords, rowNotes, shareWords, usedOfLimit, type BoxMeter, type BoxRow, type BoxUtilization } from "./boxUtilization";
 
 const HC = { containerType: "40' HC", insideCbm: 76.4, planningCbm: 64.9, standardKg: 26200, heavyTestedKg: 28400, maxKg: 28400 };
 const OT = { containerType: "40' OT", insideCbm: 67.3, planningCbm: 57.2, standardKg: 26600, heavyTestedKg: null, maxKg: 28550 };
@@ -22,6 +22,7 @@ const row = (more: Partial<BoxRow> = {}): BoxRow => ({
   dangerous: false,
   outOfGauge: false,
   temperatureControlled: false,
+  odd: null,
   implausible: false,
   ...more,
 });
@@ -159,5 +160,31 @@ describe("a box's fill in short", () => {
       "Linking these 3 shipments would bring the box's volume to 111% (over by 7.4 cbm) and its weight to 108% (over by 2,100 kg). You can still link them.",
     );
     expect(overfillWarning(box(), { shipments: 2, weightKg: 99999, volumeCbm: 999 })).toBeNull();
+  });
+});
+
+describe("a shipment of another kind than the box is for", () => {
+  it("follows the server's rule", () => {
+    expect(oddInBox("sea_lcl", { freightMode: "Sea Freight", loadType: "Consolidation" })).toBeNull();
+    expect(oddInBox("sea_lcl", { freightMode: null, loadType: undefined })).toBeNull();
+    expect(oddInBox("sea_lcl", { freightMode: "Air Freight", loadType: "Consolidation" })).toBe("Air Freight");
+    expect(oddInBox("sea_lcl", { freightMode: "Sea Freight", loadType: "Full Load" })).toBe("Full Load");
+    expect(oddInBox("sea_lcl", { freightMode: "Sea Freight", loadType: "Project Shipment" })).toBe("Project Shipment");
+    expect(oddInBox("sea_fcl", { freightMode: "Sea Freight", loadType: "Full Load" })).toBeNull();
+    expect(oddInBox("air", { freightMode: "Sea Freight", loadType: "" })).toBe("Sea Freight");
+    expect(oddInBox("road", { freightMode: "Road Freight", loadType: "Full Load" })).toBeNull();
+  });
+
+  it("is remarked on in its row and before it is linked, never refused", () => {
+    expect(rowNotes(row({ odd: "Air Freight" })).map((n) => n.text)).toEqual(["Air Freight: not what this box is for"]);
+    expect(oddWarning([])).toBeNull();
+    expect(oddWarning(["Full Load"])).toBe("This shipment is Full Load: not what this box is for. You can still link it.");
+    expect(oddWarning(["Full Load", "Air Freight", "Full Load"])).toBe("3 of these shipments are not what this box is for (Full Load, Air Freight). You can still link them.");
+  });
+
+  it("says why a shipment was taken off a sailing", () => {
+    expect(removedReasonWords("removed")).toBe("Removed by hand");
+    expect(removedReasonWords("shipment_deleted")).toBe("The shipment was deleted");
+    expect(removedReasonWords("")).toBe("Not recorded");
   });
 });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { checkSailingInput, linkRefusal, SAILING_CONTAINER_TYPES, sailingWeek, VESSEL_MAX } from "../lib/coLoadingSailing";
+import { checkSailingInput, linkRefusal, oddInBox, SAILING_CONTAINER_TYPES, sailingWeek, VESSEL_MAX } from "../lib/coLoadingSailing";
 
 const PORTS = { pol: "Shanghai (CNSHA)", pod: "Hamburg (DEHAM)", hub: "Praha (CZPRG)", containerType: "40' HC" };
 
@@ -61,5 +61,28 @@ describe("linking a shipment to a sailing", () => {
     expect(linkRefusal({ ...free, onSailing: { id: "other", name: "MSC Anna 445W" } }, "ISHA", SAILING)).toBe(
       "CZLCL00000299 is on MSC Anna 445W: remove it from there first.",
     );
+  });
+});
+
+describe("a shipment of another kind than the box is for", () => {
+  it("belongs in a sea consolidation box when it is sea freight and not a full load", () => {
+    expect(oddInBox("sea_lcl", { freightMode: "Sea Freight", loadType: "Consolidation" })).toBeNull();
+    expect(oddInBox("sea_lcl", { freightMode: "Sea Freight", loadType: "" })).toBeNull();
+    expect(oddInBox("sea_lcl", { freightMode: "", loadType: "" })).toBeNull();
+  });
+
+  it("is remarked on by its mode of transport, or by having a container of its own", () => {
+    expect(oddInBox("sea_lcl", { freightMode: "Air Freight", loadType: "Consolidation" })).toBe("Air Freight");
+    expect(oddInBox("sea_lcl", { freightMode: "Road Freight", loadType: "Full Load" })).toBe("Road Freight");
+    expect(oddInBox("sea_lcl", { freightMode: "Sea Freight", loadType: "Full Load" })).toBe("Full Load");
+    expect(oddInBox("sea_lcl", { freightMode: "Sea Freight", loadType: "Project Shipment" })).toBe("Project Shipment");
+  });
+
+  it("goes by the service's own mode", () => {
+    expect(oddInBox("sea_fcl", { freightMode: "Sea Freight", loadType: "Full Load" })).toBeNull();
+    expect(oddInBox("air", { freightMode: "Air Freight", loadType: "" })).toBeNull();
+    expect(oddInBox("air", { freightMode: "Sea Freight", loadType: "Consolidation" })).toBe("Sea Freight");
+    expect(oddInBox("road", { freightMode: "Road Freight", loadType: "Full Load" })).toBeNull();
+    expect(oddInBox("rail", { freightMode: "Road Freight", loadType: "" })).toBe("Road Freight");
   });
 });

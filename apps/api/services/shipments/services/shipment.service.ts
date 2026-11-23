@@ -5,6 +5,7 @@ import { getAuthData } from "~encore/auth";
 import { canManageSales, shipmentFromQuoteBlocked, shipmentFromQuoteRefusal, shipmentLinkRefusal } from "../../../lib/salesPolicy";
 import { isSalesReference, plainSalesReference, sameSalesReference } from "../../../lib/salesReference";
 import log from "encore.dev/log";
+import { coLoadingSailingService } from "./coLoadingSailing.service";
 import { auth, customers, invoicing, quotes, warehouse } from "~encore/clients";
 import { asCompany } from "../../../lib/internalCall";
 import { shipmentAttachmentRepository } from "../repositories/shipmentAttachment.repository";
@@ -2057,6 +2058,12 @@ class ShipmentService {
     });
     if (!deleted) throw APIError.notFound("Shipment not found");
     await deliverShipmentEvents(id);
+    // It leaves the Co-Loading box it was in, and the sailing's history says why (Council Outlay 12, D13).
+    try {
+      await coLoadingSailingService.shipmentDeleted(id, companyId, userId);
+    } catch (err) {
+      log.warn(err, "a deleted shipment's Co-Loading link could not be taken off", { shipmentId: id });
+    }
     await this.recalcCustomerRollups(existing.customerId, companyId);
     // The quote the shipment named loses it - and with its last shipment a Won it owed to one.
     await this.tellQuote(companyId, existing.salesNumber.trim());

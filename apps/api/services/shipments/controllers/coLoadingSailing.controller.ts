@@ -1,7 +1,7 @@
 import { api } from "encore.dev/api";
 import type { MaxLen } from "encore.dev/validate";
 import { getAuthData } from "~encore/auth";
-import type { BoxUtilization, CoLoadingSailingItem } from "../interfaces/interfaces";
+import type { BoxUtilization, CoLoadingSailingItem, SailingRemovedShipment } from "../interfaces/interfaces";
 import { coLoadingSailingService as service } from "../services/coLoadingSailing.service";
 
 // A Co-Loading Concept service's sailings (lib/coLoadingSailing), for everyone in the company.
@@ -30,6 +30,14 @@ export const coLoadingSailingUtilization = api(
   },
 );
 
+// The shipments taken off the sailing, the last one first: who took each off, when and why.
+export const coLoadingSailingRemoved = api(
+  { expose: true, auth: true, method: "GET", path: "/co-loading/sailings/:id/removed" },
+  async ({ id }: { id: string }): Promise<{ data: SailingRemovedShipment[] }> => {
+    return { data: await service.removed(id, getAuthData()!.companyID) };
+  },
+);
+
 interface CoLoadingSailingLinkRequest {
   id: string;
   shipmentIds: string[];
@@ -48,7 +56,7 @@ export const coLoadingSailingLinkShipments = api(
 export const coLoadingSailingUnlinkShipment = api(
   { expose: true, auth: true, method: "DELETE", path: "/co-loading/sailings/:id/shipments/:shipmentId" },
   async ({ id, shipmentId }: { id: string; shipmentId: string }): Promise<void> => {
-    await service.unlinkShipment(id, shipmentId, getAuthData()!.companyID);
+    await service.unlinkShipment(id, shipmentId, getAuthData()!);
   },
 );
 

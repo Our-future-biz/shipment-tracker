@@ -72,6 +72,24 @@ export function checkSailingInput(input: SailingInput): { values: SailingValues 
   return { values: { vessel: week ?? typed, voyage, pol, pod, hub, containerType } };
 }
 
+// ─── What kind of shipment a box is for ───
+
+/**
+ * Why a shipment is an odd one in a box of a service of this mode, or null when it belongs there:
+ * another mode of transport, or - in a consolidation box - a shipment with a container of its own
+ * (Full Load) or a project shipment. A remark to show, never a refusal (Council Outlay 12, D12).
+ * The web holds the same rule (app/co-loading/_lib/boxUtilization.ts oddInBox).
+ */
+export function oddInBox(serviceMode: string, shipment: { freightMode: string; loadType: string }): string | null {
+  const mode = shipment.freightMode.trim();
+  const load = shipment.loadType.trim();
+  const wanted: Record<string, string> = { sea_lcl: "Sea Freight", sea_fcl: "Sea Freight", air: "Air Freight", rail: "Rail Freight", road: "Road Freight" };
+  const want = wanted[serviceMode];
+  if (want && mode && mode !== want) return mode;
+  if (serviceMode === "sea_lcl" && (load === "Full Load" || load === "Project Shipment")) return load;
+  return null;
+}
+
 // ─── Linking shipments to a sailing (its box) ───
 
 /** A shipment as linking it is judged: its reference, its Service Name and the sailing it is on, if any. */

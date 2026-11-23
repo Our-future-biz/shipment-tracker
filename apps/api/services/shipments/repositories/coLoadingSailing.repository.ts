@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, isNull } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNotNull, isNull } from "drizzle-orm";
 import { db } from "../db/db";
 import {
   coLoadingSailingTable as sailings,
@@ -9,6 +9,9 @@ import { coLoadingSailingShipmentTable as links } from "../schemas/coLoadingSail
 import { cargoDimensionTable as dimensions } from "../schemas/cargoDimension.schema";
 import { shipmentTable } from "../schemas/shipment.schema";
 import type { BoxShipment } from "../lib/boxUtilization";
+
+/** A linked shipment as stored: what the box's fill reads, and what kind of shipment it is. */
+export type LinkedCargo = Omit<BoxShipment, "cancelled" | "odd"> & { freightMode: string; loadType: string };
 
 // One of the shipments to link got a live link meanwhile: the links of this call are undone.
 class LinkedMeanwhile extends Error {}
@@ -74,27 +77,60 @@ class CoLoadingSailingRepository {
     }
   }
 
-  /** Takes the shipment off the sailing; false when it was not on it. */
-  async unlink(sailingId: string, shipmentId: string, companyId: string): Promise<boolean> {
+  /** Takes the shipment off the sailing, recording who did; false when it was not on it. */
+  async unlink(sailingId: string, shipmentId: string, companyId: string, by: { id: string; name: string }): Promise<boolean> {
     const rows = await db
       .update(links)
-      .set({ deletedAt: new Date(), updatedAt: new Date() })
+      .set({ deletedAt: new Date(), updatedAt: new Date(), removedById: by.id, removedByName: by.name, removedReason: "removed" })
       .where(and(eq(links.companyId, companyId), eq(links.sailingId, sailingId), eq(links.shipmentId, shipmentId), isNull(links.deletedAt)))
       .returning({ id: links.id });
     return rows.length > 0;
   }
 
   /**
+   * A deleted shipment leaves its box: its live link, if it has one, is taken off and says why.
+   * Returns how many links went (0 or 1).
+   */
+  async dropDeletedShipment(shipmentId: string, companyId: string, by: { id: string | null; name: string }): Promise<number> {
+    const rows = await db
+      .update(links)
+      .set({ deletedAt: new Date(), updatedAt: new Date(), removedById: by.id, removedByName: by.name, removedReason: "shipment_deleted" })
+      .where(and(eq(links.companyId, companyId), eq(links.shipmentId, shipmentId), isNull(links.deletedAt)))
+      .returning({ id: links.id });
+    return rows.length;
+  }
+
+  /** The shipments taken off the sailing, the last one first: its history of removals. A deleted shipment is named too. */
+  async removedFrom(sailingId: string, companyId: string) {
+    return db
+      .select({
+        shipmentId: links.shipmentId,
+        jobNumber: shipmentTable.jobNumber,
+        customer: shipmentTable.customer,
+        removedAt: links.deletedAt,
+        removedByName: links.removedByName,
+        reason: links.removedReason,
+        linkedByName: links.createdByName,
+        linkedAt: links.createdAt,
+      })
+      .from(links)
+      .innerJoin(shipmentTable, eq(shipmentTable.id, links.shipmentId))
+      .where(and(eq(links.companyId, companyId), eq(links.sailingId, sailingId), isNotNull(links.deletedAt), eq(shipmentTable.companyId, companyId)))
+      .orderBy(desc(links.deletedAt))
+      .limit(200);
+  }
+
+  /**
    * The shipments in the sailing's box - its live links to live shipments - with the cargo figures
    * the box's fill is worked out from. Two reads whatever the number of shipments.
    */
-  async boxShipments(sailingId: string, companyId: string): Promise<Omit<BoxShipment, "cancelled">[]> {
+  async boxShipments(sailingId: string, companyId: string): Promise<LinkedCargo[]> {
     return (await this.boxShipmentsOf([sailingId], companyId)).get(sailingId) ?? [];
   }
 
   /** The same for several sailings at once, by sailing: two reads whatever the number of sailings. */
-  async boxShipmentsOf(sailingIds: string[], companyId: string): Promise<Map<string, Omit<BoxShipment, "cancelled">[]>> {
-    const bySailing = new Map<string, Omit<BoxShipment, "cancelled">[]>();
+  async boxShipmentsOf(sailingIds: string[], companyId: string): Promise<Map<string, LinkedCargo[]>> {
+    const bySailing = new Map<string, LinkedCargo[]>();
     if (sailingIds.length === 0) return bySailing;
     const rows = await db
       .select({
@@ -103,6 +139,8 @@ class CoLoadingSailingRepository {
         jobNumber: shipmentTable.jobNumber,
         customer: shipmentTable.customer,
         status: shipmentTable.status,
+        freightMode: shipmentTable.freightMode,
+        loadType: shipmentTable.loadType,
         dangerous: shipmentTable.dangerous,
         outOfGauge: shipmentTable.outOfGauge,
         temperatureControlled: shipmentTable.temperatureControlled,

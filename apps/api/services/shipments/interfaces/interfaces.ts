@@ -2309,6 +2309,21 @@ export interface CoLoadingSailingItem {
   fill?: BoxFill;
 }
 
+/** A shipment taken off a sailing: who took it off, when and why. */
+export interface SailingRemovedShipment {
+  shipmentId: string;
+  jobNumber: string;
+  customer: string;
+  /** When it was taken off. */
+  removedAt: string;
+  /** Who took it off, as named then; "" for one taken off before this was recorded. */
+  removedByName: string;
+  /** "removed" by hand, "shipment_deleted" when the shipment itself was deleted, "" when not recorded. */
+  reason: string;
+  linkedByName: string;
+  linkedAt: string;
+}
+
 /** A box's fill in short, for a list of sailings: both meters' percentages and how they stand. */
 export interface BoxFill {
   /** null where the container type has no such meter (no volume for reefers and flat racks; none at all for a type without capacity). */
@@ -2361,6 +2376,8 @@ export interface BoxUtilizationRow {
   dangerous: boolean;
   outOfGauge: boolean;
   temperatureControlled: boolean;
+  /** Why it is an odd one in this box: another mode ("Air Freight") or a container of its own ("Full Load"); null when it belongs. */
+  odd: string | null;
   /** Bigger or heavier than the whole box, or a density no cargo has: a figure to check. */
   implausible: boolean;
 }

@@ -16,6 +16,7 @@ const shipment = (more: Partial<BoxShipment> = {}): BoxShipment => ({
   customer: "Alfa s.r.o.",
   status: "active",
   cancelled: false,
+  odd: null,
   dangerous: "",
   outOfGauge: "",
   temperatureControlled: "",
@@ -135,6 +136,12 @@ describe("boxUtilization", () => {
   it("flags cargo that is not stackable, dangerous, out of gauge or temperature controlled", () => {
     const box = fill([typed("1", "2", { dangerous: "Yes", outOfGauge: "No", temperatureControlled: "yes", cargoDimensions: [line("1", "100", "100", "200", "1000", { stackable: NOT_STACKABLE })] })]);
     expect(box.rows[0]).toMatchObject({ notStackable: true, dangerous: true, outOfGauge: false, temperatureControlled: true });
+  });
+
+  it("passes on why a shipment is an odd one in the box, and counts it all the same", () => {
+    const box = fill([typed("1", "2", { odd: "Air Freight" }), typed("1", "2")]);
+    expect(box.rows.map((r) => r.odd).sort()).toEqual(["Air Freight", null].sort());
+    expect(box.totals.shipments).toBe(2);
   });
 
   it("flags figures no cargo has: heavier or bigger than the whole box, or an impossible density", () => {

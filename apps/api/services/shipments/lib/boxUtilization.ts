@@ -23,6 +23,8 @@ export interface BoxShipment {
   status: string;
   /** The shipment is cancelled (its status says so): listed, not counted. */
   cancelled: boolean;
+  /** Why it is an odd one in this box (lib/coLoadingSailing oddInBox): "Air Freight", "Full Load"; null when it belongs. */
+  odd: string | null;
   dangerous: string;
   outOfGauge: string;
   temperatureControlled: string;
@@ -87,6 +89,7 @@ export function boxUtilization(containerType: string, capacity: ContainerCapacit
       dangerous: yes(s.dangerous),
       outOfGauge: yes(s.outOfGauge),
       temperatureControlled: yes(s.temperatureControlled),
+      odd: s.odd,
       implausible: tooBig || oddDensity(weightKg, volumeCbm),
     };
   });

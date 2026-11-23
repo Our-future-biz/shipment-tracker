@@ -15,6 +15,12 @@ export const coLoadingSailingShipmentTable = pgTable(
     // Who linked it, as named then.
     createdById: uuid("created_by_id"),
     createdByName: text("created_by_name").notNull().default(""),
+    // A link taken off (deleted_at set): who took it off, as named then, and why - "removed" by
+    // hand, or "shipment_deleted" when the shipment itself was deleted. "" on a live link, and on
+    // one taken off before this was recorded.
+    removedById: uuid("removed_by_id"),
+    removedByName: text("removed_by_name").notNull().default(""),
+    removedReason: text("removed_reason").notNull().default(""),
   },
   (table) => [
     ...defaultTableIndexes("co_loading_sailing_shipment", table),
