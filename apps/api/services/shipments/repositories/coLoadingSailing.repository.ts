@@ -47,10 +47,10 @@ class CoLoadingSailingRepository {
   }
 
   /** The company's live shipments of these ids, as linking judges them: reference and Service Name. */
-  async shipmentsToLink(shipmentIds: string[], companyId: string): Promise<{ id: string; jobNumber: string; serviceName: string }[]> {
+  async shipmentsToLink(shipmentIds: string[], companyId: string): Promise<{ id: string; jobNumber: string; serviceName: string; freightMode: string; loadType: string }[]> {
     if (shipmentIds.length === 0) return [];
     return db
-      .select({ id: shipmentTable.id, jobNumber: shipmentTable.jobNumber, serviceName: shipmentTable.serviceName })
+      .select({ id: shipmentTable.id, jobNumber: shipmentTable.jobNumber, serviceName: shipmentTable.serviceName, freightMode: shipmentTable.freightMode, loadType: shipmentTable.loadType })
       .from(shipmentTable)
       .where(and(eq(shipmentTable.companyId, companyId), inArray(shipmentTable.id, shipmentIds), isNull(shipmentTable.deletedAt)));
   }

@@ -16205,6 +16205,22 @@ export namespace interfaces {
          * Counted, but with no weight and no volume: it carries no share of the box.
          */
         noShare: boolean
+        /**
+         * Its weight or its volume is missing: its W/M, and so its share of the box, may be too low.
+         */
+        cargoGap: "weight" | "volume" | null
+        /**
+         * Its cargo figures cannot be right: its share is not to be trusted.
+         */
+        cargoImplausible: boolean
+        /**
+         * Not what this box is for ("Air Freight", "Full Load"); null when it belongs.
+         */
+        odd: string | null
+        /**
+         * Road freight lines typed by hand on it: the trunk haul to the hub belongs to the box's Origin Costs.
+         */
+        handRoadLines: number
         noSelling: boolean
         untickedLines: number
         unrecognisedLines: number
@@ -16249,7 +16265,11 @@ export namespace interfaces {
         /**
          * How many W/M must be sold to cover the box costs, at what the loaded shipments earn per W/M before the box; null while no box cost is set or nothing is loaded.
          */
-        breakEven: { wm: number | null; loadedWm: number; ofLoaded: number | null; reached: boolean } | null
+        breakEven: { wm: number | null; loadedWm: number; ofLoaded: number | null; reached: boolean; boxPct: number | null } | null
+        /**
+         * How many loaded shipments are not priced yet: break-even is not worked out until none is.
+         */
+        breakEvenWaitsFor: number
         /**
          * The space of the box not sold, in % of the box, and its share of the box costs; null without box costs or a capacity.
          */
@@ -16257,7 +16277,7 @@ export namespace interfaces {
         /**
          * How many counted shipments each remark is about.
          */
-        notes: { noSelling: number; unticked: number; ownBox: number; inMasterJob: number; unrecognised: number; noShare: number; missingCurrencies: string[] }
+        notes: { noSelling: number; unticked: number; ownBox: number; inMasterJob: number; unrecognised: number; noShare: number; cargoGap: number; cargoImplausible: number; odd: number; handRoad: number; missingCurrencies: string[] }
         notCounted: number
         notCountedSelling: EarningsAmount
         rows: EarningsRow[]

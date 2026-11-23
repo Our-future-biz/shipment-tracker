@@ -122,10 +122,20 @@ export function moveRefusal(from: { id: string; serviceId: string }, to: { id: s
 
 // ─── What kind of shipment a box is for ───
 
+/** What a box of a service of each mode takes, for the refusal. */
+const BOX_IS_FOR: Record<string, string> = {
+  sea_lcl: "only Sea LCL shipments go on this sailing",
+  sea_fcl: "only Sea Freight shipments go on this sailing",
+  air: "only Air Freight shipments go on this sailing",
+  rail: "only Rail Freight shipments go on this sailing",
+  road: "only Road Freight shipments go on this sailing",
+};
+
 /**
  * Why a shipment is an odd one in a box of a service of this mode, or null when it belongs there:
  * another mode of transport, or - in a consolidation box - a shipment with a container of its own
- * (Full Load) or a project shipment. A remark to show, never a refusal (Council Outlay 12, D12).
+ * (Full Load) or a project shipment. Linking or moving such a shipment in is refused (Council Review 7,
+ * K3); one that became odd after it was linked is remarked on.
  * The web holds the same rule (app/co-loading/_lib/boxUtilization.ts oddInBox).
  */
 export function oddInBox(serviceMode: string, shipment: { freightMode: string; loadType: string }): string | null {
@@ -144,6 +154,9 @@ export function oddInBox(serviceMode: string, shipment: { freightMode: string; l
 export interface ShipmentToLink {
   jobNumber: string;
   serviceName: string;
+  /** Its mode of transport and load type ("Sea Freight", "Full Load"): what kind of box it belongs in. */
+  freightMode?: string;
+  loadType?: string;
   /** The sailing it is linked to now (its vessel and voyage), or null. */
   onSailing: { id: string; name: string } | null;
 }
@@ -152,7 +165,11 @@ export interface ShipmentToLink {
  * Why a shipment cannot be linked to the sailing, or null when it can: only the service's own
  * shipments (its Service Name, trimmed and in any case), and a shipment is on one sailing at a time.
  */
-export function linkRefusal(shipment: ShipmentToLink, serviceName: string, sailingId: string): string | null {
+export function linkRefusal(shipment: ShipmentToLink, serviceName: string, sailingId: string, serviceMode?: string): string | null {
+  // Only the shipments the box is for go in (Council Review 7, K3): another mode of transport, or a
+  // full load or project shipment in a consolidation box, is refused - its own freight is not the box's.
+  const odd = serviceMode && shipment.freightMode !== undefined ? oddInBox(serviceMode, { freightMode: shipment.freightMode, loadType: shipment.loadType ?? "" }) : null;
+  if (odd) return `${shipment.jobNumber} is ${odd}: ${BOX_IS_FOR[serviceMode!] ?? "this box is not for it"}.`;
   const own = serviceName.trim().toLowerCase();
   if (!own || shipment.serviceName.trim().toLowerCase() !== own) {
     return `${shipment.jobNumber} has the Service Name "${shipment.serviceName.trim() || "none"}": only ${serviceName.trim() || "the service's"} shipments go on this sailing.`;

@@ -268,17 +268,30 @@ describe("break-even and the unsold space", () => {
     const a = row(3);
     const b = row(1);
     const e = sailingEarnings([a, b], byId(money(a.shipmentId, 50000), money(b.shipmentId, 25000)), NONE, box(1000), 60);
-    expect(e.breakEven).toEqual({ wm: 1.3, loadedWm: 4, ofLoaded: 0.333, reached: true });
+    expect(e.breakEven).toEqual({ wm: 1.3, loadedWm: 4, ofLoaded: 0.333, reached: true, boxPct: 20 });
   });
   it("say it is not reached when the box costs more than the shipments earn", () => {
     const a = row(2);
     const e = sailingEarnings([a], byId(money(a.shipmentId, 12500)), NONE, box(1000), 60);
-    expect(e.breakEven).toEqual({ wm: 4, loadedWm: 2, ofLoaded: 2, reached: false });
+    // Twice today's load in a box 60% full: 120% of the box, more than it takes.
+    expect(e.breakEven).toEqual({ wm: 4, loadedWm: 2, ofLoaded: 2, reached: false, boxPct: 120 });
   });
   it("give no break-even when the shipments earn nothing before the box", () => {
     const a = row(2);
-    const e = sailingEarnings([a], byId(money(a.shipmentId, 0)), NONE, box(1000), 60);
-    expect(e.breakEven).toEqual({ wm: null, loadedWm: 2, ofLoaded: null, reached: false });
+    const e = sailingEarnings([a], byId(money(a.shipmentId, 10000, 10000)), NONE, box(1000), 60);
+    expect(e.breakEven).toEqual({ wm: null, loadedWm: 2, ofLoaded: null, reached: false, boxPct: null });
+  });
+  it("wait until every loaded shipment is priced, and say how many are not", () => {
+    const a = row(3);
+    const unpriced = row(1);
+    const cancelled = row(1, { counted: false });
+    const e = sailingEarnings([a, unpriced, cancelled], byId(money(a.shipmentId, 50000), money(unpriced.shipmentId, 0), money(cancelled.shipmentId, 0)), NONE, box(1000), 60);
+    expect(e.breakEven).toBeNull();
+    expect(e.breakEvenWaitsFor).toBe(1);
+    // A shipment whose money could not be read is not priced either.
+    expect(sailingEarnings([a, unpriced], byId(money(a.shipmentId, 50000)), NONE, box(1000), 60).breakEvenWaitsFor).toBe(1);
+    // Nothing waits while no box cost is set: there is no break-even to wait for.
+    expect(sailingEarnings([a, unpriced], byId(money(a.shipmentId, 50000), money(unpriced.shipmentId, 0)), NONE).breakEvenWaitsFor).toBe(0);
   });
   it("cost the unsold space as its share of the box costs", () => {
     const a = row(2);
@@ -355,5 +368,33 @@ describe("what makes a profit at a glance less than final", () => {
   it("says the money is not known when it could not be read, and that no box cost is set", () => {
     expect(sailingProfit("s", sailingEarnings([a], null, NONE, box(1000)))).toMatchObject({ moneyKnown: false, profit: null });
     expect(sailingProfit("s", sailingEarnings([a], byId(money(a.shipmentId, 50000)), NONE))).toMatchObject({ boxCostsSet: false, profit: null });
+  });
+});
+
+describe("cargo figures a share cannot be trusted on", () => {
+  it("marks a shipment with its weight or its volume missing, and one whose figures cannot be right", () => {
+    const noVolume = row(0.8, { volumeMissing: true });
+    const noWeight = row(4, { weightMissing: true });
+    const wrong = row(1500, { implausible: true });
+    const neither = row(0, { weightMissing: true, volumeMissing: true });
+    const fine = row(2);
+    const all = [noVolume, noWeight, wrong, neither, fine];
+    const e = sailingEarnings(all, byId(...all.map((r) => money(r.shipmentId, 10000))), NONE, box(1000));
+    const of = (r: BoxUtilizationRow) => e.rows.find((x) => x.shipmentId === r.shipmentId)!;
+    expect(of(noVolume).cargoGap).toBe("volume");
+    expect(of(noWeight).cargoGap).toBe("weight");
+    expect(of(wrong).cargoImplausible).toBe(true);
+    // Neither figure: no share at all, said by its own mark.
+    expect(of(neither)).toMatchObject({ cargoGap: null, noShare: true });
+    expect(of(fine)).toMatchObject({ cargoGap: null, cargoImplausible: false });
+    expect(e.notes).toMatchObject({ cargoGap: 2, cargoImplausible: 1, noShare: 1 });
+  });
+  it("marks a shipment the box is not for, and one with road freight typed by hand", () => {
+    const air = row(2, { odd: "Air Freight" });
+    const road = row(2);
+    const e = sailingEarnings([air, road], new Map([[air.shipmentId, money(air.shipmentId, 10000)], [road.shipmentId, { ...money(road.shipmentId, 10000), handRoadLines: 2 }]]), NONE, box(1000));
+    expect(e.rows.find((r) => r.shipmentId === air.shipmentId)!.odd).toBe("Air Freight");
+    expect(e.rows.find((r) => r.shipmentId === road.shipmentId)!.handRoadLines).toBe(2);
+    expect(e.notes).toMatchObject({ odd: 1, handRoad: 1 });
   });
 });

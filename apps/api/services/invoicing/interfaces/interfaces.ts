@@ -2056,6 +2056,8 @@ export interface CoLoadingMoneyItem {
   untickedLines: number;
   /** Buying lines with a value whose category the catalogue does not know (counted as other costs). */
   unrecognisedLines: number;
+  /** Road freight lines typed by hand (not written by Trucking): the trunk haul belongs to the box's Origin Costs. */
+  handRoadLines: number;
   /** Currencies with no rate: the amounts in them are left out of the figures above. */
   missingCurrencies: string[];
   /** CZK per 1 EUR at the job's own rate; null when it is not known. */

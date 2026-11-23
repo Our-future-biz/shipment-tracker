@@ -39,7 +39,11 @@ export function earningsWarnings(e: SailingEarnings): string[] {
   if (notes.noSelling > 0) out.push(`${shipments(notes.noSelling)} ${has(notes.noSelling)} no selling lines yet: the revenue is not complete.`);
   if (notes.unticked > 0) out.push(`${shipments(notes.unticked)} ${has(notes.unticked)} selling lines not ticked "Invoice": those lines are not counted.`);
   if (notes.ownBox > 0)
-    out.push(`${shipments(notes.ownBox)} ${has(notes.ownBox)} freight or local charges as buying costs of ${notes.ownBox === 1 ? "its" : "their"} own. They are not counted here: the box's costs cover them.`);
+    out.push(`${shipments(notes.ownBox)} ${has(notes.ownBox)} freight, fuel or terminal handling as buying costs of ${notes.ownBox === 1 ? "its" : "their"} own. They are not counted here: the box costs cover them.`);
+  if (notes.odd > 0) out.push(`${shipments(notes.odd)} ${notes.odd === 1 ? "is" : "are"} not what this box is for. Take ${notes.odd === 1 ? "it" : "them"} off the sailing: ${notes.odd === 1 ? "it takes" : "they take"} a share of the box costs meanwhile.`);
+  if (notes.cargoImplausible > 0) out.push(`${shipments(notes.cargoImplausible)} ${has(notes.cargoImplausible)} cargo figures that cannot be right, so the shares of the box costs are not to be trusted until they are corrected.`);
+  if (notes.cargoGap > 0) out.push(`${shipments(notes.cargoGap)} ${has(notes.cargoGap)} a weight or a volume missing: ${notes.cargoGap === 1 ? "its share" : "their shares"} of the box costs may be too low, and the others' too high.`);
+  if (notes.handRoad > 0) out.push(`${shipments(notes.handRoad)} ${has(notes.handRoad)} road freight typed by hand. If it is the trunk haul to the hub, it belongs under Origin Costs of the box: check it is not counted twice.`);
   if (notes.inMasterJob > 0) out.push(`${shipments(notes.inMasterJob)} ${notes.inMasterJob === 1 ? "is" : "are"} in a master job as well. Costs shared from a master job are not counted here.`);
   if (notes.unrecognised > 0) out.push(`${shipments(notes.unrecognised)} ${has(notes.unrecognised)} buying lines with no charge code the app knows: they are counted as other shipment costs.`);
   out.push(...boxWarnings(e));
@@ -75,10 +79,16 @@ export function breakEvenWords(e: SailingEarnings): string | null {
   const b = e.breakEven;
   if (!b) return null;
   if (b.wm === null) return `No break-even: the ${b.loadedWm === 1 ? "loaded W/M earns" : `${wm(b.loadedWm)} W/M loaded earn`} nothing before the box costs.`;
-  return b.reached
-    ? `Break-even at ${wm(b.wm)} W/M: reached, ${wm(b.loadedWm)} W/M are loaded.`
-    : `Break-even at ${wm(b.wm)} W/M: not reached, ${wm(b.loadedWm)} W/M are loaded. ${wm(Math.max(0.1, Math.round((b.wm - b.loadedWm) * 10) / 10))} W/M more at today's average earning would cover the box.`;
+  if (b.reached) return `Break-even at ${wm(b.wm)} W/M: reached, ${wm(b.loadedWm)} W/M are loaded.`;
+  const short = `Break-even at ${wm(b.wm)} W/M: not reached, ${wm(b.loadedWm)} W/M are loaded.`;
+  // More than the box is planned to take, with the same mix of cargo: no load at this earning pays for it.
+  if (b.boxPct !== null && b.boxPct > 100) return `${short} That is ${b.boxPct}% of the box: more than it takes, so it cannot break even at today's earning per W/M.`;
+  return `${short} ${wm(Math.max(0.1, Math.round((b.wm - b.loadedWm) * 10) / 10))} W/M more at today's average earning would cover the box.`;
 }
+
+/** The loaded shipments still to price before a break-even is worked out (K11): their job numbers, to open and fix. */
+export const unpricedShipments = (e: SailingEarnings): { shipmentId: string; jobNumber: string }[] =>
+  e.breakEvenWaitsFor > 0 ? e.rows.filter((r) => r.counted && (r.noSelling || !r.moneyKnown)).map((r) => ({ shipmentId: r.shipmentId, jobNumber: r.jobNumber })) : [];
 
 /** The unsold space in a sentence, or null while it is not known. */
 export function unsoldWords(e: SailingEarnings): string | null {
@@ -158,7 +168,11 @@ export function earningsNotes(row: EarningsRow): { text: string; tone: "amber" |
   if (row.counted && row.noSelling) notes.push({ text: "No selling lines", tone: "amber" });
   if (row.untickedLines > 0) notes.push({ text: `${row.untickedLines} selling ${row.untickedLines === 1 ? "line" : "lines"} not ticked`, tone: "amber" });
   if (row.missingCurrencies.length > 0) notes.push({ text: `No rate: ${row.missingCurrencies.join(", ")}`, tone: "red" });
+  if (row.odd) notes.push({ text: `${row.odd}: not what this box is for`, tone: "amber" });
   if (row.noShare) notes.push({ text: "No weight or volume: no share of the box", tone: "amber" });
+  if (row.cargoImplausible) notes.push({ text: "Cargo figures look wrong: check its share", tone: "red" });
+  else if (row.cargoGap) notes.push({ text: `${row.cargoGap === "weight" ? "Weight" : "Volume"} missing: share may be too low`, tone: "amber" });
+  if (row.handRoadLines > 0) notes.push({ text: "Road freight typed by hand", tone: "slate" });
   if (row.counted && lead(row.beforeBox) < 0) notes.push({ text: "Costs more than it sells for", tone: "red" });
   else if (row.profit && lead(row.profit) < 0) notes.push({ text: "Loss after its share of the box", tone: "red" });
   if (row.ownBox.czk !== 0) notes.push({ text: `Own freight costs ${amountWords(row.ownBox).main}: not counted`, tone: "amber" });

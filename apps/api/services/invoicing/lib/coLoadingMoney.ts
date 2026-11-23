@@ -35,6 +35,55 @@ export const INLAND_DELIVERY_CODES: readonly string[] = [
   "road_toll",
 ];
 
+/**
+ * The charges a box itself pays for (Council Review 7, K2): the main carriage, its fuel, and the
+ * handling of the box at a terminal or CFS. A shipment's own line under one of these is left out of
+ * its costs - the box costs on the sailing cover it - and named. Everything else a shipment causes
+ * by itself (heavy-piece handling, lashing, a delivery order, documents, AMS/ENS, VGM) is its own
+ * cost, although the catalogue files it under freight or local charges too. "Freight" and "Locals"
+ * are the older, unspecific keys: they are taken as the box's.
+ */
+export const BOX_COVERED_CODES: readonly string[] = [
+  "ocean_freight",
+  "fcl_baf",
+  "lcl_fuel",
+  "bb_bunker",
+  "air_freight",
+  "air_fuel",
+  "air_security",
+  "rail_freight",
+  "rail_wagon",
+  "freight",
+  "fcl_thc_origin",
+  "fcl_thc_destination",
+  "cfs_origin",
+  "cfs_destination",
+  "lcl_terminal_handling",
+  "bb_terminal_handling",
+  "air_export_handling",
+  "air_import_handling",
+  "rail_thc_origin",
+  "rail_thc_destination",
+  "thc_origin",
+  "thc_destination",
+  "locals",
+];
+
+/** Road freight typed on a shipment by hand: the trunk haul to the hub belongs to the box's Origin Costs (K5), so such a line is remarked on. */
+const ROAD_CODES: readonly string[] = ["road_freight", "road_fuel", "road_toll"];
+
+/**
+ * The code of a category, in any letter case: "OCEAN_FREIGHT" and "Inland_Collection" are the codes
+ * they spell (the catalogue's own reading matches a code in lower case only). Text that is no code
+ * and no label stays as typed.
+ */
+export function codeOf(category: string): string {
+  const code = toChargeCode(category);
+  if (chargeGroup(code) !== null) return code;
+  const lower = toChargeCode(category.trim().toLowerCase());
+  return chargeGroup(lower) !== null ? lower : code;
+}
+
 /** Where a buying line goes: counted as inland delivery or as another cost, or left out because the box or a master job covers it. */
 export type CostBasket = "inland" | "other" | "box" | "master_job";
 
@@ -60,15 +109,15 @@ export interface MoneySellRow {
 
 /**
  * The basket of a buying line. A master job's share first: it is that box's cost, counted there.
- * Then inland delivery. Freight and local charges (ocean freight, fuel, CFS, THC, documents) are
- * what a box costs. The rest - customs, insurance, storage, a collection at origin, text typed
- * before the catalogue - is the shipment's own.
+ * Then inland delivery. Then what a box itself pays for (BOX_COVERED_CODES). The rest - customs,
+ * insurance, storage, handling of a heavy piece, a delivery order, documents, a collection at
+ * origin, text typed before the catalogue - is the shipment's own.
  */
 export function basketOf(row: Pick<MoneyBuyRow, "category" | "sourceTruckingRef" | "sourceMasterJobRef">): CostBasket {
   if (row.sourceMasterJobRef) return "master_job";
-  if (row.sourceTruckingRef || INLAND_DELIVERY_CODES.includes(toChargeCode(row.category))) return "inland";
-  const group = chargeGroup(row.category);
-  return group === "freight" || group === "locals" ? "box" : "other";
+  const code = codeOf(row.category);
+  if (row.sourceTruckingRef || INLAND_DELIVERY_CODES.includes(code)) return "inland";
+  return BOX_COVERED_CODES.includes(code) ? "box" : "other";
 }
 
 const round2 = (v: number) => Math.round(v * 100) / 100;
@@ -96,13 +145,15 @@ export function coLoadingMoney(buying: readonly MoneyBuyRow[], selling: readonly
 
   const baskets: Record<CostBasket, number> = { inland: 0, other: 0, box: 0, master_job: 0 };
   let unrecognisedLines = 0;
+  let handRoadLines = 0;
   for (const r of buying) {
     const real = toNumber(r.realAmount) * qtyOrOne(r.realQty);
     const est = toNumber(r.estAmount) * qtyOrOne(r.estQty);
     const value = real ? czk(real, r.realCurrency || "CZK") : czk(est, r.estCurrency || "CZK");
     const basket = basketOf(r);
     // A line with a value that the catalogue does not know is counted as the shipment's own, and said to be so.
-    if (basket === "other" && chargeGroup(r.category) === null && (real || est)) unrecognisedLines++;
+    if (basket === "other" && chargeGroup(codeOf(r.category)) === null && (real || est)) unrecognisedLines++;
+    if (!r.sourceTruckingRef && !r.sourceMasterJobRef && ROAD_CODES.includes(codeOf(r.category)) && (real || est)) handRoadLines++;
     if (value !== null) baskets[basket] += value;
   }
 
@@ -134,6 +185,7 @@ export function coLoadingMoney(buying: readonly MoneyBuyRow[], selling: readonly
     sellingLines,
     untickedLines,
     unrecognisedLines,
+    handRoadLines,
     missingCurrencies: [...missing].sort(),
     eurRate: rateOf("EUR", rates),
   };

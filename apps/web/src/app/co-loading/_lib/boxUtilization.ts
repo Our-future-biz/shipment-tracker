@@ -46,7 +46,7 @@ export function breakEvenMark(kind: MeterKind, meter: BoxMeter, ofLoaded: number
   return {
     pct: Math.min(100, (at / meter.max) * 100),
     onBar,
-    words: onBar ? `Break-even at ${amount(kind, at)}${at <= meter.used ? ": reached" : ""}` : `Break-even at ${amount(kind, at)}: more than the box takes`,
+    words: `${onBar ? `Break-even at ${amount(kind, at)}${at <= meter.used ? ": reached" : ""}` : `Break-even at ${amount(kind, at)}: more than the box takes`}, with the same mix of cargo`,
   };
 }
 
@@ -181,7 +181,7 @@ export function overfillWarning(box: BoxUtilization, added: AddedCargo): string 
 /**
  * Why a shipment is an odd one in a box of a service of this mode, or null when it belongs there:
  * another mode of transport, or - in a consolidation box - a shipment with a container of its own
- * (Full Load) or a project shipment. A remark, never a refusal. The server holds the same rule
+ * (Full Load) or a project shipment. Such a shipment is not linked. The server holds the same rule
  * (lib/coLoadingSailing oddInBox).
  */
 export function oddInBox(serviceMode: string, shipment: { freightMode?: string | null; loadType?: string | null }): string | null {
@@ -194,11 +194,11 @@ export function oddInBox(serviceMode: string, shipment: { freightMode?: string |
   return null;
 }
 
-/** The remark before odd shipments are linked: which kinds, and that they may still be linked. null when none is odd. */
+/** Why the picked shipments cannot be linked as they are: some are not what the box is for (the server refuses them: Council Review 7, K3). null when none is odd. */
 export function oddWarning(kinds: string[]): string | null {
   if (kinds.length === 0) return null;
   const named = [...new Set(kinds)].join(", ");
-  return kinds.length === 1 ? `This shipment is ${named}: not what this box is for. You can still link it.` : `${kinds.length} of these shipments are not what this box is for (${named}). You can still link them.`;
+  return kinds.length === 1 ? `This shipment is ${named}: not what this box is for. Untick it to link the others.` : `${kinds.length} of these shipments are not what this box is for (${named}). Untick them to link the others.`;
 }
 
 /** Why a shipment was taken off a sailing, in words. */

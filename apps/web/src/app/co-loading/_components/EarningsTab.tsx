@@ -18,6 +18,7 @@ import {
   boxCostWords,
   boxRateWords,
   breakEvenWords,
+  unpricedShipments,
   unsoldWords,
   changeWords,
   earningsNotes,
@@ -190,6 +191,7 @@ export function EarningsTab({ sailingId, containerType, onOpenShipments }: Earni
   const tile = (a: EarningsAmount) => (known ? amountWords(a).main : "Not known");
   const under = (a: EarningsAmount) => (known ? amountWords(a).under : null);
   const boxSet = earnings.boxCosts.set;
+  const unpriced = unpricedShipments(earnings);
   // What the sailing earns: its profit once a box cost is set, what it earns before them until then.
   const earned = totals.profit ?? totals.beforeBox;
   // What makes the figure less than final, said on the tile itself (Council Review 7, K7 and K8).
@@ -244,8 +246,23 @@ export function EarningsTab({ sailingId, containerType, onOpenShipments }: Earni
 
       <BoxCosts sailingId={sailingId} containerType={containerType} box={earnings.boxCosts} />
 
-      {known && (breakEvenWords(earnings) || unsoldWords(earnings)) && (
+      {known && (breakEvenWords(earnings) || unsoldWords(earnings) || unpriced.length > 0) && (
         <section className={`${CARD} flex flex-col gap-1.5 px-5 py-4 text-[13px] text-slate-700`} aria-label="Break-even and unsold space">
+          {/* Not worked out while a loaded shipment is not priced: these are the ones to open and price. */}
+          {unpriced.length > 0 && (
+            <p className="m-0 font-medium text-slate-900">
+              Break-even is shown once every loaded shipment is priced. Still to price:{" "}
+              {unpriced.map((s, i) => (
+                <span key={s.shipmentId}>
+                  {i > 0 && ", "}
+                  <Link href={`/shipments/${s.shipmentId}?tab=costs`} className={`${REF} ${LINK}`}>
+                    {s.jobNumber || "(no number yet)"}
+                  </Link>
+                </span>
+              ))}
+              .
+            </p>
+          )}
           {breakEvenWords(earnings) && <p className={`m-0 font-medium ${earnings.breakEven && !earnings.breakEven.reached ? "text-red-600" : "text-slate-900"}`}>{breakEvenWords(earnings)}</p>}
           {unsoldWords(earnings) && <p className="m-0">{unsoldWords(earnings)}</p>}
           <p className={`${HINT} m-0`}>

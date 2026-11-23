@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { lead, breakEvenWords, profitGlance, unsoldWords, profitProvisional, amountWords, boxCostWords, boxRateWords, changeWords, earningsNotes, earningsWarnings, invoicedHint, marginWords, type BoxCostChange, type EarningsAmount, type EarningsRow, type SailingBoxCosts, type SailingEarnings } from "./earnings";
+import { unpricedShipments, lead, breakEvenWords, profitGlance, unsoldWords, profitProvisional, amountWords, boxCostWords, boxRateWords, changeWords, earningsNotes, earningsWarnings, invoicedHint, marginWords, type BoxCostChange, type EarningsAmount, type EarningsRow, type SailingBoxCosts, type SailingEarnings } from "./earnings";
 
 const amt = (czk: number, eur: number | null = czk / 25): EarningsAmount => ({ czk, eur });
 const row = (more: Partial<EarningsRow> = {}): EarningsRow => ({
@@ -20,6 +20,10 @@ const row = (more: Partial<EarningsRow> = {}): EarningsRow => ({
   boxShare: null,
   profit: null,
   noShare: false,
+  cargoGap: null,
+  cargoImplausible: false,
+  odd: null,
+  handRoadLines: 0,
   noSelling: false,
   untickedLines: 0,
   unrecognisedLines: 0,
@@ -47,8 +51,9 @@ const earnings = (more: Partial<SailingEarnings> = {}, notes: Partial<SailingEar
   boxCosts: box(),
   boxUnshared: false,
   breakEven: null,
+  breakEvenWaitsFor: 0,
   unsold: null,
-  notes: { noSelling: 0, unticked: 0, ownBox: 0, inMasterJob: 0, unrecognised: 0, noShare: 0, missingCurrencies: [], ...notes },
+  notes: { noSelling: 0, unticked: 0, ownBox: 0, inMasterJob: 0, unrecognised: 0, noShare: 0, cargoGap: 0, cargoImplausible: 0, odd: 0, handRoad: 0, missingCurrencies: [], ...notes },
   notCounted: 0,
   notCountedSelling: amt(0),
   rows: [row()],
@@ -79,7 +84,7 @@ describe("the warnings above the earnings", () => {
       "No exchange rate for USD: amounts in that currency are left out, so the totals are incomplete.",
       "1 shipment has no selling lines yet: the revenue is not complete.",
       '2 shipments have selling lines not ticked "Invoice": those lines are not counted.',
-      "1 shipment has freight or local charges as buying costs of its own. They are not counted here: the box's costs cover them.",
+      "1 shipment has freight, fuel or terminal handling as buying costs of its own. They are not counted here: the box costs cover them.",
       "2 shipments are in a master job as well. Costs shared from a master job are not counted here.",
       "1 shipment has buying lines with no charge code the app knows: they are counted as other shipment costs.",
     ]);
@@ -220,11 +225,11 @@ describe("break-even and unsold space in words", () => {
     expect(unsoldWords(earnings())).toBeNull();
   });
   it("say a break-even that is reached, one that is not, and one that cannot be", () => {
-    expect(breakEvenWords(earnings({ breakEven: { wm: 38.4, loadedWm: 50.1, ofLoaded: 0.766, reached: true } }))).toBe("Break-even at 38.4 W/M: reached, 50.1 W/M are loaded.");
-    expect(breakEvenWords(earnings({ breakEven: { wm: 60, loadedWm: 50.1, ofLoaded: 1.2, reached: false } }))).toBe(
+    expect(breakEvenWords(earnings({ breakEven: { wm: 38.4, loadedWm: 50.1, ofLoaded: 0.766, reached: true, boxPct: 57 } }))).toBe("Break-even at 38.4 W/M: reached, 50.1 W/M are loaded.");
+    expect(breakEvenWords(earnings({ breakEven: { wm: 60, loadedWm: 50.1, ofLoaded: 1.2, reached: false, boxPct: 89 } }))).toBe(
       "Break-even at 60 W/M: not reached, 50.1 W/M are loaded. 9.9 W/M more at today's average earning would cover the box.",
     );
-    expect(breakEvenWords(earnings({ breakEven: { wm: null, loadedWm: 5, ofLoaded: null, reached: false } }))).toBe("No break-even: the 5 W/M loaded earn nothing before the box costs.");
+    expect(breakEvenWords(earnings({ breakEven: { wm: null, loadedWm: 5, ofLoaded: null, reached: false, boxPct: null } }))).toBe("No break-even: the 5 W/M loaded earn nothing before the box costs.");
   });
   it("say what the unsold space costs", () => {
     expect(unsoldWords(earnings({ unsold: { pct: 26, cost: amt(6500) } }))).toBe("Unsold space: 26% of the box, which is 260.00 EUR of the box costs. The loaded shipments carry it.");
@@ -282,5 +287,40 @@ describe("how much is invoiced, nearly all", () => {
   it("is not all until all of it is", () => {
     expect(invoicedHint(earnings({ totals: { ...earnings().totals, selling: amt(100000), invoiced: amt(99600) } }))).toBe("99% of the revenue");
     expect(invoicedHint(earnings({ totals: { ...earnings().totals, selling: amt(100000), invoiced: amt(100000) } }))).toBe("all of the revenue");
+  });
+});
+
+describe("fix step 2 of Council Review 7", () => {
+  it("says when the box cannot break even at today's earning", () => {
+    expect(breakEvenWords(earnings({ breakEven: { wm: 70, loadedWm: 50.1, ofLoaded: 1.4, reached: false, boxPct: 104 } }))).toBe(
+      "Break-even at 70 W/M: not reached, 50.1 W/M are loaded. That is 104% of the box: more than it takes, so it cannot break even at today's earning per W/M.",
+    );
+  });
+  it("names the loaded shipments still to price while break-even waits for them", () => {
+    const a = row({ shipmentId: "a", jobNumber: "CZLCL1", noSelling: true });
+    const b = row({ shipmentId: "b", jobNumber: "CZLCL2", moneyKnown: false });
+    const c = row({ shipmentId: "c", jobNumber: "CZLCL3" });
+    const gone = row({ shipmentId: "d", jobNumber: "CZLCL4", counted: false, noSelling: true });
+    expect(unpricedShipments(earnings({ rows: [a, b, c, gone], breakEvenWaitsFor: 2 }))).toEqual([
+      { shipmentId: "a", jobNumber: "CZLCL1" },
+      { shipmentId: "b", jobNumber: "CZLCL2" },
+    ]);
+    expect(unpricedShipments(earnings({ rows: [a] }))).toEqual([]);
+  });
+  it("warns about cargo figures, a shipment the box is not for and road freight typed by hand", () => {
+    expect(earningsWarnings(earnings({}, { odd: 1, cargoImplausible: 1, cargoGap: 2, handRoad: 1 }))).toEqual([
+      "1 shipment is not what this box is for. Take it off the sailing: it takes a share of the box costs meanwhile.",
+      "1 shipment has cargo figures that cannot be right, so the shares of the box costs are not to be trusted until they are corrected.",
+      "2 shipments have a weight or a volume missing: their shares of the box costs may be too low, and the others' too high.",
+      "1 shipment has road freight typed by hand. If it is the trunk haul to the hub, it belongs under Origin Costs of the box: check it is not counted twice.",
+    ]);
+  });
+  it("marks such a shipment's row", () => {
+    expect(earningsNotes(row({ odd: "Air Freight", cargoGap: "volume", handRoadLines: 1 })).map((n) => n.text)).toEqual([
+      "Air Freight: not what this box is for",
+      "Volume missing: share may be too low",
+      "Road freight typed by hand",
+    ]);
+    expect(earningsNotes(row({ cargoGap: "weight", cargoImplausible: true })).map((n) => n.text)).toEqual(["Cargo figures look wrong: check its share"]);
   });
 });

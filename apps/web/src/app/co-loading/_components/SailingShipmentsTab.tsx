@@ -368,7 +368,7 @@ function LinkSailingShipmentsModal({
             <Button onClick={close}>Cancel</Button>
             <Button
               type="primary"
-              disabled={selected.length === 0}
+              disabled={selected.length === 0 || odd !== null}
               loading={linking}
               onClick={handleLink}
             >

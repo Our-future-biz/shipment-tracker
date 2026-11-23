@@ -56,6 +56,13 @@ describe("linking a shipment to a sailing", () => {
     expect(linkRefusal({ ...free, serviceName: "" }, "ISHA", SAILING)).toBe('CZLCL00000299 has the Service Name "none": only ISHA shipments go on this sailing.');
     // A service without a Service Name takes none.
     expect(linkRefusal(free, "", SAILING)).not.toBeNull();
+    // Only what the box is for goes in: another mode of transport, or a full load in a consolidation box, is refused.
+    const lcl = { ...free, freightMode: "Sea Freight", loadType: "Part Load" };
+    expect(linkRefusal(lcl, "ISHA", SAILING, "sea_lcl")).toBeNull();
+    expect(linkRefusal({ ...lcl, freightMode: "Air Freight" }, "ISHA", SAILING, "sea_lcl")).toBe("CZLCL00000299 is Air Freight: only Sea LCL shipments go on this sailing.");
+    expect(linkRefusal({ ...lcl, loadType: "Full Load" }, "ISHA", SAILING, "sea_lcl")).toBe("CZLCL00000299 is Full Load: only Sea LCL shipments go on this sailing.");
+    expect(linkRefusal({ ...lcl, loadType: "Full Load" }, "ISHA", SAILING, "sea_fcl")).toBeNull();
+    expect(linkRefusal({ ...lcl, freightMode: "" }, "ISHA", SAILING, "sea_lcl")).toBeNull();
   });
 
   it("puts a shipment on one sailing at a time", () => {

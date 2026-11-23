@@ -179,11 +179,11 @@ describe("a shipment of another kind than the box is for", () => {
     expect(oddInBox("road", { freightMode: "Road Freight", loadType: "Full Load" })).toBeNull();
   });
 
-  it("is remarked on in its row and before it is linked, never refused", () => {
+  it("is remarked on in its row, and is not linked", () => {
     expect(rowNotes(row({ odd: "Air Freight" })).map((n) => n.text)).toEqual(["Air Freight: not what this box is for"]);
     expect(oddWarning([])).toBeNull();
-    expect(oddWarning(["Full Load"])).toBe("This shipment is Full Load: not what this box is for. You can still link it.");
-    expect(oddWarning(["Full Load", "Air Freight", "Full Load"])).toBe("3 of these shipments are not what this box is for (Full Load, Air Freight). You can still link them.");
+    expect(oddWarning(["Full Load"])).toBe("This shipment is Full Load: not what this box is for. Untick it to link the others.");
+    expect(oddWarning(["Full Load", "Air Freight", "Full Load"])).toBe("3 of these shipments are not what this box is for (Full Load, Air Freight). Untick them to link the others.");
   });
 
   it("says why a shipment was taken off a sailing", () => {
@@ -222,12 +222,12 @@ describe("the break-even mark on a meter", () => {
     const mark = breakEvenMark("volume", meter(48, 64.9, 76.4, "room"), 0.5)!;
     expect(mark.onBar).toBe(true);
     expect(mark.pct).toBeCloseTo((24 / 76.4) * 100, 5);
-    expect(mark.words).toBe("Break-even at 24 cbm: reached");
+    expect(mark.words).toBe("Break-even at 24 cbm: reached, with the same mix of cargo");
   });
   it("says when it is still ahead, and when the box cannot take it", () => {
-    expect(breakEvenMark("volume", meter(40, 64.9, 76.4, "room"), 1.5)!.words).toBe("Break-even at 60 cbm");
+    expect(breakEvenMark("volume", meter(40, 64.9, 76.4, "room"), 1.5)!.words).toBe("Break-even at 60 cbm, with the same mix of cargo");
     const beyond = breakEvenMark("volume", meter(40, 64.9, 76.4, "room"), 2.5)!;
-    expect(beyond).toMatchObject({ onBar: false, pct: 100, words: "Break-even at 100 cbm: more than the box takes" });
+    expect(beyond).toMatchObject({ onBar: false, pct: 100, words: "Break-even at 100 cbm: more than the box takes, with the same mix of cargo" });
   });
   it("is not drawn without a break-even or on an empty meter", () => {
     expect(breakEvenMark("volume", meter(40, 64.9, 76.4, "room"), null)).toBeNull();

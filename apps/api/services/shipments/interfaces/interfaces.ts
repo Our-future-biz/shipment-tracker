@@ -2470,6 +2470,14 @@ export interface EarningsRow {
   profit: EarningsAmount | null;
   /** Counted, but with no weight and no volume: it carries no share of the box. */
   noShare: boolean;
+  /** Its weight or its volume is missing: its W/M, and so its share of the box, may be too low. */
+  cargoGap: "weight" | "volume" | null;
+  /** Its cargo figures cannot be right (bigger or heavier than the box, a density no cargo has): its share is not to be trusted. */
+  cargoImplausible: boolean;
+  /** Not what this box is for ("Air Freight", "Full Load"); null when it belongs. */
+  odd: string | null;
+  /** Road freight lines typed by hand on it: the trunk haul to the hub belongs to the box's Origin Costs. */
+  handRoadLines: number;
   noSelling: boolean;
   untickedLines: number;
   unrecognisedLines: number;
@@ -2513,11 +2521,27 @@ export interface SailingEarnings {
     /** The break-even as a share of what is loaded (0.766 = 76.6% of today's load); null with `wm`. */
     ofLoaded: number | null;
     reached: boolean;
+    /** The break-even as a share of what the box is planned to take, in whole %; over 100 = more than the box takes. null with `wm` or without a capacity. */
+    boxPct: number | null;
   } | null;
+  /** How many loaded shipments are not priced yet (no selling lines, or money not known): break-even is not worked out until none is. */
+  breakEvenWaitsFor: number;
   /** The space of the box not sold, in % of the box, and its share of the box costs; null without box costs or a capacity. */
   unsold: { pct: number; cost: EarningsAmount } | null;
   /** How many counted shipments each remark is about. */
-  notes: { noSelling: number; unticked: number; ownBox: number; inMasterJob: number; unrecognised: number; noShare: number; missingCurrencies: string[] };
+  notes: {
+    noSelling: number;
+    unticked: number;
+    ownBox: number;
+    inMasterJob: number;
+    unrecognised: number;
+    noShare: number;
+    cargoGap: number;
+    cargoImplausible: number;
+    odd: number;
+    handRoad: number;
+    missingCurrencies: string[];
+  };
   /** Linked shipments not in the totals (cancelled), and what they sell for. */
   notCounted: number;
   notCountedSelling: EarningsAmount;

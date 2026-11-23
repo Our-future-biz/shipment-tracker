@@ -226,6 +226,11 @@ class CoLoadingSailingService {
     const to = isUuid(toSailingId) ? await repo.get(toSailingId, actor.companyID) : null;
     const refusal = moveRefusal(from, to, reason);
     if (refusal) throw APIError.invalidArgument(refusal);
+    // A shipment the box is not for stays out of the next box too (K3): it is taken off, not moved on.
+    const service = await coLoadingServiceService.get(from.serviceId, actor.companyID);
+    const [moved] = isUuid(shipmentId) ? await repo.shipmentsToLink([shipmentId], actor.companyID) : [];
+    const odd = moved ? oddInBox(service.mode, moved) : null;
+    if (moved && odd) throw APIError.failedPrecondition(`${moved.jobNumber} is ${odd}: it cannot go on another sailing of this service. Remove it from this one instead.`);
     const by = { id: actor.userID, name: await userNameOf(actor.userID) };
     if (!isUuid(shipmentId) || !(await repo.move(from.id, toSailingId, shipmentId, actor.companyID, by, reason.trim()))) throw APIError.notFound("The shipment is not on this sailing.");
   }
@@ -242,7 +247,7 @@ class CoLoadingSailingService {
     const found = await repo.shipmentsToLink(ids.filter(isUuid), actor.companyID);
     if (found.length !== ids.length) throw APIError.notFound("A shipment to link was not found.");
     const onSailing = new Map((await repo.sailingsOf(ids, actor.companyID)).map((l) => [l.shipmentId, { id: l.sailingId, name: [l.vessel, l.voyage].filter(Boolean).join(" ") }]));
-    const refusals = found.flatMap((s) => linkRefusal({ ...s, onSailing: onSailing.get(s.id) ?? null }, service.serviceName, sailingId) ?? []);
+    const refusals = found.flatMap((s) => linkRefusal({ ...s, onSailing: onSailing.get(s.id) ?? null }, service.serviceName, sailingId, service.mode) ?? []);
     if (refusals.length > 0) throw APIError.failedPrecondition(refusals.join(" "));
     const linked = await repo.link(sailingId, ids, actor.companyID, { id: actor.userID, name: await userNameOf(actor.userID) });
     // Linked meanwhile by someone else: nothing is linked, and the list read again shows where.

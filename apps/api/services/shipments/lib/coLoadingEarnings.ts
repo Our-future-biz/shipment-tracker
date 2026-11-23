@@ -22,6 +22,7 @@ export interface ShipmentMoney {
   sellingLines: number;
   untickedLines: number;
   unrecognisedLines: number;
+  handRoadLines?: number;
   missingCurrencies: string[];
   eurRate: number | null;
 }
@@ -92,6 +93,11 @@ export function sailingEarnings(
       boxShare: null,
       profit: null,
       noShare: box.set && s.counted && !(s.freightTons > 0),
+      // One figure missing: the W/M comes from the other alone, and may be too low (K4).
+      cargoGap: s.counted && s.weightMissing !== s.volumeMissing ? (s.weightMissing ? "weight" : "volume") : null,
+      cargoImplausible: s.counted && s.implausible,
+      odd: s.odd,
+      handRoadLines: m?.handRoadLines ?? 0,
       noSelling: m !== null && m.sellingLines === 0,
       untickedLines: m?.untickedLines ?? 0,
       unrecognisedLines: m?.unrecognisedLines ?? 0,
@@ -132,13 +138,19 @@ export function sailingEarnings(
   // In the figures shown as the main ones (EUR where both are known), so "reached" agrees with the profit's sign.
   const [earned, boxCost] = inOne(beforeBox, box.total);
   const covers = earned > 0 && loadedWm > 0;
+  // Not while a loaded shipment is not priced (K11): its W/M would count with no earning, and the
+  // break-even would read far too high until the last selling line is in.
+  const breakEvenWaitsFor = box.set ? counted.filter((r) => r.noSelling || !r.moneyKnown).length : 0;
+  const ofLoaded = covers ? boxCost / earned : null;
   const breakEven: SailingEarnings["breakEven"] =
-    box.set && loadedWm > 0
+    box.set && loadedWm > 0 && breakEvenWaitsFor === 0
       ? {
           wm: covers ? Math.round((boxCost / (earned / loadedWm)) * 10) / 10 : null,
           loadedWm,
-          ofLoaded: covers ? Math.round((boxCost / earned) * 1000) / 1000 : null,
+          ofLoaded: ofLoaded === null ? null : Math.round(ofLoaded * 1000) / 1000,
           reached: earned >= boxCost,
+          // With the same mix of cargo: today's fill, scaled to the break-even load.
+          boxPct: ofLoaded === null || fullPct === null ? null : Math.round(ofLoaded * fullPct),
         }
       : null;
   const unsoldPct = fullPct === null ? null : Math.max(0, 100 - fullPct);
@@ -166,6 +178,7 @@ export function sailingEarnings(
     boxCosts: box,
     boxUnshared: box.set && czkParts === null,
     breakEven,
+    breakEvenWaitsFor,
     unsold,
     notes: {
       noSelling: counted.filter((r) => r.noSelling).length,
@@ -174,6 +187,10 @@ export function sailingEarnings(
       inMasterJob: counted.filter((r) => r.inMasterJob).length,
       unrecognised: counted.filter((r) => r.unrecognisedLines > 0).length,
       noShare: counted.filter((r) => r.noShare).length,
+      cargoGap: counted.filter((r) => r.cargoGap !== null).length,
+      cargoImplausible: counted.filter((r) => r.cargoImplausible).length,
+      odd: counted.filter((r) => r.odd !== null).length,
+      handRoad: counted.filter((r) => r.handRoadLines > 0).length,
       missingCurrencies,
     },
     notCounted: rows.length - counted.length,

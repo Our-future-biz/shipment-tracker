@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { basketOf, coLoadingMoney, INLAND_DELIVERY_CODES, type MoneyBuyRow, type MoneySellRow } from "../lib/coLoadingMoney";
+import { CHARGE_CODES } from "../../../lib/chargeCodes";
+import { basketOf, BOX_COVERED_CODES, codeOf, coLoadingMoney, INLAND_DELIVERY_CODES, type MoneyBuyRow, type MoneySellRow } from "../lib/coLoadingMoney";
 
 const buy = (category: string, est: string, more: Partial<MoneyBuyRow> = {}): MoneyBuyRow => ({
   category,
@@ -25,8 +26,34 @@ describe("basketOf", () => {
     expect(basketOf(buy("other", "1", { sourceTruckingRef: "trucking:trip:1" }))).toBe("inland");
   });
 
-  it("leaves out what the box covers: freight and local charges", () => {
-    for (const code of ["ocean_freight", "lcl_fuel", "cfs_origin", "cfs_destination", "fcl_thc_destination", "lcl_documentation", "Ocean freight"]) expect(basketOf(buy(code, "1")), code).toBe("box");
+  it("leaves out what the box itself pays for: the main carriage, its fuel, terminal and CFS handling", () => {
+    for (const code of ["ocean_freight", "lcl_fuel", "cfs_origin", "cfs_destination", "fcl_thc_destination", "lcl_terminal_handling", "Ocean freight", "freight", "locals"]) expect(basketOf(buy(code, "1")), code).toBe("box");
+  });
+
+  it("counts what one shipment causes by itself, though the catalogue files it under freight or local charges", () => {
+    // The warehouse's Heavy Cargo Handling Fee is written under "handling".
+    for (const code of ["handling", "Handling", "lashing", "lcl_delivery_order", "lcl_documentation", "fcl_documentation", "documentation", "ams_ens", "vgm", "cross_docking", "air_screening"])
+      expect(basketOf(buy(code, "1")), code).toBe("other");
+  });
+
+  it("reads a code in any letter case", () => {
+    expect(codeOf("OCEAN_FREIGHT")).toBe("ocean_freight");
+    expect(basketOf(buy("OCEAN_FREIGHT", "1"))).toBe("box");
+    expect(basketOf(buy("Inland_Collection", "1"))).toBe("inland");
+    expect(basketOf(buy(" Customs_Import ", "1"))).toBe("other");
+    expect(codeOf("Sea freight")).toBe("Sea freight");
+  });
+
+  it("puts every code of the catalogue into the basket written down here: a new code must be placed by hand", () => {
+    const inCatalogue = new Set(CHARGE_CODES.map((c) => c.code));
+    for (const code of [...BOX_COVERED_CODES, ...INLAND_DELIVERY_CODES]) expect(inCatalogue.has(code), code).toBe(true);
+    expect(BOX_COVERED_CODES.filter((c) => INLAND_DELIVERY_CODES.includes(c))).toEqual([]);
+    const baskets = { box: 0, inland: 0, other: 0 };
+    for (const { code } of CHARGE_CODES) baskets[basketOf(buy(code, "1")) as "box" | "inland" | "other"]++;
+    // 23 the box pays for, 13 inland delivery, the rest the shipment's own. A code added to the
+    // catalogue lands in "other" and moves this count: decide its basket, then change the figure.
+    expect(baskets).toEqual({ box: 23, inland: 13, other: CHARGE_CODES.length - 36 });
+    expect(CHARGE_CODES.length).toBe(89);
   });
 
   it("leaves out a master job's share, whatever it is for", () => {
@@ -79,5 +106,13 @@ describe("coLoadingMoney", () => {
 
   it("is all zeros for a shipment with no lines", () => {
     expect(coLoadingMoney([], [], RATES, NONE)).toMatchObject({ sellingCzk: 0, invoicedCzk: 0, inlandCzk: 0, otherCzk: 0, ownBoxCzk: 0, masterJobCzk: 0, sellingLines: 0, untickedLines: 0 });
+  });
+});
+
+describe("road freight typed by hand", () => {
+  it("is counted as inland delivery and remarked on, a line Trucking wrote is not remarked on", () => {
+    const m = coLoadingMoney([buy("road_freight", "100"), buy("road_toll", "10"), buy("road_freight", "200", { sourceTruckingRef: "trucking:trip:1" }), buy("road_fuel", "")], [], RATES, NONE);
+    expect(m.inlandCzk).toBe(7750);
+    expect(m.handRoadLines).toBe(2);
   });
 });

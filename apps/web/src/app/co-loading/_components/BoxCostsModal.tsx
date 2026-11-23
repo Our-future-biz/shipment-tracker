@@ -108,7 +108,8 @@ export function BoxCostsModal({ open, onClose, sailingId, container, containerTy
           </fieldset>
         ))}
         <p className={`${HINT} m-0`}>
-          Leave an amount empty while it is not known: the tab then says it is not set. Type 0 for a cost that is nothing. Every change is kept, with who made it.
+          Leave an amount empty while it is not known: the tab then says it is not set. Type 0 for a cost that is nothing. Every change is kept, with who made it. The trunk haul to
+          the hub belongs under Origin Costs, not on the shipments.
         </p>
       </div>
     </AppModal>
