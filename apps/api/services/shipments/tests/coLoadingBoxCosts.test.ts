@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { BoxUtilizationRow } from "../interfaces/interfaces";
 import { boxCostChanges, boxCostsOf, checkBoxCosts, shareCents, type BoxCostStored } from "../lib/coLoadingBoxCosts";
-import { sailingEarnings, type ShipmentMoney } from "../lib/coLoadingEarnings";
+import { profitProvisional, sailingEarnings, sailingProfit, type ShipmentMoney } from "../lib/coLoadingEarnings";
 
 const cost = (containerNo: number, kind: string, amount: number | null, currency = "EUR", note = ""): BoxCostStored => ({ containerNo, kind, amount, currency, note });
 const RATES = {
@@ -253,5 +253,57 @@ describe("a sailing's profit", () => {
     const a = row(1);
     const e = sailingEarnings([a], byId(money(a.shipmentId, 10000)), NONE, boxCostsOf(1, [cost(1, "ocean", 500, "CNY"), cost(1, "origin", 1)], RATES));
     expect(e.complete).toBe(false);
+  });
+});
+
+describe("break-even and the unsold space", () => {
+  it("are not shown while no box cost is set", () => {
+    const a = row(2);
+    const e = sailingEarnings([a], byId(money(a.shipmentId, 25000)), NONE, undefined, 60);
+    expect(e.breakEven).toBeNull();
+    expect(e.unsold).toBeNull();
+  });
+  it("give the W/M that covers the box at what the loaded shipments earn per W/M", () => {
+    // 4 W/M earn 75,000 before the box: 18,750 per W/M. A box of 25,000 is covered at 1.3 W/M.
+    const a = row(3);
+    const b = row(1);
+    const e = sailingEarnings([a, b], byId(money(a.shipmentId, 50000), money(b.shipmentId, 25000)), NONE, box(1000), 60);
+    expect(e.breakEven).toEqual({ wm: 1.3, loadedWm: 4, ofLoaded: 0.333, reached: true });
+  });
+  it("say it is not reached when the box costs more than the shipments earn", () => {
+    const a = row(2);
+    const e = sailingEarnings([a], byId(money(a.shipmentId, 12500)), NONE, box(1000), 60);
+    expect(e.breakEven).toEqual({ wm: 4, loadedWm: 2, ofLoaded: 2, reached: false });
+  });
+  it("give no break-even when the shipments earn nothing before the box", () => {
+    const a = row(2);
+    const e = sailingEarnings([a], byId(money(a.shipmentId, 0)), NONE, box(1000), 60);
+    expect(e.breakEven).toEqual({ wm: null, loadedWm: 2, ofLoaded: null, reached: false });
+  });
+  it("cost the unsold space as its share of the box costs", () => {
+    const a = row(2);
+    const e = sailingEarnings([a], byId(money(a.shipmentId, 50000)), NONE, box(1000), 74);
+    expect(e.unsold).toEqual({ pct: 26, cost: { czk: 6500, eur: 260 } });
+  });
+  it("have no unsold space in a full or overfull box, and none known without a capacity", () => {
+    const a = row(2);
+    const m = byId(money(a.shipmentId, 50000));
+    expect(sailingEarnings([a], m, NONE, box(1000), 108).unsold).toEqual({ pct: 0, cost: { czk: 0, eur: 0 } });
+    expect(sailingEarnings([a], m, NONE, box(1000), null).unsold).toBeNull();
+  });
+});
+
+describe("a sailing's profit at a glance", () => {
+  it("is its profit and margin, marked provisional while a foreign-currency box cost has no fixed rate", () => {
+    const a = row(2);
+    const e = sailingEarnings([a], byId(money(a.shipmentId, 50000)), NONE, boxCostsOf(1, [cost(1, "ocean", 1000)], RATES, "2026-11-20"));
+    expect(sailingProfit("s1", e)).toEqual({ sailingId: "s1", profit: { czk: 25000, eur: 1000 }, marginPct: 50, complete: true, provisional: false });
+    expect(profitProvisional(sailingEarnings([a], byId(money(a.shipmentId, 50000)), NONE, box(1000)))).toBe(true);
+    expect(profitProvisional(sailingEarnings([a], byId(money(a.shipmentId, 50000)), NONE, boxCostsOf(1, [cost(1, "ocean", 1000, "CZK")], RATES)))).toBe(false);
+  });
+  it("has no profit while no box cost is set, or when the money could not be read", () => {
+    const a = row(2);
+    expect(sailingProfit("s1", sailingEarnings([a], byId(money(a.shipmentId, 50000)), NONE)).profit).toBeNull();
+    expect(sailingProfit("s1", sailingEarnings([a], null, NONE, box(1000))).profit).toBeNull();
   });
 });

@@ -3,10 +3,10 @@ import log from "encore.dev/log";
 import { fx, invoicing } from "~encore/clients";
 import { isUuid } from "../../../lib/uuid";
 import { capacityOf, containerCapacity } from "../../../lib/containerCapacity";
-import type { BoxCostChange, BoxCostKind, BoxUtilization, CoLoadingSailingItem, SailingBoxCosts, SailingEarnings, SailingRemovedShipment } from "../interfaces/interfaces";
+import type { BoxCostChange, BoxCostKind, BoxUtilization, CoLoadingSailingItem, SailingBoxCosts, SailingEarnings, SailingProfit, SailingRemovedShipment } from "../interfaces/interfaces";
 import { boxCostChanges, boxCostsOf, checkBoxCosts, type BoxCostLineInput, type BoxCostStored, type BoxRates } from "../lib/coLoadingBoxCosts";
 import { coLoadingBoxCostRepository as boxCostRepo } from "../repositories/coLoadingBoxCost.repository";
-import { sailingEarnings, type ShipmentMoney } from "../lib/coLoadingEarnings";
+import { sailingEarnings, sailingProfit, type ShipmentMoney } from "../lib/coLoadingEarnings";
 import { boxFillOf, boxUtilization } from "../lib/boxUtilization";
 import { CANCELLED_STATUS } from "../lib/fieldDefaults";
 import { checkSailingInput, linkRefusal, moveRefusal, oddInBox, sailingDetailsProblem, type SailingDetails, type SailingInput } from "../lib/coLoadingSailing";
@@ -35,6 +35,9 @@ const toItem = (r: CoLoadingSailingRecord): CoLoadingSailingItem => ({
  * The fill of a sailing's containers together, on this service, holding these shipments, planned to the company's share of their volume. A cancelled
  * one is listed, not counted; one of another kind than the box is for is counted and remarked on.
  */
+/** How many sailings' earnings are worked out at the same time for the list of sailings. */
+const PROFITS_AT_ONCE = 6;
+
 /** A stored box cost as the rules read it. */
 const storedCost = (r: { containerNo: number; kind: string; amount: string | null; currency: string; note: string }): BoxCostStored => ({
   containerNo: r.containerNo,
@@ -111,7 +114,32 @@ class CoLoadingSailingService {
     } catch (err) {
       log.warn(err, "Co-Loading earnings: the shipments' money could not be read", { sailingId: sailing.id });
     }
-    return sailingEarnings(box.rows, money, new Set(linked.filter((s) => s.masterJobId).map((s) => s.id)), await this.boxCosts(sailing, companyId));
+    return sailingEarnings(box.rows, money, new Set(linked.filter((s) => s.masterJobId).map((s) => s.id)), await this.boxCosts(sailing, companyId), box.fullPct);
+  }
+
+  /**
+   * The profit of each of a service's sailings, for the list of sailings (D19). For managers: the
+   * controller lets only them ask. Each sailing is worked out as its Earnings tab does, a few at a
+   * time; one that fails is left out, not shown as 0.
+   */
+  async profits(serviceId: string, companyId: string): Promise<SailingProfit[]> {
+    await coLoadingServiceService.get(serviceId, companyId);
+    const rows = await repo.listByService(serviceId, companyId);
+    const out: SailingProfit[] = [];
+    for (let i = 0; i < rows.length; i += PROFITS_AT_ONCE) {
+      const batch = await Promise.all(
+        rows.slice(i, i + PROFITS_AT_ONCE).map(async (r) => {
+          try {
+            return sailingProfit(r.id, await this.earnings(r.id, companyId));
+          } catch (err) {
+            log.warn(err, "Co-Loading: a sailing's profit could not be worked out", { sailingId: r.id });
+            return null;
+          }
+        }),
+      );
+      out.push(...batch.filter((p): p is SailingProfit => p !== null));
+    }
+    return out;
   }
 
   /**

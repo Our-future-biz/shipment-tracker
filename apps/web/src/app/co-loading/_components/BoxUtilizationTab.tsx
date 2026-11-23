@@ -7,9 +7,12 @@ import { EMPTY_CELL } from "@/components/EmptyCell";
 import { KPI_GRID_CLASS, KpiTile } from "@/components/KpiTile";
 import { Pill } from "@/components/Pill";
 import { CountChip, SectionCard } from "@/components/SectionCard";
-import { useSailingUtilization } from "@/hooks/useCoLoadingServices";
+import { useSailingEarnings, useSailingUtilization } from "@/hooks/useCoLoadingServices";
+import { useAuth } from "@/lib/auth/AuthContext";
 import { BTN, CARD, EMPTY_STATE, HINT, LABEL_TEXT, LINK, REF, TD, TD_TOTAL, TH } from "@/styles/ui";
+import { canManageServices } from "../_lib/services";
 import {
+  breakEvenMark,
   fullWords,
   meterBar,
   meterScale,
@@ -48,7 +51,9 @@ function NoMeter({ kind, total, reason }: { kind: MeterKind; total: string; reas
  * The bar runs to the most the box can ever take, with the limit as a mark on it, so "over the plan
  * but still loadable" and "more than the box takes" look different. Colour repeats what the words say.
  */
-function Meter({ kind, meter, capacity }: { kind: MeterKind; meter: BoxMeter; capacity: NonNullable<BoxUtilization["capacity"]> }) {
+function Meter({ kind, meter, capacity, breakEvenOfLoaded }: { kind: MeterKind; meter: BoxMeter; capacity: NonNullable<BoxUtilization["capacity"]>; breakEvenOfLoaded?: number | null }) {
+  // For managers: where the sailing covers its box costs, with the same mix of cargo (Earnings).
+  const breakEven = breakEvenMark(kind, meter, breakEvenOfLoaded);
   const tone = meterTone(meter);
   const bar = meterBar(meter);
   const words = meterWords(kind, meter, capacity);
@@ -73,9 +78,13 @@ function Meter({ kind, meter, capacity }: { kind: MeterKind; meter: BoxMeter; ca
         {/* The bar's width and the mark's place are the figures themselves: the only inline styles. */}
         <span className={`absolute inset-y-0 left-0 rounded-full ${BAR_TONE[tone]}`} style={{ width: `${bar.filledPct}%` }} />
         <span className="absolute -inset-y-1 w-0.5 bg-slate-900" style={{ left: `${bar.limitPct}%` }} aria-hidden />
+        {breakEven?.onBar && <span className="absolute -inset-y-1.5 w-0 border-l-2 border-dashed border-emerald-600" style={{ left: `${breakEven.pct}%` }} aria-hidden />}
       </div>
       <div className="flex flex-wrap justify-between gap-x-4 text-[12px] text-slate-500 tabular-nums">
-        <span>The mark is the limit</span>
+        <span>
+          The mark is the limit
+          {breakEven && <span className="text-emerald-700"> · {breakEven.onBar ? "dashed: " : ""}{breakEven.words}</span>}
+        </span>
         <span>{meterScale(kind, capacity)}</span>
       </div>
       <p className={`m-0 flex items-start gap-1.5 text-[13px] font-medium ${WORDS_TONE[tone]}`}>
@@ -98,6 +107,10 @@ interface BoxUtilizationTabProps {
 // the biggest share first: the ones to look at when the box is over.
 export function BoxUtilizationTab({ sailingId, onOpenShipments }: BoxUtilizationTabProps) {
   const { box, isLoading, isError, refetch } = useSailingUtilization(sailingId);
+  // Managers also see where the sailing breaks even: only they may read its earnings.
+  const { user } = useAuth();
+  const { earnings } = useSailingEarnings(sailingId, canManageServices(user?.role));
+  const breakEvenOfLoaded = earnings?.moneyKnown ? earnings.breakEven?.ofLoaded : null;
 
   if (!box) {
     if (isLoading) {
@@ -132,8 +145,8 @@ export function BoxUtilizationTab({ sailingId, onOpenShipments }: BoxUtilization
 
       {capacity ? (
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-          {box.volume ? <Meter kind="volume" meter={box.volume} capacity={capacity} /> : <NoMeter kind="volume" total={`${tableCbm(totals.volumeCbm)} cbm`} reason={noVolumeWords(box.containerType)} />}
-          {box.weight && <Meter kind="weight" meter={box.weight} capacity={capacity} />}
+          {box.volume ? <Meter kind="volume" meter={box.volume} capacity={capacity} breakEvenOfLoaded={breakEvenOfLoaded} /> : <NoMeter kind="volume" total={`${tableCbm(totals.volumeCbm)} cbm`} reason={noVolumeWords(box.containerType)} />}
+          {box.weight && <Meter kind="weight" meter={box.weight} capacity={capacity} breakEvenOfLoaded={breakEvenOfLoaded} />}
         </div>
       ) : (
         <p className={`${CARD} m-0 px-5 py-4 text-[13px] text-slate-700`} role="status">

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fillOfBox, fillWords, fullWords, meterBar, meterScale, meterTone, meterWords, missingNote, noVolumeWords, containersWords, cutoffWarning, oddInBox, oddWarning, overfillWarning, removedReasonWords, rowNotes, shareWords, usedOfLimit, type BoxMeter, type BoxRow, type BoxUtilization } from "./boxUtilization";
+import { breakEvenMark, fillOfBox, fillWords, fullWords, meterBar, meterScale, meterTone, meterWords, missingNote, noVolumeWords, containersWords, cutoffWarning, oddInBox, oddWarning, overfillWarning, removedReasonWords, rowNotes, shareWords, usedOfLimit, type BoxMeter, type BoxRow, type BoxUtilization } from "./boxUtilization";
 
 const HC = { containerType: "40' HC", insideCbm: 76.4, planningCbm: 64.9, standardKg: 26200, heavyTestedKg: 28400, maxKg: 28400, inlandKg: null as number | null, planningPct: 85, containers: 1 };
 const OT = { containerType: "40' OT", insideCbm: 67.3, planningCbm: 57.2, standardKg: 26600, heavyTestedKg: null, maxKg: 28550, inlandKg: null, planningPct: 85, containers: 1 };
@@ -214,5 +214,23 @@ describe("several containers and the cut-off", () => {
     expect(cutoffWarning("2026-11-23", "2026-11-23", "23.11.2026")).toBeNull();
     expect(cutoffWarning("2026-11-30", "2026-11-23", "30.11.2026")).toBeNull();
     expect(cutoffWarning(null, "2026-11-23", "")).toBeNull();
+  });
+});
+
+describe("the break-even mark on a meter", () => {
+  it("stands at the break-even share of what is loaded", () => {
+    const mark = breakEvenMark("volume", meter(48, 64.9, 76.4, "room"), 0.5)!;
+    expect(mark.onBar).toBe(true);
+    expect(mark.pct).toBeCloseTo((24 / 76.4) * 100, 5);
+    expect(mark.words).toBe("Break-even at 24 cbm: reached");
+  });
+  it("says when it is still ahead, and when the box cannot take it", () => {
+    expect(breakEvenMark("volume", meter(40, 64.9, 76.4, "room"), 1.5)!.words).toBe("Break-even at 60 cbm");
+    const beyond = breakEvenMark("volume", meter(40, 64.9, 76.4, "room"), 2.5)!;
+    expect(beyond).toMatchObject({ onBar: false, pct: 100, words: "Break-even at 100 cbm: more than the box takes" });
+  });
+  it("is not drawn without a break-even or on an empty meter", () => {
+    expect(breakEvenMark("volume", meter(40, 64.9, 76.4, "room"), null)).toBeNull();
+    expect(breakEvenMark("weight", meter(0, 26200, 28400, "room"), 0.5)).toBeNull();
   });
 });

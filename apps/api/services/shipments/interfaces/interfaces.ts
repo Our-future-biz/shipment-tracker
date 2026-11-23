@@ -2502,6 +2502,20 @@ export interface SailingEarnings {
   boxCosts: SailingBoxCosts;
   /** The box costs are set but no shipment has a W/M to share them by: the total carries them, no row does. */
   boxUnshared: boolean;
+  /**
+   * How many W/M must be sold to cover the box costs, at what the loaded shipments earn per W/M
+   * before the box; null while no box cost is set or nothing is loaded.
+   */
+  breakEven: {
+    /** null when the loaded shipments earn nothing before the box: no load would cover it. */
+    wm: number | null;
+    loadedWm: number;
+    /** The break-even as a share of what is loaded (0.766 = 76.6% of today's load); null with `wm`. */
+    ofLoaded: number | null;
+    reached: boolean;
+  } | null;
+  /** The space of the box not sold, in % of the box, and its share of the box costs; null without box costs or a capacity. */
+  unsold: { pct: number; cost: EarningsAmount } | null;
   /** How many counted shipments each remark is about. */
   notes: { noSelling: number; unticked: number; ownBox: number; inMasterJob: number; unrecognised: number; noShare: number; missingCurrencies: string[] };
   /** Linked shipments not in the totals (cancelled), and what they sell for. */
@@ -2563,4 +2577,16 @@ export interface BoxCostChange {
   newNote: string;
   changedByName: string;
   changedAt: string;
+}
+
+/** A sailing's profit at a glance, for the list of sailings. Managers only. */
+export interface SailingProfit {
+  sailingId: string;
+  /** Profit after the box costs; null while no box cost is set. */
+  profit: EarningsAmount | null;
+  marginPct: number | null;
+  /** False when an amount is left out or a shipment's money is not known. */
+  complete: boolean;
+  /** The box costs' rate may still move. */
+  provisional: boolean;
 }

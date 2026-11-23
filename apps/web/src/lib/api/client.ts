@@ -3412,6 +3412,7 @@ export namespace shipments {
             this.coLoadingSailingGet = this.coLoadingSailingGet.bind(this)
             this.coLoadingSailingLinkShipments = this.coLoadingSailingLinkShipments.bind(this)
             this.coLoadingSailingList = this.coLoadingSailingList.bind(this)
+            this.coLoadingSailingProfits = this.coLoadingSailingProfits.bind(this)
             this.coLoadingSailingBoxCostChanges = this.coLoadingSailingBoxCostChanges.bind(this)
             this.coLoadingSailingBoxCostsSave = this.coLoadingSailingBoxCostsSave.bind(this)
             this.coLoadingSailingDetails = this.coLoadingSailingDetails.bind(this)
@@ -3701,6 +3702,15 @@ export namespace shipments {
             return await resp.json() as {
     linked: number
 }
+        }
+
+        /**
+         * The profit of each of the service's sailings, for the list of sailings. Managers and admins only.
+         */
+        public async coLoadingSailingProfits(id: string): Promise<{ data: interfaces.SailingProfit[] }> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/co-loading/services/${encodeURIComponent(id)}/sailing-profits`)
+            return await resp.json() as { data: interfaces.SailingProfit[] }
         }
 
         /**
@@ -16058,6 +16068,17 @@ export namespace interfaces {
     }
 
     /**
+     * A sailing's profit at a glance, for the list of sailings. Managers only.
+     */
+    export interface SailingProfit {
+        sailingId: string
+        profit: EarningsAmount | null
+        marginPct: number | null
+        complete: boolean
+        provisional: boolean
+    }
+
+    /**
      * The three costs of a box: its origin charges, its ocean freight, its destination charges.
      */
     export type BoxCostKind = "origin" | "ocean" | "destination"
@@ -16209,6 +16230,14 @@ export namespace interfaces {
          * The box costs are set but no shipment has a W/M to share them by.
          */
         boxUnshared: boolean
+        /**
+         * How many W/M must be sold to cover the box costs, at what the loaded shipments earn per W/M before the box; null while no box cost is set or nothing is loaded.
+         */
+        breakEven: { wm: number | null; loadedWm: number; ofLoaded: number | null; reached: boolean } | null
+        /**
+         * The space of the box not sold, in % of the box, and its share of the box costs; null without box costs or a capacity.
+         */
+        unsold: { pct: number; cost: EarningsAmount } | null
         /**
          * How many counted shipments each remark is about.
          */

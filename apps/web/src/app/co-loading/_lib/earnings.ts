@@ -65,6 +65,43 @@ function boxWarnings(e: SailingEarnings): string[] {
   return out;
 }
 
+const wm = (v: number) => v.toLocaleString("en-US", { maximumFractionDigits: 1 });
+
+/** The break-even in a sentence, or null while there is none to show. */
+export function breakEvenWords(e: SailingEarnings): string | null {
+  const b = e.breakEven;
+  if (!b) return null;
+  if (b.wm === null) return `No break-even: the ${b.loadedWm === 1 ? "loaded W/M earns" : `${wm(b.loadedWm)} W/M loaded earn`} nothing before the box costs.`;
+  return b.reached
+    ? `Break-even at ${wm(b.wm)} W/M: reached, ${wm(b.loadedWm)} W/M are loaded.`
+    : `Break-even at ${wm(b.wm)} W/M: not reached, ${wm(b.loadedWm)} W/M are loaded. ${wm(Math.max(0.1, Math.round((b.wm - b.loadedWm) * 10) / 10))} W/M more at today's average earning would cover the box.`;
+}
+
+/** The unsold space in a sentence, or null while it is not known. */
+export function unsoldWords(e: SailingEarnings): string | null {
+  const u = e.unsold;
+  if (!u) return null;
+  if (u.pct <= 0) return "No unsold space: the box is full.";
+  return `Unsold space: ${u.pct}% of the box, which is ${amountWords(u.cost).main} of the box costs. The loaded shipments carry it.`;
+}
+
+/** A sailing's earnings as its profit at a glance (the server gives the same for the list of sailings). */
+export const sailingProfitOf = (sailingId: string, e: SailingEarnings): interfaces.SailingProfit => ({
+  sailingId,
+  profit: e.moneyKnown ? e.totals.profit : null,
+  marginPct: e.moneyKnown ? e.totals.marginPct : null,
+  complete: e.complete,
+  provisional: profitProvisional(e),
+});
+
+/** A sailing's profit for its header and the list of sailings: the figure, a remark and a tone. */
+export function profitGlance(p: interfaces.SailingProfit | null | undefined): { main: string; note: string | null; tone: "red" | "slate" | null } {
+  if (!p) return { main: "—", note: null, tone: null };
+  if (!p.profit) return { main: "Box costs not set", note: null, tone: "slate" };
+  const notes = [p.marginPct === null ? null : marginWords(p.marginPct), !p.complete ? "incomplete" : p.provisional ? "provisional" : null].filter(Boolean);
+  return { main: amountWords(p.profit).main, note: notes.join(" · ") || null, tone: p.profit.czk < 0 ? "red" : null };
+}
+
 /** A box cost as typed: "2,100.00 USD", or "Not set". */
 export const boxCostWords = (amount: number | null, currency: string): string => (amount === null ? "Not set" : fmtMoney(amount, currency, true));
 

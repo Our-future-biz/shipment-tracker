@@ -2,7 +2,7 @@ import { api } from "encore.dev/api";
 import type { MaxLen } from "encore.dev/validate";
 import { getAuthData } from "~encore/auth";
 import { requireRole } from "../../../lib/rbac";
-import type { BoxCostChange, BoxUtilization, CoLoadingSailingItem, SailingEarnings, SailingRemovedShipment } from "../interfaces/interfaces";
+import type { BoxCostChange, BoxUtilization, CoLoadingSailingItem, SailingEarnings, SailingProfit, SailingRemovedShipment } from "../interfaces/interfaces";
 import { coLoadingSailingService as service } from "../services/coLoadingSailing.service";
 
 // A Co-Loading Concept service's sailings (lib/coLoadingSailing), for everyone in the company.
@@ -37,6 +37,14 @@ export const coLoadingSailingEarnings = api(
   { expose: true, auth: true, method: "GET", path: "/co-loading/sailings/:id/earnings" },
   async ({ id }: { id: string }): Promise<SailingEarnings> => {
     return service.earnings(id, requireRole("superadmin", "admin", "manager").companyID);
+  },
+);
+
+// The profit of each of the service's sailings, for the list of sailings. Managers and admins only (D19).
+export const coLoadingSailingProfits = api(
+  { expose: true, auth: true, method: "GET", path: "/co-loading/services/:id/sailing-profits" },
+  async ({ id }: { id: string }): Promise<{ data: SailingProfit[] }> => {
+    return { data: await service.profits(id, requireRole("superadmin", "admin", "manager").companyID) };
   },
 );
 

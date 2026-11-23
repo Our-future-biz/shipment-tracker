@@ -4,13 +4,14 @@ import { useState, type ReactNode } from "react";
 import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Spin } from "antd";
 import { BackLink } from "@/components/BackLink";
-import { useCoLoadingSailing, useCoLoadingService, useSailingUtilization } from "@/hooks/useCoLoadingServices";
+import { useCoLoadingSailing, useCoLoadingService, useSailingEarnings, useSailingUtilization } from "@/hooks/useCoLoadingServices";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { formatDate } from "@/lib/date";
 import { BTN, CARD, EMPTY, LABEL_TEXT, PAGE_TITLE, REF } from "@/styles/ui";
 import { containersWords, fillOfBox } from "../_lib/boxUtilization";
 import { SAILING_TABS, sailingTabOf, sailingTabsFor, sailingTitle } from "../_lib/sailings";
 import { canManageServices } from "../_lib/services";
+import { profitGlance, sailingProfitOf } from "../_lib/earnings";
 import { BoxFillChip } from "./BoxFillChip";
 import { EditSailingModal } from "./EditSailingModal";
 import { BoxUtilizationTab } from "./BoxUtilizationTab";
@@ -64,6 +65,9 @@ export function CoLoadingSailingPage() {
   const { user } = useAuth();
   const isManager = canManageServices(user?.role);
   const tab = sailingTabOf(searchParams.get("tab"), isManager);
+  // Managers see the sailing's profit in the header on every tab (D19).
+  const { earnings } = useSailingEarnings(sailing?.id ?? "", isManager);
+  const profit = earnings ? profitGlance(sailingProfitOf(sailing?.id ?? "", earnings)) : null;
   const [editing, setEditing] = useState(false);
   const openTab = (key: string) => {
     const params = new URLSearchParams(searchParams.toString());
@@ -118,6 +122,18 @@ export function CoLoadingSailingPage() {
                 <Fact label="Box utilization">{box ? <BoxFillChip fill={fillOfBox(box)} /> : text(null)}</Fact>
                 <Fact label="Cut-off">{text(formatDate(sailing.cutoffDate))}</Fact>
                 <Fact label="Departure">{text(formatDate(sailing.departureDate))}</Fact>
+                {isManager && (
+                  <Fact label="Profit">
+                    {profit ? (
+                      <span className={`truncate tabular-nums ${profit.tone === "red" ? "text-red-600" : profit.tone === "slate" ? "font-normal text-slate-500" : ""}`}>
+                        {profit.main}
+                        {profit.note && <span className="font-normal text-slate-500"> · {profit.note}</span>}
+                      </span>
+                    ) : (
+                      text(null)
+                    )}
+                  </Fact>
+                )}
               </div>
             </div>
 

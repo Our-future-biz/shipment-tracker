@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { profitProvisional, amountWords, boxCostWords, boxRateWords, changeWords, earningsNotes, earningsWarnings, invoicedHint, marginWords, type BoxCostChange, type EarningsAmount, type EarningsRow, type SailingBoxCosts, type SailingEarnings } from "./earnings";
+import { breakEvenWords, profitGlance, unsoldWords, profitProvisional, amountWords, boxCostWords, boxRateWords, changeWords, earningsNotes, earningsWarnings, invoicedHint, marginWords, type BoxCostChange, type EarningsAmount, type EarningsRow, type SailingBoxCosts, type SailingEarnings } from "./earnings";
 
 const amt = (czk: number, eur: number | null = czk / 25): EarningsAmount => ({ czk, eur });
 const row = (more: Partial<EarningsRow> = {}): EarningsRow => ({
@@ -46,6 +46,8 @@ const earnings = (more: Partial<SailingEarnings> = {}, notes: Partial<SailingEar
   totals: { shipments: 1, freightTons: 2, selling: amt(25000), invoiced: amt(10000), inland: amt(5000), other: amt(0), beforeBox: amt(20000), ownBox: amt(0), masterJob: amt(0), boxCosts: null, profit: null, marginPct: null },
   boxCosts: box(),
   boxUnshared: false,
+  breakEven: null,
+  unsold: null,
   notes: { noSelling: 0, unticked: 0, ownBox: 0, inMasterJob: 0, unrecognised: 0, noShare: 0, missingCurrencies: [], ...notes },
   notCounted: 0,
   notCountedSelling: amt(0),
@@ -209,5 +211,37 @@ describe("a provisional profit", () => {
   it("is not one when every box cost is in CZK, or none is set", () => {
     expect(profitProvisional(withLines([line("CZK"), line("USD", null)]))).toBe(false);
     expect(profitProvisional(earnings())).toBe(false);
+  });
+});
+
+describe("break-even and unsold space in words", () => {
+  it("say nothing while there is nothing to show", () => {
+    expect(breakEvenWords(earnings())).toBeNull();
+    expect(unsoldWords(earnings())).toBeNull();
+  });
+  it("say a break-even that is reached, one that is not, and one that cannot be", () => {
+    expect(breakEvenWords(earnings({ breakEven: { wm: 38.4, loadedWm: 50.1, ofLoaded: 0.766, reached: true } }))).toBe("Break-even at 38.4 W/M: reached, 50.1 W/M are loaded.");
+    expect(breakEvenWords(earnings({ breakEven: { wm: 60, loadedWm: 50.1, ofLoaded: 1.2, reached: false } }))).toBe(
+      "Break-even at 60 W/M: not reached, 50.1 W/M are loaded. 9.9 W/M more at today's average earning would cover the box.",
+    );
+    expect(breakEvenWords(earnings({ breakEven: { wm: null, loadedWm: 5, ofLoaded: null, reached: false } }))).toBe("No break-even: the 5 W/M loaded earn nothing before the box costs.");
+  });
+  it("say what the unsold space costs", () => {
+    expect(unsoldWords(earnings({ unsold: { pct: 26, cost: amt(6500) } }))).toBe("Unsold space: 26% of the box, which is 260.00 EUR of the box costs. The loaded shipments carry it.");
+    expect(unsoldWords(earnings({ unsold: { pct: 0, cost: amt(0) } }))).toBe("No unsold space: the box is full.");
+  });
+});
+
+describe("a sailing's profit at a glance", () => {
+  const p = (more: object) => ({ sailingId: "s", profit: amt(25000), marginPct: 10.1, complete: true, provisional: false, ...more });
+  it("is a dash while not known, and says when no box cost is set", () => {
+    expect(profitGlance(undefined)).toEqual({ main: "—", note: null, tone: null });
+    expect(profitGlance(p({ profit: null }))).toEqual({ main: "Box costs not set", note: null, tone: "slate" });
+  });
+  it("is the profit with its margin, marked when incomplete or provisional, red when a loss", () => {
+    expect(profitGlance(p({}))).toEqual({ main: "1,000.00 EUR", note: "10.1%", tone: null });
+    expect(profitGlance(p({ provisional: true }))).toEqual({ main: "1,000.00 EUR", note: "10.1% · provisional", tone: null });
+    expect(profitGlance(p({ complete: false, provisional: true })).note).toBe("10.1% · incomplete");
+    expect(profitGlance(p({ profit: amt(-2500), marginPct: -1 }))).toEqual({ main: "-100.00 EUR", note: "-1.0%", tone: "red" });
   });
 });

@@ -34,6 +34,22 @@ export const meterBar = (meter: BoxMeter) => ({
   limitPct: Math.min(100, (meter.limit / meter.max) * 100),
 });
 
+/**
+ * Where the break-even stands on a meter (managers only): the sailing covers its box costs at
+ * `ofLoaded` of what is loaded now, taken with the same mix of cargo. Its place on the bar, and the
+ * amount; `onBar` is false when the box cannot take that much.
+ */
+export function breakEvenMark(kind: MeterKind, meter: BoxMeter, ofLoaded: number | null | undefined): { pct: number; onBar: boolean; words: string } | null {
+  if (ofLoaded == null || !(meter.used > 0)) return null;
+  const at = meter.used * ofLoaded;
+  const onBar = at <= meter.max;
+  return {
+    pct: Math.min(100, (at / meter.max) * 100),
+    onBar,
+    words: onBar ? `Break-even at ${amount(kind, at)}${at <= meter.used ? ": reached" : ""}` : `Break-even at ${amount(kind, at)}: more than the box takes`,
+  };
+}
+
 /** A meter's state in words: how much room is left, or by how much it is over. */
 export function meterWords(kind: MeterKind, meter: BoxMeter, capacity: NonNullable<BoxUtilization["capacity"]>): string {
   const over = amount(kind, Math.abs(meter.free));

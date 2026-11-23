@@ -118,6 +118,17 @@ export function useSailingEarnings(id: string, enabled = true) {
   return { earnings: query.data ?? null, isLoading: query.isLoading, isError: query.isError, refetch: query.refetch };
 }
 
+/** The profit of each of a service's sailings, by sailing id. Managers only: `enabled` keeps others from asking. */
+export function useSailingProfits(serviceId: string, enabled: boolean) {
+  const query = useQuery({
+    queryKey: [...LIST_KEY, "sailings", serviceId, "profits"],
+    queryFn: () => api.shipments.coLoadingSailingProfits(serviceId),
+    enabled: enabled && isUuid(serviceId),
+    staleTime: 0,
+  });
+  return { profits: new Map((query.data?.data ?? []).map((p) => [p.sailingId, p])), isLoading: query.isLoading };
+}
+
 /** Setting one container's box costs. The earnings and the record of changes are read again. */
 export function useSailingBoxCosts(id: string) {
   const qc = useQueryClient();

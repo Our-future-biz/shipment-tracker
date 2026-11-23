@@ -17,6 +17,8 @@ import {
   amountWords,
   boxCostWords,
   boxRateWords,
+  breakEvenWords,
+  unsoldWords,
   changeWords,
   earningsNotes,
   earningsWarnings,
@@ -228,6 +230,16 @@ export function EarningsTab({ sailingId, containerType, onOpenShipments }: Earni
       </div>
 
       <BoxCosts sailingId={sailingId} containerType={containerType} box={earnings.boxCosts} />
+
+      {known && (breakEvenWords(earnings) || unsoldWords(earnings)) && (
+        <section className={`${CARD} flex flex-col gap-1.5 px-5 py-4 text-[13px] text-slate-700`} aria-label="Break-even and unsold space">
+          {breakEvenWords(earnings) && <p className={`m-0 font-medium ${earnings.breakEven && !earnings.breakEven.reached ? "text-red-600" : "text-slate-900"}`}>{breakEvenWords(earnings)}</p>}
+          {unsoldWords(earnings) && <p className="m-0">{unsoldWords(earnings)}</p>}
+          <p className={`${HINT} m-0`}>
+            Break-even takes what the loaded shipments earn per W/M before the box costs and asks how many W/M at that earning pay for the box. It is also marked on the Box utilization meters.
+          </p>
+        </section>
+      )}
 
       <SectionCard title="Earnings by shipment" bodyClassName="p-0" extra={linked > 0 ? <CountChip count={linked} /> : undefined}>
         {linked === 0 ? (

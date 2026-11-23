@@ -7,7 +7,7 @@
 // its selling is shown apart. An amount with no rate is left out and named: a total with gaps says
 // "incomplete". Money that could not be read is not known - never shown as 0.
 
-import type { BoxUtilizationRow, EarningsAmount, EarningsRow, SailingBoxCosts, SailingEarnings } from "../interfaces/interfaces";
+import type { BoxUtilizationRow, EarningsAmount, EarningsRow, SailingBoxCosts, SailingEarnings, SailingProfit } from "../interfaces/interfaces";
 import { boxCostsOf, shareCents } from "./coLoadingBoxCosts";
 
 /** A shipment's money as Invoicing gives it (its `_internalCoLoadingMoney`). */
@@ -45,12 +45,15 @@ function total(amounts: readonly EarningsAmount[]): EarningsAmount {
  * a master job shares costs into. `box` are the costs of the sailing's boxes: once one is set, they
  * are shared over the counted shipments by W/M, to the cent - the loaded shipments carry the whole
  * box - and each shipment's profit and the sailing's follow. A shipment with no W/M carries none.
+ * `fullPct` is how full the box is (its fuller meter, lib/boxUtilization): what is not sold of it
+ * is the unsold space, and its share of the box costs is shown.
  */
 export function sailingEarnings(
   shipments: readonly BoxUtilizationRow[],
   money: ReadonlyMap<string, ShipmentMoney> | null,
   inMasterJob: ReadonlySet<string>,
   box: SailingBoxCosts = boxCostsOf(1, [], null),
+  fullPct: number | null = null,
 ): SailingEarnings {
   const rows: EarningsRow[] = shipments.map((s) => {
     const m = money?.get(s.shipmentId) ?? null;
@@ -108,12 +111,29 @@ export function sailingEarnings(
     : null;
 
   const missingCurrencies = [...new Set(counted.flatMap((r) => r.missingCurrencies))].sort();
+  const loadedWm = round2(counted.reduce((t, r) => t + r.freightTons, 0) * 10) / 10;
+  // Break-even: at what the loaded shipments earn per W/M before the box, the W/M that covers it.
+  const covers = beforeBox.czk > 0 && loadedWm > 0;
+  const breakEven: SailingEarnings["breakEven"] =
+    box.set && loadedWm > 0
+      ? {
+          wm: covers ? Math.round((box.total.czk / (beforeBox.czk / loadedWm)) * 10) / 10 : null,
+          loadedWm,
+          ofLoaded: covers ? Math.round((box.total.czk / beforeBox.czk) * 1000) / 1000 : null,
+          reached: beforeBox.czk >= box.total.czk,
+        }
+      : null;
+  const unsoldPct = fullPct === null ? null : Math.max(0, 100 - fullPct);
+  const unsold: SailingEarnings["unsold"] =
+    box.set && unsoldPct !== null
+      ? { pct: unsoldPct, cost: { czk: round2((box.total.czk * unsoldPct) / 100), eur: box.total.eur === null ? null : round2((box.total.eur * unsoldPct) / 100) } }
+      : null;
   return {
     moneyKnown: money !== null,
     complete: money !== null && missingCurrencies.length === 0 && counted.every((r) => r.moneyKnown) && box.missingCurrencies.length === 0,
     totals: {
       shipments: counted.length,
-      freightTons: round2(counted.reduce((t, r) => t + r.freightTons, 0) * 10) / 10,
+      freightTons: loadedWm,
       selling,
       invoiced: sum((r) => r.invoiced),
       inland: sum((r) => r.inland),
@@ -127,6 +147,8 @@ export function sailingEarnings(
     },
     boxCosts: box,
     boxUnshared: box.set && czkParts === null,
+    breakEven,
+    unsold,
     notes: {
       noSelling: counted.filter((r) => r.noSelling).length,
       unticked: counted.filter((r) => r.untickedLines > 0).length,
@@ -141,3 +163,16 @@ export function sailingEarnings(
     rows,
   };
 }
+
+/** Whether the profit may still move: a box cost in another currency is valued at a rate not fixed yet. */
+export const profitProvisional = (e: SailingEarnings): boolean =>
+  e.boxCosts.set && e.boxCosts.rateProvisional && e.boxCosts.containers.some((c) => c.lines.some((l) => l.amount !== null && l.currency !== "CZK"));
+
+/** A sailing's profit at a glance, for the list of sailings. */
+export const sailingProfit = (sailingId: string, e: SailingEarnings): SailingProfit => ({
+  sailingId,
+  profit: e.moneyKnown ? e.totals.profit : null,
+  marginPct: e.moneyKnown ? e.totals.marginPct : null,
+  complete: e.complete,
+  provisional: profitProvisional(e),
+});

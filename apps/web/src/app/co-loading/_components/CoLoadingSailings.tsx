@@ -5,19 +5,37 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Tooltip } from "antd";
 import { PlusOutlined } from "@ant-design/icons";
-import { useCoLoadingSailings } from "@/hooks/useCoLoadingServices";
+import { useCoLoadingSailings, useSailingProfits } from "@/hooks/useCoLoadingServices";
+import { useAuth } from "@/lib/auth/AuthContext";
 import { formatDate } from "@/lib/date";
 import { useMessages } from "@/lib/toast";
 import { BTN_PRIMARY, CARD, EMPTY_STATE, HEADING, LINK, REF, TD, TH } from "@/styles/ui";
 import { containersWords } from "../_lib/boxUtilization";
+import { profitGlance } from "../_lib/earnings";
 import { sailingHref } from "../_lib/sailings";
+import { canManageServices } from "../_lib/services";
 import { BoxFillChip } from "./BoxFillChip";
 import { CreateSailingModal } from "./CreateSailingModal";
+
+/** A sailing's profit in the list: the figure, with its margin and any remark underneath. */
+function ProfitCell({ profit }: { profit: Parameters<typeof profitGlance>[0] }) {
+  const glance = profitGlance(profit);
+  return (
+    <span className="inline-flex flex-col items-end leading-tight">
+      <span className={glance.tone === "red" ? "font-semibold text-red-600" : glance.tone === "slate" ? "text-slate-500" : "font-semibold"}>{glance.main}</span>
+      {glance.note && <span className="text-[11px] text-slate-500">{glance.note}</span>}
+    </span>
+  );
+}
 
 // A Co-Loading Concept service's sailings, the newest first, over its shipments: "Create new sailing"
 // on the right, above the grid's Export. A closed service takes no new sailing until it is reopened.
 export function CoLoadingSailings({ serviceId, closed }: { serviceId: string; closed: boolean }) {
   const { sailings, isLoading, isError, create } = useCoLoadingSailings(serviceId);
+  // Managers and admins see each sailing's profit (Council Outlay 13, D19); nobody else asks for it.
+  const { user } = useAuth();
+  const isManager = canManageServices(user?.role);
+  const { profits, isLoading: profitsLoading } = useSailingProfits(serviceId, isManager);
   const message = useMessages();
   const router = useRouter();
   const [creating, setCreating] = useState(false);
@@ -72,6 +90,7 @@ export function CoLoadingSailings({ serviceId, closed }: { serviceId: string; cl
                 <th className={`${TH} !text-right`}>Shipments</th>
                 <th className={TH}>Cut-off</th>
                 <th className={TH}>Departure</th>
+                {isManager && <th className={`${TH} !text-right`}>Profit</th>}
                 <th className={TH}>Created</th>
               </tr>
             </thead>
@@ -101,6 +120,7 @@ export function CoLoadingSailings({ serviceId, closed }: { serviceId: string; cl
                   <td className={`${TD} text-right tabular-nums`}>{s.fill ? s.fill.shipments : "—"}</td>
                   <td className={`${TD} whitespace-nowrap tabular-nums`}>{formatDate(s.cutoffDate) || "—"}</td>
                   <td className={`${TD} whitespace-nowrap tabular-nums`}>{formatDate(s.departureDate) || "—"}</td>
+                  {isManager && <td className={`${TD} whitespace-nowrap text-right tabular-nums`}>{profitsLoading ? "…" : <ProfitCell profit={profits.get(s.id)} />}</td>}
                   <td className={`${TD} whitespace-nowrap text-slate-500`}>
                     {formatDate(s.createdAt)}
                     {s.createdByName ? ` · ${s.createdByName}` : ""}
