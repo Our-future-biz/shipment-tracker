@@ -12,7 +12,13 @@ export interface DraftLine {
   colli: number | null;
   canTurn: boolean;
   stackable: boolean;
+  /** Dangerous goods, as the job the line came from says. */
+  dg?: boolean;
 }
+
+/** The most a plan holds; the server refuses more. */
+export const MAX_LINES = 200;
+export const MAX_COLLI = 2000;
 
 export const newDraftLine = (id: string): DraftLine => ({
   id,
@@ -36,7 +42,47 @@ const positive = (value: number | null): value is number => value !== null && va
 export function completeLine(line: DraftLine): CargoLine | null {
   const { lengthMm, widthMm, heightMm, weightKg, colli } = line;
   if (!positive(lengthMm) || !positive(widthMm) || !positive(heightMm) || !positive(weightKg) || !positive(colli)) return null;
-  return { id: line.id, name: line.name.trim(), lengthMm, widthMm, heightMm, weightKg, colli, canTurn: line.canTurn, stackable: line.stackable };
+  return { id: line.id, name: line.name.trim(), lengthMm, widthMm, heightMm, weightKg, colli, canTurn: line.canTurn, stackable: line.stackable, ...(line.dg ? { dg: true } : {}) };
+}
+
+/** The figures a typed line still lacks, in the cargo table's words; none for a complete or a blank line. */
+export function missingFigures(line: DraftLine): string[] {
+  if (isBlank(line)) return [];
+  const figures: [string, number | null][] = [["length", line.lengthMm], ["width", line.widthMm], ["height", line.heightMm], ["weight", line.weightKg], ["colli", line.colli]];
+  return figures.filter(([, value]) => !positive(value)).map(([label]) => label);
+}
+
+/** How many typed lines are not planned yet, because a figure is missing. */
+export const unplannedCount = (drafts: DraftLine[]): number => drafts.filter((draft) => missingFigures(draft).length > 0).length;
+
+/** Why this cargo is too much for one plan, or null. Checked before planning, so the page never works on it. */
+export function limitProblem(cargo: CargoLine[]): string | null {
+  const colli = cargo.reduce((total, line) => total + line.colli, 0);
+  if (cargo.length > MAX_LINES) return `A plan holds at most ${MAX_LINES} cargo lines; this one has ${cargo.length}. Split the cargo over several plans.`;
+  if (colli > MAX_COLLI) {
+    return `A plan holds at most ${MAX_COLLI.toLocaleString("en-US")} colli; this cargo has ${colli.toLocaleString("en-US")}. Plan it by pallet, or split it over several plans.`;
+  }
+  return null;
+}
+
+/** The job a plan is linked to. */
+export interface JobLink {
+  kind: interfaces.PlanLinkKind;
+  id: string;
+  ref: string;
+}
+
+/**
+ * What of a plan is saved, as one string: two of them differ exactly when there is something to
+ * save. The fields are written out in a fixed order with trimmed names, because the server returns
+ * a line's fields in its own order and trims its name. A line's id is left out: the same cargo
+ * taken from the job again is no change.
+ */
+export function planFingerprint(name: string, drafts: DraftLine[], nominated: string[] | null, link: JobLink | null): string {
+  const lines = drafts
+    .filter((line) => !isBlank(line))
+    .map((l) => [l.name.trim(), l.lengthMm, l.widthMm, l.heightMm, l.weightKg, l.colli, l.canTurn, l.stackable, l.dg === true]);
+  return JSON.stringify([name.trim(), lines, nominated, link?.kind ?? null, link?.id ?? null]);
 }
 
 /** The lines the plan is worked out from: the complete ones. */
@@ -55,3 +101,6 @@ export function saveProblem(name: string, drafts: DraftLine[]): string | null {
 }
 
 export const draftsOf = (lines: interfaces.PlanCargoLine[]): DraftLine[] => lines.map((line) => ({ ...line }));
+
+/** The number a cargo line goes by on every drawing and table: its row in the cargo table, from 1. */
+export const lineNumbers = (drafts: { id: string }[]): Map<string, number> => new Map(drafts.map((draft, index) => [draft.id, index + 1]));

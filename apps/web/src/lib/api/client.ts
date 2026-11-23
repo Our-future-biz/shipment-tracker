@@ -2632,6 +2632,9 @@ export namespace loadingPlanner {
             return await resp.json() as controllers.LoadingPlanDeleteResponse
         }
 
+        /**
+         * One plan, with what its linked shipment or quote is called now - or that the job is gone.
+         */
         public async loadingPlanGet(id: string): Promise<controllers.LoadingPlanGetResponse> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("GET", `/loading-plans/${encodeURIComponent(id)}`)
@@ -2654,7 +2657,8 @@ export namespace loadingPlanner {
         }
 
         /**
-         * Saves a plan again, whole: the request replaces its name, link, cargo and equipment.
+         * Saves a plan again, whole: the request replaces its name, link, cargo and equipment. Refused
+         * when the plan was saved by someone else since this editor opened it.
          */
         public async loadingPlanUpdate(id: string, params: controllers.LoadingPlanUpdateRequest): Promise<controllers.LoadingPlanUpdateResponse> {
             // Now make the actual call to the API
@@ -10684,6 +10688,9 @@ export namespace controllers {
          * A pasted cargo list. Give this or a file, not both.
          */
         text?: string
+        /**
+         * The file, at most 20 MB; a picture at most 5 MB.
+         */
         fileBase64?: string
         fileName?: string
     }
@@ -10736,9 +10743,19 @@ export namespace controllers {
 
     export interface LoadingPlanListResponse {
         plans: interfaces.LoadingPlanSummary[]
+        /**
+         * There are more plans than the list shows (the 500 last saved): the oldest are left out.
+         */
+        capped: boolean
     }
 
-    export type LoadingPlanUpdateRequest = LoadingPlanCreateRequest
+    export interface LoadingPlanUpdateRequest extends LoadingPlanCreateRequest {
+        /**
+         * The plan's `updatedAt` as the server gave it when the plan was opened or last saved. When
+         * someone else saved the plan since, the save is refused (aborted) and the plan must be reloaded.
+         */
+        updatedAt: string
+    }
 
     export interface LoadingPlanUpdateResponse {
         plan: interfaces.LoadingPlanItem
@@ -20266,7 +20283,7 @@ export namespace interfaces {
     export type PlanLinkKind = "shipment" | "quote"
 
     /**
-     * One line of a loading plan's cargo list. Sizes in mm, weight in kg per piece.
+     * One line of a loading plan's cargo list. Sizes in mm, weight in kg per colli.
      */
     export interface PlanCargoLine {
         id: string
@@ -20281,6 +20298,10 @@ export namespace interfaces {
          */
         canTurn: boolean
         stackable: boolean
+        /**
+         * Dangerous goods, as the linked job marks the cargo. The planner only shows it.
+         */
+        dg?: boolean
     }
 
     export interface LoadingPlanItem {
@@ -20306,7 +20327,15 @@ export namespace interfaces {
         createdBy: string
         updatedBy: string
         createdAt: string
+        /**
+         * When the plan was last saved. Sent back with the next save, which is refused when someone else saved in between.
+         */
         updatedAt: string
+        /**
+         * The shipment or quote the plan is linked to no longer exists (it was deleted). Told when one
+         * plan is opened or saved; the plan stays linked until the user unlinks it.
+         */
+        linkGone: boolean
     }
 
     /**

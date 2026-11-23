@@ -5,7 +5,7 @@ import { api, isNotFound } from "@/lib/api";
 import type { interfaces } from "@/lib/api/client";
 import { isUuid } from "@/lib/uuid";
 import type { DraftLine } from "@/app/loading-planner/_lib/cargoForm";
-import { linesFromQuote, linesFromShipment, quotePackages } from "@/app/loading-planner/_lib/jobCargo";
+import { linesFromQuote, linesFromShipment, quotePackages, sameJobNumber } from "@/app/loading-planner/_lib/jobCargo";
 
 /** How a job is named when it is looked up: a shipment by its id or its job number, a quote by its reference. */
 export interface JobKey {
@@ -30,14 +30,18 @@ const newId = () => crypto.randomUUID();
 async function readShipment(key: string): Promise<PlanJob> {
   let id = key;
   if (!isUuid(key)) {
-    // A job number: the list's search finds it, and only the exact number counts.
-    const wanted = key.trim().toLowerCase();
-    const found = (await api.shipments.shipmentList({ search: key.trim(), limit: 25 })).data.find((s) => (s.jobNumber ?? "").toLowerCase() === wanted);
+    // A job number: the list's search finds it by its digits, whatever letters it carries now
+    // (CZ00000053 is CZLCL00000053 once its Freight Mode is set), and the same number must come back.
+    const found = (await api.shipments.shipmentList({ search: key.trim(), limit: 100 })).data.find((s) => sameJobNumber(s.jobNumber ?? "", key));
     if (!found) throw new JobNotFound(`No shipment with the job number "${key.trim()}" was found.`);
     id = found.id;
   }
   const { shipment } = await api.shipments.shipmentGet(id);
-  return { kind: "shipment", id: shipment.id, ref: shipment.jobNumber ?? "", lines: linesFromShipment(shipment.cargoDimensions, newId) };
+  // The Dimensions rows of Cargo Details; a shipment that has none yet is planned from the
+  // dimensions booked with its quote.
+  const own = linesFromShipment(shipment.cargoDimensions, newId);
+  const lines = own.length > 0 ? own : linesFromShipment(shipment.bookedDimensions, newId);
+  return { kind: "shipment", id: shipment.id, ref: shipment.jobNumber ?? "", lines };
 }
 
 async function readQuote(key: string): Promise<PlanJob> {

@@ -15,17 +15,23 @@ interface LoadingPlanUpdateRequest {
   lines: PlanCargoLine[] & MaxLen<200>;
   /** Ids of the nominated container types; null lets the planner choose. */
   nominated: string[] | null;
+  /**
+   * The plan's `updatedAt` as the server gave it when the plan was opened or last saved. When
+   * someone else saved the plan since, the save is refused (aborted) and the plan must be reloaded.
+   */
+  updatedAt: string & MaxLen<40>;
 }
 
 interface LoadingPlanUpdateResponse {
   plan: LoadingPlanItem;
 }
 
-// Saves a plan again, whole: the request replaces its name, link, cargo and equipment.
+// Saves a plan again, whole: the request replaces its name, link, cargo and equipment. Refused
+// when the plan was saved by someone else since this editor opened it.
 export const loadingPlanUpdate = api(
   { expose: true, auth: true, method: "PUT", path: "/loading-plans/:id" },
-  async ({ id, ...input }: LoadingPlanUpdateRequest): Promise<LoadingPlanUpdateResponse> => {
+  async ({ id, updatedAt, ...input }: LoadingPlanUpdateRequest): Promise<LoadingPlanUpdateResponse> => {
     const auth = getAuthData()!;
-    return { plan: await loadingPlanService.update(id, auth.companyID, auth.userID, input) };
+    return { plan: await loadingPlanService.update(id, auth.companyID, auth.userID, input, updatedAt) };
   },
 );

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { LoadingPlanItem, PlanCargoLine, PlanInput } from "../interfaces/interfaces";
-import { cleanPlan, linkNeedsCheck, MAX_PIECES, summaryOf } from "../lib/planInput";
+import type { PlanCargoLine, PlanInput } from "../interfaces/interfaces";
+import { changedSinceMessage, cleanPlan, linkNeedsCheck } from "../lib/planInput";
 
 const line = (more: Partial<PlanCargoLine> = {}): PlanCargoLine => ({
   id: "line-1",
@@ -27,26 +27,33 @@ describe("cleanPlan", () => {
     expect(result).toEqual({ plan: { name: "Machines to Nhava Sheva", linkKind: null, linkId: null, linkRef: "", lines: [line({ name: "Pallet" })], nominated: null } });
   });
 
+  it("keeps the dangerous goods mark of a line that has one, and adds none", () => {
+    const result = cleanPlan(input({ lines: [line({ dg: true }), line({ id: "line-2", dg: false }), line({ id: "line-3" })] }));
+    const lines = "plan" in result ? result.plan.lines : [];
+    expect(lines.map((l) => l.dg)).toEqual([true, false, undefined]);
+    expect(lines[2]).not.toHaveProperty("dg");
+  });
+
   it("accepts a plan with no cargo yet", () => {
     expect(problemOf({ lines: [] })).toBeNull();
   });
 
   it("asks for a name", () => {
-    expect(problemOf({ name: "  " })).toBe("Give the plan a name");
+    expect(problemOf({ name: "  " })).toBe("Give the plan a name before saving.");
   });
 
   it("names the cargo line that is wrong", () => {
     expect(problemOf({ lines: [line({ lengthMm: 0 })] })).toBe('Cargo "Pallet": the length must be between 1 mm and 100 m');
     expect(problemOf({ lines: [line({ heightMm: 12.5 })] })).toBe('Cargo "Pallet": the height must be between 1 mm and 100 m');
     expect(problemOf({ lines: [line({ weightKg: 0 })] })).toBe('Cargo "Pallet": the weight must be more than 0 and at most 1,000 t');
-    expect(problemOf({ lines: [line({ colli: 1.5 })] })).toBe(`Cargo "Pallet": the colli must be a whole number from 1 to ${MAX_PIECES}`);
+    expect(problemOf({ lines: [line({ colli: 1.5 })] })).toBe('Cargo "Pallet": the colli must be a whole number from 1 to 2,000');
     expect(problemOf({ lines: [line({ name: "", widthMm: -1 })] })).toBe('Cargo "line 1": the width must be between 1 mm and 100 m');
     expect(problemOf({ lines: [line({ weightKg: Number.NaN })] })).toContain("the weight");
   });
 
-  it("refuses two lines with one id and more pieces than a plan holds", () => {
+  it("refuses two lines with one id and more colli than a plan holds", () => {
     expect(problemOf({ lines: [line(), line()] })).toBe("Two cargo lines have the same id");
-    expect(problemOf({ lines: [line({ colli: 1500 }), line({ id: "line-2", colli: 1500 })] })).toBe(`A plan holds at most ${MAX_PIECES} pieces; this one has 3000`);
+    expect(problemOf({ lines: [line({ colli: 1500 }), line({ id: "line-2", colli: 1500 })] })).toBe("A plan holds at most 2,000 colli; this one has 3,000");
   });
 
   it("keeps a link only when it is whole", () => {
@@ -68,18 +75,12 @@ describe("cleanPlan", () => {
   });
 });
 
-describe("summaryOf", () => {
-  it("adds up the colli and the weight", () => {
-    const plan: LoadingPlanItem = {
-      ...input({ lines: [line(), line({ id: "line-2", colli: 2, weightKg: 1000 })] }),
-      id: "p1",
-      createdBy: "a@example.com",
-      updatedBy: "b@example.com",
-      createdAt: "2026-11-23T08:00:00.000Z",
-      updatedAt: "2026-11-23T09:00:00.000Z",
-    };
-    expect(summaryOf(plan)).toMatchObject({ id: "p1", colli: 12, weightKg: 6005, updatedBy: "b@example.com" });
-    expect(summaryOf(plan)).not.toHaveProperty("lines");
+describe("changedSinceMessage", () => {
+  it("names who saved the plan meanwhile and when, in Prague time", () => {
+    expect(changedSinceMessage("jana@example.com", new Date("2026-11-23T13:05:00.000Z"))).toBe(
+      "This plan was changed by jana@example.com on 23 Nov 2026, 14:05 since you opened it. Reload it and save again.",
+    );
+    expect(changedSinceMessage("", new Date("2026-07-01T08:00:00.000Z"))).toContain("changed by someone else on 1 Jul 2026, 10:00");
   });
 });
 

@@ -931,8 +931,8 @@ export function CargoDetailsTab({
       {/* The warehouse's remeasurement against the lines above, and accepting it. */}
       <RemeasuredCard shipment={shipment} readOnly={readOnly} />
 
-      {/* The loading plans made from these lines (Loading Planner). */}
-      <LoadingPlansCard kind="shipment" id={shipment.id} newPlanKey={shipment.id} />
+      {/* The loading plans made from these lines (Loading Planner). Air freight is not loaded into containers. */}
+      {!air && <LoadingPlansCard kind="shipment" id={shipment.id} newPlanKey={shipment.id} />}
 
       <SectionCard title="Description">
         <div className="relative">

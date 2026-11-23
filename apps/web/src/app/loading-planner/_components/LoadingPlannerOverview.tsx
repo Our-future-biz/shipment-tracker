@@ -6,12 +6,12 @@ import { Input } from "antd";
 import { DeleteOutlined, PlusOutlined, SearchOutlined } from "@ant-design/icons";
 import { ShippingContainerIcon } from "@phosphor-icons/react";
 import { ConfirmModal } from "@/components/ConfirmModal";
-import { useLoadingPlans } from "@/hooks/useLoadingPlans";
+import { useLoadingPlans, useLoadingPlanWrites } from "@/hooks/useLoadingPlans";
 import { apiErrorMessage } from "@/lib/api";
 import type { interfaces } from "@/lib/api/client";
 import { formatDateTime } from "@/lib/date";
 import { useMessages } from "@/lib/toast";
-import { BTN_PRIMARY, CARD, EMPTY, EMPTY_STATE, ICON_BTN_DANGER, LINK, PAGE_SUBTITLE, PAGE_TITLE, REF, TD, TH } from "@/styles/ui";
+import { BTN_PRIMARY, CARD, EMPTY, EMPTY_STATE, HINT, ICON_BTN_DANGER, LINK, PAGE_SUBTITLE, PAGE_TITLE, REF, TD, TH } from "@/styles/ui";
 import { formatKg } from "../_lib/units";
 
 const LINK_KIND_LABEL: Record<interfaces.PlanLinkKind, string> = { shipment: "Shipment", quote: "Quote" };
@@ -19,11 +19,11 @@ const LINK_KIND_LABEL: Record<interfaces.PlanLinkKind, string> = { shipment: "Sh
 // The Loading Planner's own page: every saved plan of the company, last saved first, a search over
 // their names and linked jobs, and New plan. Every user sees and may change all plans.
 export function LoadingPlannerOverview() {
-  const { plans, isLoading, isError, deletePlan } = useLoadingPlans();
+  const { plans, capped, isLoading, isError } = useLoadingPlans();
+  const { deletePlan, isDeleting } = useLoadingPlanWrites();
   const message = useMessages();
   const [query, setQuery] = useState("");
   const [deleting, setDeleting] = useState<interfaces.LoadingPlanSummary | null>(null);
-  const [busy, setBusy] = useState(false);
 
   const shown = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -33,25 +33,22 @@ export function LoadingPlannerOverview() {
   let empty: string | null = null;
   if (isLoading) empty = "Loading plans…";
   else if (isError) empty = "Could not load the plans.";
-  else if (plans.length === 0) empty = "No plans saved yet - start one with New plan.";
+  else if (plans.length === 0) empty = "No plans saved yet. Start one with New plan.";
   else if (shown.length === 0) empty = "No plan matches this search.";
 
   const handleDelete = async () => {
     if (!deleting) return;
-    setBusy(true);
     try {
       await deletePlan(deleting.id);
       message.success(`Plan "${deleting.name}" deleted`);
       setDeleting(null);
     } catch (err) {
       message.error(apiErrorMessage(err));
-    } finally {
-      setBusy(false);
     }
   };
 
   return (
-    <div className="bg-slate-50 min-h-full px-8 py-6">
+    <div className="bg-slate-50 min-h-full px-4 py-6 sm:px-8">
       <div className="max-w-[1400px] mx-auto flex flex-col gap-5">
         <div className="flex items-center gap-3">
           <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-indigo-50 text-indigo-600">
@@ -70,7 +67,7 @@ export function LoadingPlannerOverview() {
           </Link>
           <div className="flex flex-1 basis-[220px] justify-center min-w-[200px]">
             <Input
-              placeholder="Search plans..."
+              placeholder="Search by plan name or job number…"
               aria-label="Search plans"
               prefix={<SearchOutlined className="text-slate-400" />}
               value={query}
@@ -82,6 +79,12 @@ export function LoadingPlannerOverview() {
           {/* As wide as the button, so the search stays in the middle. */}
           <div className="shrink-0 w-[104px] max-sm:hidden" aria-hidden />
         </div>
+
+        {capped && (
+          <p className={`${HINT} m-0`} role="status">
+            Only the 500 plans saved last are listed. An older plan still opens from its shipment or quote.
+          </p>
+        )}
 
         <div className={`${CARD} overflow-x-auto`}>
           {empty ? (
@@ -144,7 +147,7 @@ export function LoadingPlannerOverview() {
         description="The plan disappears from this list for everyone. A shipment or quote it is linked to is not changed."
         confirmLabel="Delete plan"
         danger
-        loading={busy}
+        loading={isDeleting}
       />
     </div>
   );

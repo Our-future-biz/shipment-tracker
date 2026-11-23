@@ -13,8 +13,8 @@ interface EquipmentCardProps {
 }
 
 const MODE_TABS = [
-  { key: "auto", label: "Planner chooses", title: "Standard containers first, open tops for over-height, flat racks last" },
-  { key: "nominated", label: "Nominate equipment", title: "Load only into the container types you tick" },
+  { key: "auto", label: "Planner chooses" },
+  { key: "nominated", label: "Nominate equipment" },
 ] as const;
 
 const GROUP_TITLE: Record<ContainerGroup, string> = { standard: "Standard", "open-top": "Open top and hard-top", "flat-rack": "Flat rack" };
@@ -51,17 +51,23 @@ export function EquipmentCard({ nominated, unit, onChange }: EquipmentCardProps)
                       type="button"
                       aria-pressed={on}
                       onClick={() => toggle(c.id)}
-                      title={`Inside ${formatDim(c.internalL, unit)} × ${formatDim(c.internalW, unit)} × ${formatDim(c.internalH, unit)} ${unit}, payload ${formatKg(c.payloadKg)}`}
-                      className={`${CHIP} ${on ? CHIP_ON : ""}`}
+                      className={`${CHIP} !h-auto flex-col !items-start !gap-0 py-1 ${on ? CHIP_ON : ""}`}
                     >
-                      {c.name}
+                      <span>{c.name}</span>
+                      {/* What the type takes, readable without a mouse: inside size and payload. */}
+                      <span className="text-[11px] font-normal text-slate-500">
+                        {formatDim(c.internalL, unit)} × {formatDim(c.internalW, unit)} × {formatDim(c.internalH, unit)} {unit} · {formatKg(c.payloadKg)}
+                      </span>
                     </button>
                   );
                 })}
               </div>
             </div>
           ))}
-          {nominated.length === 0 && <p className={`${HINT} m-0`}>Tick the container types to load into.</p>}
+          <p className={`${HINT} m-0`}>
+            {nominated.length === 0 ? "Choose the container types to load into. " : ""}Each type shows its inside size (length × width × height) and its payload. Cargo the chosen
+            types cannot take is listed as not loaded, with what it needs.
+          </p>
         </div>
       )}
     </SectionCard>

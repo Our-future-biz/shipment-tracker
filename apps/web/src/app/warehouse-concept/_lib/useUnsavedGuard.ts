@@ -78,8 +78,18 @@ export function useUnsavedGuard(dirty: boolean, screen = "remeasurement") {
       window.removeEventListener("popstate", onPopState);
       document.removeEventListener("click", onClick, true);
       // Saved or discarded while still on this page: take the marker entry off again.
+      // No screen may be listening when that Back arrives, so the flag clears itself: left set, it
+      // would swallow the user's next Back and break the question after it.
       if (!leaving && historyState().__whUnsaved === mark) {
         ownBack = true;
+        const clear = () => {
+          window.removeEventListener("popstate", clear);
+          // After this event's other listeners have seen the flag.
+          setTimeout(() => {
+            ownBack = false;
+          }, 0);
+        };
+        window.addEventListener("popstate", clear);
         window.history.back();
       }
     };

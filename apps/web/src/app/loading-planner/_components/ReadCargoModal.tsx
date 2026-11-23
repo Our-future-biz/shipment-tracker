@@ -17,6 +17,8 @@ interface ReadCargoModalProps {
   open: boolean;
   onClose: () => void;
   unit: DimUnit;
+  /** The cargo lines already in the plan: a line read again is pointed out, not added twice unnoticed. */
+  existing: DraftLine[];
   /** The lines the user kept, to add to the plan's cargo list. */
   onAdd: (lines: DraftLine[]) => void;
 }
@@ -29,7 +31,7 @@ const SOURCE_TABS = [
 // Reads cargo lines out of a file or a pasted text with the AI reader, in two steps: first the
 // source, then the lines it found, shown for checking. Nothing reaches the plan until the user adds
 // the lines they ticked; a figure the document did not give stays empty for them to fill in.
-export function ReadCargoModal({ open, onClose, unit, onAdd }: ReadCargoModalProps) {
+export function ReadCargoModal({ open, onClose, unit, existing, onAdd }: ReadCargoModalProps) {
   const { readCargo, isReading } = useCargoReading();
   const fileInput = useRef<HTMLInputElement>(null);
   const [source, setSource] = useState<"file" | "text">("file");
@@ -71,14 +73,26 @@ export function ReadCargoModal({ open, onClose, unit, onAdd }: ReadCargoModalPro
   };
 
   const keptCount = kept.filter(Boolean).length;
-  const dim = (mm: number | null) => (mm === null ? <span className="font-medium text-amber-600">missing</span> : formatDim(mm, unit));
+  // A line whose name and figures are already in the plan: most likely the same document read twice.
+  const sameAs = (line: lib.CargoLineRead) =>
+    existing.some(
+      (have) =>
+        have.name.trim().toLowerCase() === line.name.trim().toLowerCase() &&
+        have.lengthMm === line.lengthMm &&
+        have.widthMm === line.widthMm &&
+        have.heightMm === line.heightMm &&
+        have.weightKg === line.weightKg &&
+        have.colli === line.colli,
+    );
+  const alreadyThere = found ? found.lines.filter((line) => isReadLineComplete(line) && sameAs(line)).length : 0;
+  const dim = (mm: number | null) => (mm === null ? <span className="font-medium text-amber-700">missing</span> : formatDim(mm, unit));
 
   return (
     <AppModal
       open={open}
       onClose={close}
       title="Read cargo from a file or text"
-      subtitle={found ? "Check what was read. Only the lines you keep are added to the plan." : "The AI reader finds the cargo lines. You check them before anything is added."}
+      subtitle={found ? "Check what was read. Only the lines you keep are added to the plan." : "The AI reader finds the cargo lines. You check them before anything is added. A long document can take up to a minute."}
       size="large"
       maskClosable={false}
       closable={!isReading}
@@ -150,16 +164,30 @@ export function ReadCargoModal({ open, onClose, unit, onAdd }: ReadCargoModalPro
               }}
             />
           )}
-          {error && <p className="m-0 text-[13px] text-red-600">{error}</p>}
+          {error && (
+            <p className="m-0 text-[13px] text-red-600" role="alert">
+              {error}
+            </p>
+          )}
         </div>
       ) : found.lines.length === 0 ? (
-        <p className="m-0 text-[13px] text-slate-700">No cargo lines were found in it. Try another file, or paste the part that lists the cargo.</p>
+        <p className="m-0 text-[13px] text-slate-700" role="status">
+          {found.partial
+            ? "The document was too long to read to its end, and no cargo line was found in the part that was read. Paste only the part that lists the cargo."
+            : "No cargo lines were found in it. Try another file, or paste the part that lists the cargo."}
+        </p>
       ) : (
         <div className="flex flex-col gap-3">
           {found.partial && (
             <p className="m-0 flex items-start gap-2 text-[13px] text-amber-700">
               <WarningOutlined className="mt-0.5" />
-              The document was too long to read in one go: lines may be missing at its end. Check it against the original.
+              The document could not be read to its end: lines may be missing. Check it against the original.
+            </p>
+          )}
+          {alreadyThere > 0 && (
+            <p className="m-0 flex items-start gap-2 text-[13px] text-amber-700">
+              <WarningOutlined className="mt-0.5" />
+              {alreadyThere === 1 ? "1 line is" : `${alreadyThere} lines are`} already in the plan with the same name and figures. Untick what you do not want twice.
             </p>
           )}
           <div className="max-h-[420px] overflow-auto">
@@ -192,9 +220,9 @@ export function ReadCargoModal({ open, onClose, unit, onAdd }: ReadCargoModalPro
                     <td className={`${TD} text-right tabular-nums`}>{dim(line.widthMm)}</td>
                     <td className={`${TD} text-right tabular-nums`}>{dim(line.heightMm)}</td>
                     <td className={`${TD} text-right tabular-nums`}>
-                      {line.weightKg === null ? <span className="font-medium text-amber-600">missing</span> : line.weightKg.toLocaleString("en-US", { maximumFractionDigits: 1 })}
+                      {line.weightKg === null ? <span className="font-medium text-amber-700">missing</span> : line.weightKg.toLocaleString("en-US", { maximumFractionDigits: 1 })}
                     </td>
-                    <td className={`${TD} text-right tabular-nums`}>{line.colli === null ? <span className="font-medium text-amber-600">missing</span> : line.colli}</td>
+                    <td className={`${TD} text-right tabular-nums`}>{line.colli === null ? <span className="font-medium text-amber-700">missing</span> : line.colli}</td>
                     <td className={TD}>{line.stackable === null ? <span className="text-slate-500">not said</span> : line.stackable ? "Yes" : "No"}</td>
                     <td className={`${TD} text-slate-500`}>{line.note}</td>
                   </tr>

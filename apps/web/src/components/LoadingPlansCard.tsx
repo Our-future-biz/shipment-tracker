@@ -6,6 +6,7 @@ import { CountChip, SectionCard } from "@/components/SectionCard";
 import { useLoadingPlans } from "@/hooks/useLoadingPlans";
 import type { interfaces } from "@/lib/api/client";
 import { formatDateTime } from "@/lib/date";
+import { formatKg } from "@/app/loading-planner/_lib/units";
 import { BTN_BAR, EMPTY_STATE, LINK, TD, TH } from "@/styles/ui";
 
 interface LoadingPlansCardProps {
@@ -14,17 +15,20 @@ interface LoadingPlansCardProps {
   id: string;
   /** What a new plan is opened with: the shipment's id, or the quote's reference. */
   newPlanKey: string;
+  /** The job has no cargo lines a plan could start from: the card then shows only when plans exist. */
+  onlyWithPlans?: boolean;
 }
 
 // The loading plans linked to a shipment or a quote, on that job's page, and the way to a new one
 // that starts with the job's cargo. A plan never changes the job.
-export function LoadingPlansCard({ kind, id, newPlanKey }: LoadingPlansCardProps) {
+export function LoadingPlansCard({ kind, id, newPlanKey, onlyWithPlans = false }: LoadingPlansCardProps) {
   const { plans, isLoading, isError } = useLoadingPlans({ kind, id });
+  if (onlyWithPlans && plans.length === 0) return null;
 
   let empty: string | null = null;
   if (isLoading) empty = "Loading…";
   else if (isError) empty = "Could not load the loading plans.";
-  else if (plans.length === 0) empty = "No loading plan yet. New loading plan starts one with this job's cargo.";
+  else if (plans.length === 0) empty = `No loading plan yet. New loading plan starts one with the cargo of this ${kind}.`;
 
   return (
     <SectionCard
@@ -43,6 +47,7 @@ export function LoadingPlansCard({ kind, id, newPlanKey }: LoadingPlansCardProps
       {empty ? (
         <p className={`${EMPTY_STATE} m-0`}>{empty}</p>
       ) : (
+        <div className="overflow-x-auto">
         <table className="w-full border-collapse">
           <thead>
             <tr>
@@ -61,7 +66,7 @@ export function LoadingPlansCard({ kind, id, newPlanKey }: LoadingPlansCardProps
                   </Link>
                 </td>
                 <td className={`${TD} text-right tabular-nums`}>{plan.colli.toLocaleString("en-US")}</td>
-                <td className={`${TD} text-right tabular-nums`}>{plan.weightKg.toLocaleString("en-US", { maximumFractionDigits: 1 })} kg</td>
+                <td className={`${TD} text-right tabular-nums`}>{formatKg(plan.weightKg)}</td>
                 <td className={TD}>
                   {formatDateTime(plan.updatedAt)}
                   <span className="text-slate-500"> · {plan.updatedBy}</span>
@@ -70,6 +75,7 @@ export function LoadingPlansCard({ kind, id, newPlanKey }: LoadingPlansCardProps
             ))}
           </tbody>
         </table>
+        </div>
       )}
     </SectionCard>
   );

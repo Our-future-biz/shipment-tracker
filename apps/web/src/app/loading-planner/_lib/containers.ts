@@ -45,10 +45,10 @@ export const CONTAINERS: ContainerSpec[] = [
 ];
 
 /**
- * The length of floor, in mm, a weight must rest on to stay within the container's floor strength.
- * (kg ÷ tonnes per metre gives mm.)
+ * The most cargo a container takes, in kg: its payload, or less where the floor would not carry
+ * that much even spread over its whole length (a 20' DC: 4.5 t/m on 5.9 m is 26.5 t).
  */
-export const beddingMm = (weightKg: number, container: ContainerSpec): number => weightKg / container.maxTonnesPerMetre;
+export const maxCargoKg = (container: ContainerSpec): number => Math.min(container.payloadKg, Math.floor(container.maxTonnesPerMetre * container.internalL));
 
 /** Standard first, open tops for over-height, flat racks last. */
 export const GROUP_ORDER: ContainerGroup[] = ["standard", "open-top", "flat-rack"];

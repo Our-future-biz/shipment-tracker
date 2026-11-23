@@ -54,12 +54,14 @@ export function LinkJobModal({ open, onClose, readJob, onLinked, hasCargo }: Lin
   return (
     <AppModal
       open={open}
-      onClose={close}
-      title="Link to a job"
+      onClose={busy ? () => undefined : close}
+      title="Link to a shipment or quote"
       subtitle="The plan then shows on that shipment or quote. Linking changes nothing on the job."
       footer={
         <div className="flex justify-end gap-2">
-          <Button onClick={close}>Cancel</Button>
+          <Button onClick={close} disabled={busy}>
+            Cancel
+          </Button>
           <Button type="primary" loading={busy} onClick={handleLink}>
             Link
           </Button>
@@ -68,12 +70,13 @@ export function LinkJobModal({ open, onClose, readJob, onLinked, hasCargo }: Lin
     >
       <div className="flex flex-col gap-3">
         <label className="flex flex-col gap-1.5">
-          <span className={LABEL_TEXT}>Kind of job</span>
-          <Select value={kind} options={KIND_OPTIONS} onChange={setKind} aria-label="Kind of job" />
+          <span className={LABEL_TEXT}>Shipment or quote</span>
+          <Select value={kind} options={KIND_OPTIONS} onChange={setKind} aria-label="Shipment or quote" />
         </label>
         <label className="flex flex-col gap-1.5">
           <span className={LABEL_TEXT}>{kind === "shipment" ? "Job number" : "Quote reference"}</span>
           <Input
+            autoFocus
             value={key}
             placeholder={kind === "shipment" ? "e.g. CZ00000053" : "e.g. QCZ00000012"}
             maxLength={60}
@@ -85,10 +88,14 @@ export function LinkJobModal({ open, onClose, readJob, onLinked, hasCargo }: Lin
           />
         </label>
         <Checkbox checked={loadCargo} onChange={(e) => setLoadCargo(e.target.checked)}>
-          Load the job&apos;s cargo into the plan
+          Load the {JOB_KIND_LABEL[kind].toLowerCase()}&apos;s cargo into the plan
         </Checkbox>
         {loadCargo && hasCargo && <p className={`${HINT} m-0`}>The cargo lines now in the plan will be replaced.</p>}
-        {error && <p className="m-0 text-[13px] text-red-600">{error}</p>}
+        {error && (
+          <p className="m-0 text-[13px] text-red-600" role="alert">
+            {error}
+          </p>
+        )}
       </div>
     </AppModal>
   );

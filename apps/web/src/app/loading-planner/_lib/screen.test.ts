@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { interfaces, lib } from "@/lib/api/client";
-import { cargoLinesOf, completeLine, isBlank, lineLabel, newDraftLine, saveProblem, type DraftLine } from "./cargoForm";
-import { jobHref, linesFromQuote, linesFromShipment, quotePackages } from "./jobCargo";
+import { cargoLinesOf, completeLine, isBlank, limitProblem, lineLabel, missingFigures, newDraftLine, planFingerprint, saveProblem, unplannedCount, type DraftLine } from "./cargoForm";
+import { jobHref, linesFromQuote, linesFromShipment, quotePackages, sameJobNumber } from "./jobCargo";
 import { lineColour, loadStats, planTotals } from "./loadStats";
 import { planLoad } from "./plan";
 import { draftsFromReading, isReadLineComplete, readFileProblem } from "./readCargo";
@@ -45,6 +45,36 @@ describe("cargo form", () => {
     expect(saveProblem("Plan", [draft(), newDraftLine("c")])).toBeNull();
     expect(saveProblem("Plan", [])).toBeNull();
     expect(saveProblem("Plan", [draft(), draft({ id: "b", name: "", widthMm: null })])).toBe('"Line 2" is not complete: fill in its length, width, height, weight and colli.');
+  });
+});
+
+describe("what is planned and what is saved", () => {
+  it("names the figures a typed line still lacks", () => {
+    expect(missingFigures(draft())).toEqual([]);
+    expect(missingFigures(newDraftLine("c"))).toEqual([]);
+    expect(missingFigures(draft({ heightMm: null, weightKg: null }))).toEqual(["height", "weight"]);
+    expect(unplannedCount([draft(), draft({ id: "b", colli: null }), newDraftLine("c")])).toBe(1);
+  });
+
+  it("refuses cargo too large for one plan before any planning", () => {
+    expect(limitProblem(cargoLinesOf([draft({ colli: 2000 })]))).toBeNull();
+    expect(limitProblem(cargoLinesOf([draft({ colli: 2000 }), draft({ id: "b", colli: 1 })]))).toBe(
+      "A plan holds at most 2,000 colli; this cargo has 2,001. Plan it by pallet, or split it over several plans.",
+    );
+    expect(limitProblem(cargoLinesOf(Array.from({ length: 201 }, (_, i) => draft({ id: `l${i}`, colli: 1 }))))).toContain("at most 200 cargo lines");
+  });
+
+  it("sees a saved plan as saved whatever order the server returns a line's fields in", () => {
+    const typed = draft({ name: "Pallet " });
+    // The same line as the database returns it: fields re-ordered, the name trimmed.
+    const stored = { name: "Pallet", colli: 4, canTurn: true, widthMm: 800, heightMm: 1000, lengthMm: 1200, weightKg: 400, stackable: false, id: "other-id" } as DraftLine;
+    expect(planFingerprint("Plan ", [typed], null, null)).toBe(planFingerprint("Plan", [stored], null, null));
+    expect(planFingerprint("Plan", [typed, newDraftLine("blank")], null, null)).toBe(planFingerprint("Plan", [stored], null, null));
+    expect(planFingerprint("Plan", [draft({ colli: 5 })], null, null)).not.toBe(planFingerprint("Plan", [stored], null, null));
+    expect(planFingerprint("Plan", [typed], ["40hc"], null)).not.toBe(planFingerprint("Plan", [stored], null, null));
+    expect(planFingerprint("Plan", [typed], null, { kind: "shipment", id: "s1", ref: "CZ1" })).not.toBe(planFingerprint("Plan", [stored], null, null));
+    // The job's reference alone is no change: the server keeps it.
+    expect(planFingerprint("Plan", [typed], null, { kind: "shipment", id: "s1", ref: "CZ1" })).toBe(planFingerprint("Plan", [stored], null, { kind: "shipment", id: "s1", ref: "CZLCL1" }));
   });
 });
 
@@ -135,12 +165,36 @@ describe("cargo of a job", () => {
     expect(completeLine(lines[0]!)).not.toBeNull();
   });
 
-  it("keeps a half-filled row for the user to finish and drops an empty one", () => {
-    const lines = linesFromShipment([row({ heightCm: "", pieces: "" }), row({ lengthCm: "", widthCm: "", heightCm: "", weightPerPcKg: "" })], newId);
-    expect(lines).toHaveLength(1);
+  it("keeps every row that has anything in it for the user to finish, and drops only an empty one", () => {
+    const rows = [
+      row({ heightCm: "", pieces: "" }),
+      // A volume-only row: pieces and a package type, no sizes and no weight.
+      row({ packageType: "Crate", pieces: "10", lengthCm: "", widthCm: "", heightCm: "", weightPerPcKg: "", volumePerPcM3: "1.2" }),
+      row({ packageType: "", pieces: "", lengthCm: "", widthCm: "", heightCm: "", weightPerPcKg: "", stackable: "" }),
+    ];
+    const lines = linesFromShipment(rows, newId);
+    expect(lines.map((l) => l.name)).toEqual(["Pallet", "Crate"]);
     expect(lines[0]).toMatchObject({ heightMm: null, colli: null });
-    expect(completeLine(lines[0]!)).toBeNull();
+    expect(lines[1]).toMatchObject({ colli: 10, lengthMm: null, weightKg: null });
+    expect(lines.every((l) => completeLine(l) === null)).toBe(true);
     expect(linesFromShipment(null, newId)).toEqual([]);
+    expect(linesFromQuote([{ qty: 5, type: "Crate" }, { qty: 0, type: "" }], newId)).toHaveLength(1);
+  });
+
+  it("reads the older stackable wording and keeps the dangerous goods mark", () => {
+    const [old, dg] = linesFromShipment([row({ stackable: "Stackable" }), row({ packageType: "Drum", adrUn: "1203", adrClass: "3" })], newId);
+    expect(old?.stackable).toBe(true);
+    expect(dg?.dg).toBe(true);
+    expect(old?.dg).toBeUndefined();
+    expect(completeLine(dg!)?.dg).toBe(true);
+  });
+
+  it("finds a job under its number whatever letters it carries now", () => {
+    expect(sameJobNumber("CZ00000053", "CZLCL00000053")).toBe(true);
+    expect(sameJobNumber("cz00000053", "CZFCL00000053")).toBe(true);
+    expect(sameJobNumber("CZ00000053", "CZ00000054")).toBe(false);
+    expect(sameJobNumber("CZ00000053", "DE00000053")).toBe(false);
+    expect(sameJobNumber("  CZ00000053 ", "CZ00000053")).toBe(true);
   });
 
   it("numbers the lines that share a package type", () => {
@@ -149,6 +203,7 @@ describe("cargo of a job", () => {
 
   it("reads a quote's package lines out of its document", () => {
     const data = { customerName: "ACME", packages: [{ qty: 2, type: "Case", length: 250, width: 120, height: 180, weight: 950, stackable: false }, { qty: 0, type: "" }] };
+    // The empty package line is dropped.
     const lines = linesFromQuote(quotePackages(data), newId);
     expect(lines).toHaveLength(1);
     expect(lines[0]).toMatchObject({ name: "Case", lengthMm: 2500, widthMm: 1200, heightMm: 1800, weightKg: 950, colli: 2, stackable: false });
@@ -184,5 +239,7 @@ describe("cargo read from a document", () => {
     expect(readFileProblem({ name: "archive.zip", size: 1000 })).toContain("cannot be read");
     expect(readFileProblem({ name: "scan.pdf", size: 21 * 1024 * 1024 })).toBe("The file is larger than 20 MB.");
     expect(readFileProblem({ name: "empty.txt", size: 0 })).toBe("The file is empty.");
+    expect(readFileProblem({ name: "photo.jpg", size: 6 * 1024 * 1024 })).toBe("A picture may be at most 5 MB. Make it smaller, or save it as a PDF.");
+    expect(readFileProblem({ name: "scan.pdf", size: 6 * 1024 * 1024 })).toBeNull();
   });
 });

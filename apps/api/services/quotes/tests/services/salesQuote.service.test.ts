@@ -10,6 +10,7 @@ vi.mock("~encore/clients", () => ({
   auth: { usersList: vi.fn(), userLookup: vi.fn() },
   customers: { customerActivate: vi.fn(), _internalCustomerRefs: vi.fn(), _internalSupplierApprovalStates: vi.fn() },
   fx: { fxRatesOn: vi.fn() },
+  loadingPlanner: { _internalPlansMoveQuote: vi.fn() },
   shipments: { _internalShipmentsNamingQuote: vi.fn(), _internalShipmentsMoveQuote: vi.fn(), _internalQuoteReferencesByJob: vi.fn() },
   trucking: { truckingRate: vi.fn(), _internalTruckingMarginFloor: vi.fn(), _internalTruckingNamingQuote: vi.fn() },
 }));
@@ -48,7 +49,7 @@ vi.mock("../../repositories/salesQuote.repository", () => ({
 }));
 
 import log from "encore.dev/log";
-import { auth, customers, fx, shipments, trucking } from "~encore/clients";
+import { auth, customers, fx, loadingPlanner, shipments, trucking } from "~encore/clients";
 import type { Actor } from "../../../../lib/rbac";
 import { quoteAttachmentRepository } from "../../repositories/quoteAttachment.repository";
 import { quoteCommentRepository } from "../../repositories/quoteComment.repository";
@@ -804,6 +805,18 @@ describe("revise", () => {
     stored = sent();
     await salesQuoteService.revise(martin, REF);
     expect(shipments._internalShipmentsMoveQuote).not.toHaveBeenCalled();
+  });
+
+  it("takes the quote's loading plans along to the revision, Won or not", async () => {
+    stored = sent();
+    await salesQuoteService.revise(martin, REF);
+    expect(loadingPlanner._internalPlansMoveQuote).toHaveBeenCalledWith(expect.objectContaining({ toReference: `${REF}-R2` }));
+  });
+
+  it("still makes the revision when the loading plans cannot be moved", async () => {
+    stored = sent();
+    vi.mocked(loadingPlanner._internalPlansMoveQuote).mockRejectedValue(new Error("down"));
+    await expect(salesQuoteService.revise(martin, REF)).resolves.toMatchObject({ revision: { quoteNumber: `${REF}-R2` } });
   });
 });
 

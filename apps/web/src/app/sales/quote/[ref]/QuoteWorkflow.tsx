@@ -1520,8 +1520,8 @@ export function QuoteWorkflow() {
               it was one, or copied from a shipment) stay in view rather than counting unseen. */}
           {(!containerQuote || packages.length > 0) && <QuotePackageLines lines={packages} onChange={updatePackages} readOnly={quoteClosed} />}
 
-          {/* The loading plans made from the package lines (Loading Planner): for a quote that holds some. */}
-          {quote && packages.length > 0 && <LoadingPlansCard kind="quote" id={quote.id} newPlanKey={quote.quoteNumber} />}
+          {/* The loading plans made from the package lines (Loading Planner): for a quote that holds some, or that has plans already. */}
+          {quote && <LoadingPlansCard kind="quote" id={quote.id} newPlanKey={quote.quoteNumber} onlyWithPlans={packages.length === 0} />}
 
           {/* Freight metrics. Weight and volume are the lines' sum - the containers' declared
               cargo, else the packages'; where the lines give none they are typed here for the

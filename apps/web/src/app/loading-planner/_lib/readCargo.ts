@@ -6,6 +6,9 @@ import type { DraftLine } from "./cargoForm";
 /** The files the reader takes, as the file dialog filters them. */
 export const READ_FILE_TYPES = [".pdf", ".png", ".jpg", ".jpeg", ".webp", ".gif", ".xlsx", ".csv", ".txt"];
 export const MAX_READ_FILE_MB = 20;
+/** The AI reader takes no larger picture. */
+export const MAX_READ_PICTURE_MB = 5;
+const PICTURES = [".png", ".jpg", ".jpeg", ".webp", ".gif"];
 
 /** Why a chosen file cannot be sent to the reader, or null. */
 export function readFileProblem(file: { name: string; size: number }): string | null {
@@ -13,6 +16,7 @@ export function readFileProblem(file: { name: string; size: number }): string | 
   if (ext === ".xls") return "Old Excel files (.xls) cannot be read. Save the workbook as .xlsx and choose it again.";
   if (!READ_FILE_TYPES.includes(ext)) return "This kind of file cannot be read. Choose a PDF, a picture, an .xlsx workbook, or a .csv or .txt file.";
   if (file.size > MAX_READ_FILE_MB * 1024 * 1024) return `The file is larger than ${MAX_READ_FILE_MB} MB.`;
+  if (PICTURES.includes(ext) && file.size > MAX_READ_PICTURE_MB * 1024 * 1024) return `A picture may be at most ${MAX_READ_PICTURE_MB} MB. Make it smaller, or save it as a PDF.`;
   if (file.size === 0) return "The file is empty.";
   return null;
 }

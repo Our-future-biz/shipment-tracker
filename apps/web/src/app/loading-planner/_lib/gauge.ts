@@ -1,4 +1,4 @@
-import { beddingMm, CONTAINERS, type ContainerSpec } from "./containers";
+import { CONTAINERS, maxCargoKg, type ContainerSpec } from "./containers";
 
 /** One line of the cargo list. Sizes in mm, weight in kg per piece. */
 export interface CargoLine {
@@ -12,6 +12,8 @@ export interface CargoLine {
   /** May also be loaded crosswise. When false the piece goes long side along the container. */
   canTurn: boolean;
   stackable: boolean;
+  /** Dangerous goods, as the job says. Shown beside the line; it changes nothing in the plan. */
+  dg?: boolean;
 }
 
 /** How a piece sits on the floor: `length` runs along the container. */
@@ -41,11 +43,10 @@ export function footprints(line: CargoLine): Footprint[] {
  * - An open top is loaded from above: the height is free, the piece must fit the floor.
  * - A flat rack takes any piece lengthwise, overhanging its sides or ends; crosswise only when the
  *   piece stays on the platform.
- * - No container takes a piece so heavy that bedding as long as its whole floor would not carry it.
+ * - No container takes a piece heavier than its payload, or than its floor carries over its whole length.
  */
 export function fitIn(container: ContainerSpec, line: CargoLine): Footprint[] {
-  if (line.weightKg > container.payloadKg) return [];
-  if (beddingMm(line.weightKg, container) > container.internalL) return [];
+  if (line.weightKg > maxCargoKg(container)) return [];
   const onFloor = (fp: Footprint, maxWidth: number) => fp.length <= container.internalL && fp.width <= maxWidth;
 
   if (container.group === "flat-rack") {
@@ -78,7 +79,11 @@ export function gaugeOf(line: CargoLine): Gauge {
   return { overLength: long > MAX_LENGTH, overWidth: short > MAX_WIDTH, overHeight: line.heightMm > MAX_HEIGHT };
 }
 
-export function gaugeLabel(gauge: Gauge): string {
-  const over = [gauge.overLength && "Length", gauge.overWidth && "Width", gauge.overHeight && "Height"].filter(Boolean);
-  return over.length === 0 ? "In Gauge" : `Over ${over.join(" + ")}`;
+/**
+ * Whether a standard container takes the piece through its doors, in the cargo table's words:
+ * "Fits", or what it is too much of. ("Out of gauge" is kept for a container whose cargo sticks out.)
+ */
+export function fitLabel(gauge: Gauge): string {
+  const over = [gauge.overLength && "long", gauge.overWidth && "wide", gauge.overHeight && "high"].filter(Boolean);
+  return over.length === 0 ? "Fits" : `Too ${over.join(" + too ")}`;
 }

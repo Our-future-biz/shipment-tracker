@@ -11,6 +11,7 @@ interface LoadingPlanGetResponse {
   plan: LoadingPlanItem;
 }
 
+// One plan, with what its linked shipment or quote is called now - or that the job is gone.
 export const loadingPlanGet = api(
   { expose: true, auth: true, method: "GET", path: "/loading-plans/:id" },
   async (req: LoadingPlanGetRequest): Promise<LoadingPlanGetResponse> => {

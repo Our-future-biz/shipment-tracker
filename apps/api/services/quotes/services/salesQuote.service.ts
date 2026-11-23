@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { APIError } from "encore.dev/api";
 import log from "encore.dev/log";
-import { customers, fx, shipments, trucking } from "~encore/clients";
+import { customers, fx, loadingPlanner, shipments, trucking } from "~encore/clients";
 import { businessDay, isRealYmd } from "../../../lib/businessDate";
 import type { PaginatedResponse } from "../../../lib/db/interface";
 import type { Actor } from "../../../lib/rbac";
@@ -878,6 +878,13 @@ class SalesQuoteService {
         log.warn(err, "the shipments of a revised Won quote could not be moved to its revision", { quoteNumber: revised.quoteNumber, revision: revision.quoteNumber });
         warning = `The shipments of ${revised.quoteNumber} could not be moved to ${revision.quoteNumber} - change their Sales Reference to ${revision.quoteNumber}`;
       }
+    }
+    // The loading plans linked to the quote go with it to its revision. Best effort: a plan left
+    // behind still opens, linked to the replaced quote, and can be linked again by hand.
+    try {
+      await loadingPlanner._internalPlansMoveQuote({ fromQuoteId: revised.id, toQuoteId: revision.id, toReference: revision.quoteNumber });
+    } catch (err) {
+      log.warn(err, "the loading plans of a revised quote could not be moved to its revision", { quoteNumber: revised.quoteNumber, revision: revision.quoteNumber });
     }
     const margins = await marginsFor(actor.companyID, [revised, revision], at);
     return {

@@ -1,5 +1,7 @@
-import { balanceOf, beddingNeeds, type Balance, type BeddingNeed } from "./balance";
+import { balanceOf, floorOverloads, type Balance, type FloorOverload } from "./balance";
+import type { ContainerSpec } from "./containers";
 import { isOutOfGauge, overhang, type ContainerLoad, type LoadPlan, type PlacedPiece } from "./plan";
+import { formatDim, type DimUnit } from "./units";
 
 /** The pieces of one cargo line in a load that sit the same way: one row of the load's table. */
 export interface PieceGroup {
@@ -13,6 +15,10 @@ export interface PieceGroup {
   height: number;
   weightKg: number;
   crosswise: boolean;
+  /** The top of the highest of them above the floor, in mm (a stack counts whole). */
+  topMm: number;
+  /** Where the first of them stands: from the front wall and from the left side, in mm. */
+  at: { fromFront: number; fromLeft: number };
   /** How far these pieces stick out of the container, in mm. */
   over: { length: number; width: number; height: number };
 }
@@ -24,7 +30,12 @@ export interface LoadStats {
   floorPct: number;
   balance: Balance;
   outOfGauge: boolean;
-  bedding: BeddingNeed[];
+  /** The highest point of the cargo above the floor, in mm. */
+  topMm: number;
+  /** A piece is longer than the flat rack's deck, so its end walls are folded down. */
+  endWallsFolded: boolean;
+  /** The stretches of floor carrying more per metre than the floor is rated for. */
+  floorOverloads: FloorOverload[];
   groups: PieceGroup[];
 }
 
@@ -53,8 +64,11 @@ export function pieceGroups(load: ContainerLoad): PieceGroup[] {
       height: piece.height,
       weightKg: piece.weightKg,
       crosswise: piece.crosswise,
+      topMm: 0,
+      at: { fromFront: Math.max(0, piece.z), fromLeft: Math.max(0, piece.x) },
       over: { length: 0, width: 0, height: 0 },
     };
+    group.topMm = Math.max(group.topMm, piece.y + piece.height);
     group.count += 1;
     if (piece.y > 0) group.stacked += 1;
     group.over = { length: Math.max(group.over.length, over.length), width: Math.max(group.over.width, over.width), height: Math.max(group.over.height, over.height) };
@@ -72,10 +86,30 @@ export function loadStats(load: ContainerLoad): LoadStats {
     floorPct: pct(onFloor.reduce((total, piece) => total + floorArea(piece, load), 0), container.internalL * container.internalW),
     balance: balanceOf(pieces, container),
     outOfGauge: pieces.some((piece) => isOutOfGauge(piece, container)),
-    bedding: beddingNeeds(load),
+    topMm: Math.max(0, ...pieces.map((piece) => piece.y + piece.height)),
+    endWallsFolded: container.group === "flat-rack" && pieces.some((piece) => piece.length > container.internalL),
+    floorOverloads: floorOverloads(load),
     groups: pieceGroups(load),
   };
 }
+
+/** One overloaded stretch of floor as a sentence, the same on the screen and in the PDF. */
+export function floorOverloadText(overload: FloorOverload, container: ContainerSpec, unit: DimUnit): string {
+  return (
+    `${overload.names.join(", ")}: ${overload.tonnesPerMetre.toFixed(1)} t per metre on ${formatDim(overload.lengthMm, unit)} ${unit} of floor ` +
+    `(the floor's limit is ${container.maxTonnesPerMetre} t per metre). Spread the weight over at least ${formatDim(overload.spreadMm, unit)} ${unit}: ` +
+    "bedding (timber under the cargo, along the container) or more floor."
+  );
+}
+
+/** What a load with a piece longer than its flat rack needs, said the same on the screen and in the PDF. */
+export const END_WALLS_NOTE = "A piece is longer than the flat rack's deck: the end walls must be folded down (platform), which needs the carrier's approval. Nothing else is loaded on it.";
+
+/**
+ * Standard containers and open tops have their doors at the far end of the drawings: positions are
+ * measured from the front wall, the closed end. A flat rack has no doors.
+ */
+export const hasDoors = (container: ContainerSpec): boolean => container.group !== "flat-rack";
 
 export interface PlanTotals {
   /** The equipment of the plan: "2 × 40' DC", in the order of the loads. */

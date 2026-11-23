@@ -4,7 +4,7 @@
 /** What a plan can be linked to. A plan without a link is a what-if plan. */
 export type PlanLinkKind = "shipment" | "quote";
 
-/** One line of a plan's cargo list. Sizes in mm, weight in kg per piece. */
+/** One line of a plan's cargo list. Sizes in mm, weight in kg per colli. */
 export interface PlanCargoLine {
   id: string;
   name: string;
@@ -16,6 +16,8 @@ export interface PlanCargoLine {
   /** May also be loaded crosswise. */
   canTurn: boolean;
   stackable: boolean;
+  /** Dangerous goods, as the linked job marks the cargo. The planner only shows it. */
+  dg?: boolean;
 }
 
 /** What a user sends to save a plan. The loads themselves are worked out from this in the browser. */
@@ -37,7 +39,13 @@ export interface LoadingPlanItem extends PlanInput {
   createdBy: string;
   updatedBy: string;
   createdAt: string;
+  /** When the plan was last saved. Sent back with the next save, which is refused when someone else saved in between. */
   updatedAt: string;
+  /**
+   * The shipment or quote the plan is linked to no longer exists (it was deleted). Told when one
+   * plan is opened or saved; the plan stays linked until the user unlinks it.
+   */
+  linkGone: boolean;
 }
 
 /** A plan as the list shows it. */

@@ -28,6 +28,7 @@ import {
 } from "@phosphor-icons/react";
 import { useSalesPermissions } from "@/hooks/useSalesPermissions";
 import { useSidebarState } from "@/hooks/useSidebarState";
+import { confirmLeave } from "@/app/warehouse-concept/_lib/useUnsavedGuard";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { SALES_NAV, type SalesNavItem } from "@/app/sales/_lib/tabs";
 import { TARIFF_NAV } from "@/app/tariffs/_lib/tariffPages";
@@ -351,9 +352,15 @@ export function AppSidebar() {
   const fold = (event: NavGroupEvent) => setGroups((g) => nextNavGroups(g, event));
   // Another page than a section's: the section you had unfolded folds, even when the page is this
   // one, and the item clicked is marked at once.
+  // The menu leaves a screen with unsaved changes only after asking (the screens' own guard catches
+  // links, not these buttons).
   const goTo = (path: string) => {
+    if (!confirmLeave()) return;
     fold({ type: "leaf", path });
     router.push(path);
+  };
+  const leaveTo = (path: string) => {
+    if (confirmLeave()) router.push(path);
   };
   const looks = navLooks(groups, holding);
 
@@ -397,10 +404,10 @@ export function AppSidebar() {
     const opensPage = sectionClickOpensPage(groups, holding, pathname === item.path);
     const openSection = (e: React.MouseEvent) => {
       if (e.detail > 1) return;
-      if (opensPage) {
-        fold({ type: "open", group: item.path });
-        router.push(item.path);
-      } else fold({ type: "toggle", group: item.path });
+      if (!opensPage) return fold({ type: "toggle", group: item.path });
+      if (!confirmLeave()) return;
+      fold({ type: "open", group: item.path });
+      router.push(item.path);
     };
 
     // Folded menu: the tile shows its pages as a flyout to the right of the rail, on hover, and a
@@ -426,7 +433,7 @@ export function AppSidebar() {
           menu={{
             items: children.flatMap((c) => [
               ...(c.divided ? [{ type: "divider" as const }] : []),
-              { key: c.path, label: c === current ? <span className="font-semibold">{c.label}</span> : c.label, onClick: () => router.push(c.path) },
+              { key: c.path, label: c === current ? <span className="font-semibold">{c.label}</span> : c.label, onClick: () => leaveTo(c.path) },
             ]),
             selectedKeys: current ? [current.path] : [],
           }}
@@ -436,6 +443,7 @@ export function AppSidebar() {
             onClick={(e) => {
               if (e.detail > 1) return;
               if (!opensPage) return setFlyout(item.path);
+              if (!confirmLeave()) return;
               fold({ type: "open", group: item.path });
               router.push(item.path);
             }}
@@ -482,7 +490,7 @@ export function AppSidebar() {
                     {c.divided && <div role="separator" className="h-px mx-3 my-1 bg-slate-100" />}
                     <button
                       type="button"
-                      onClick={() => router.push(c.path)}
+                      onClick={() => leaveTo(c.path)}
                       aria-current={isPage ? "page" : undefined}
                       className={`block w-full text-left px-3 py-2 rounded-lg text-[13px] cursor-pointer transition-all duration-150 ${FOCUS_INSET} ${
                         looks.child(isPage) === "active" ? NAV_ACTIVE : NAV_CHILD_IDLE
