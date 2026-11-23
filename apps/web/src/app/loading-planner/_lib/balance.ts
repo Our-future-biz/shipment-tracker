@@ -1,4 +1,4 @@
-import type { ContainerSpec } from "./containers";
+import { maxWeightOn, restingNeeded, tonnesPerMetre, type ContainerSpec } from "./containers";
 import type { ContainerLoad, PlacedPiece } from "./plan";
 
 /** Across the container the centre of gravity must lie within this share of the half-width of the floor. */
@@ -210,8 +210,10 @@ export interface FloorOverload {
   weightKg: number;
   /** The heaviest cross-section of the stretch, in tonnes per running metre. */
   tonnesPerMetre: number;
-  /** The length of floor that weight must be spread over to stay within the limit, in mm. */
+  /** The length of floor that weight must be spread over to stay within the limit, in mm; 0 when no length of this floor carries it. */
   spreadMm: number;
+  /** On a flat rack: what its floor carries on the length of the stretch, in kg. */
+  allowedKg?: number;
 }
 
 /**
@@ -220,10 +222,14 @@ export interface FloorOverload {
  * metre of each stack standing there is added up (a stack spreads its weight evenly over its own
  * length). Neighbouring cross-sections over the limit make one stretch. The cargo of a stretch
  * needs bedding (timber under it, along the container) or more floor: `spreadMm` in all.
+ *
+ * A flat rack is not rated per metre but by the length the cargo rests on: there every unbroken
+ * stretch of cargo is weighed against what the rack carries on that length.
  */
 export function floorOverloads(load: ContainerLoad): FloorOverload[] {
   const { container } = load;
-  const limit = container.maxTonnesPerMetre; // 1 t/m is 1 kg/mm
+  if (container.group === "flat-rack") return rackOverloads(load);
+  const limit = tonnesPerMetre(container); // 1 t/m is 1 kg/mm
   // Each stack as the stretch of floor it rests on and the weight it puts on every mm of it.
   const rests = stacksOf(load.pieces).flatMap((stack) => {
     const base = stack.find((p) => p.y === 0);
@@ -258,6 +264,44 @@ export function floorOverloads(load: ContainerLoad): FloorOverload[] {
     ...overload,
     names: [...nameSet],
     weightKg: Math.round(overload.weightKg),
-    spreadMm: Math.ceil(overload.weightKg / limit),
+    spreadMm: restingNeeded(container, overload.weightKg) ?? 0,
   }));
+}
+
+function rackOverloads(load: ContainerLoad): FloorOverload[] {
+  const { container } = load;
+  const rests = stacksOf(load.pieces)
+    .flatMap((stack) => {
+      const base = stack.find((p) => p.y === 0);
+      if (!base) return [];
+      const [from, to] = [Math.max(0, base.z), Math.min(container.internalL, base.z + base.length)];
+      return to > from ? [{ from, to, weightKg: weightOf(stack), name: base.name || "Cargo" }] : [];
+    })
+    .sort((a, b) => a.from - b.from);
+  // A piece (or stack) too heavy for its own length is a point load, whatever stands beside it.
+  const alone = rests.map((r) => ({ from: r.from, to: r.to, weightKg: r.weightKg, names: new Set([r.name]) })).filter((s) => s.weightKg > maxWeightOn(container, s.to - s.from));
+  // Cargo standing end to end also rests on the rack as one.
+  const together: typeof alone = [];
+  let parts = 0;
+  for (const rest of rests) {
+    const last = together[together.length - 1];
+    if (last && rest.from <= last.to) {
+      last.to = Math.max(last.to, rest.to);
+      last.weightKg += rest.weightKg;
+      last.names.add(rest.name);
+      parts++;
+    } else together.push({ from: rest.from, to: rest.to, weightKg: rest.weightKg, names: new Set([rest.name]) });
+  }
+  const joined = parts === 0 ? [] : together.filter((s) => s.weightKg > maxWeightOn(container, s.to - s.from) && !alone.some((a) => a.from === s.from && a.to === s.to));
+  return [...alone, ...joined]
+    .sort((a, b) => a.from - b.from)
+    .map((s) => ({
+      names: [...s.names],
+      fromMm: s.from,
+      lengthMm: s.to - s.from,
+      weightKg: Math.round(s.weightKg),
+      tonnesPerMetre: s.weightKg / (s.to - s.from),
+      spreadMm: restingNeeded(container, s.weightKg) ?? 0,
+      allowedKg: maxWeightOn(container, s.to - s.from),
+    }));
 }

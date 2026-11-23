@@ -1,5 +1,5 @@
 import { balanceOf, centreLoad } from "./balance";
-import { containersWith, GROUP_LABEL, GROUP_ORDER, maxCargoKg, usableLength, type ContainerGroup, type ContainerSpec, type PlanRules } from "./containers";
+import { BEDDING_END_MM, containersWith, GROUP_LABEL, GROUP_ORDER, maxCargoKg, maxWeightWithBedding, usableLength, type ContainerGroup, type ContainerSpec, type PlanRules } from "./containers";
 import { findSpot, mirroredSlots, newFloor, occupy, PLACE_RULES, type Floor, type PlaceRule, type Slot } from "./floor";
 import { fitIn, type CargoLine } from "./gauge";
 
@@ -105,8 +105,9 @@ const sum = (values: number[]) => values.reduce((total, value) => total + value,
 const isOverLength = (piece: { length: number }, container: ContainerSpec) => piece.length > container.internalL;
 
 /**
- * Stacks one piece on pieces of its own line. A piece carries no more than its own weight and the
- * stack stays under the roof (or the top of the walls).
+ * Stacks one piece on pieces of its own line. A piece carries no more than its own weight, the
+ * stack stays under the roof (or the top of the walls), and the floor carries the whole stack on
+ * the length it stands on.
  */
 function stack(bin: Bin, line: CargoLine): boolean {
   const open = bin.stacks.get(line.id);
@@ -116,6 +117,7 @@ function stack(bin: Bin, line: CargoLine): boolean {
     const carried = on.carried + line.weightKg;
     // Pieces of a line are alike: a stack that cannot take this one cannot take the next either.
     if (carried > on.base.weightKg || on.top + line.heightMm > bin.container.internalH) continue;
+    if (on.base.weightKg + carried > maxWeightWithBedding(bin.container, on.base.length)) continue;
     bin.lines.push(line);
     bin.pieces.push({ ...on.base, y: on.top });
     bin.weightKg += line.weightKg;
@@ -377,6 +379,12 @@ function refusal(line: CargoLine, allowed: ContainerSpec[], all: ContainerSpec[]
   if (allowed.length === 0) return "No equipment is nominated.";
   const most = Math.max(...allowed.map(maxCargoKg));
   if (line.weightKg > most) return `Weighs ${kg(line.weightKg)} a piece; the most any allowed container carries is ${kg(most)}.`;
+  // Too heavy for the length it rests on, in every allowed container: say what the best of them carries there.
+  const long = Math.max(line.lengthMm, line.widthMm);
+  const best = allowed.reduce((a, b) => (maxWeightWithBedding(b, long) > maxWeightWithBedding(a, long) ? b : a));
+  if (line.weightKg > maxWeightWithBedding(best, long)) {
+    return `Weighs ${kg(line.weightKg)} on ${long.toLocaleString("en-US")} mm of floor: too much per metre for any allowed container, even with ${BEDDING_END_MM.toLocaleString("en-US")} mm of beams under each end. The most on that length is ${kg(maxWeightWithBedding(best, long))}, on a ${best.name}.`;
+  }
   const taker = GROUP_ORDER.flatMap((group) => all.filter((c) => c.group === group)).find((c) => fitIn(c, line).length > 0);
   if (!taker) return "Does not fit any container.";
   // When that kind of equipment is nominated, only its size or strength is wrong: name the type.

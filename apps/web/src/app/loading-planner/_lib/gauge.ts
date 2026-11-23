@@ -1,4 +1,4 @@
-import { CONTAINERS, maxCargoKg, NO_CLEARANCE, passHeight, passWidth, tooHeavyToStuff, usableLength, type Clearance, type ContainerSpec } from "./containers";
+import { CONTAINERS, containersWith, maxCargoKg, maxWeightWithBedding, NO_CLEARANCE, type PlanRules, passHeight, passWidth, tooHeavyToStuff, usableLength, type Clearance, type ContainerSpec } from "./containers";
 
 /** One line of the cargo list. Sizes in mm, weight in kg per piece. */
 export interface CargoLine {
@@ -45,14 +45,16 @@ export function footprints(line: CargoLine): Footprint[] {
  * - An open top is loaded from above: the height is free, the piece must fit the floor.
  * - A flat rack takes any piece lengthwise, overhanging its sides or ends; crosswise only when the
  *   piece stays on the platform.
- * - No container takes a piece heavier than its payload, or than its floor carries over its whole length.
+ * - No container takes a piece heavier than its payload, or heavier than its floor carries on the
+ *   length the piece rests on, counting the beams the carrier allows under it (maxWeightWithBedding).
  */
 export function fitIn(container: ContainerSpec, line: CargoLine): Footprint[] {
   if (line.weightKg > maxCargoKg(container)) return [];
-  const onFloor = (fp: Footprint, maxWidth: number) => fp.length <= usableLength(container) && fp.width <= maxWidth;
+  const carried = (fp: Footprint) => line.weightKg <= maxWeightWithBedding(container, fp.length);
+  const onFloor = (fp: Footprint, maxWidth: number) => fp.length <= usableLength(container) && fp.width <= maxWidth && carried(fp);
 
   if (container.group === "flat-rack") {
-    return footprints(line).filter((fp) => !fp.crosswise || onFloor(fp, container.internalW));
+    return footprints(line).filter((fp) => carried(fp) && (!fp.crosswise || onFloor(fp, container.internalW)));
   }
   const maxWidth = passWidth(container);
   if (container.group === "open-top") return footprints(line).filter((fp) => onFloor(fp, maxWidth));
@@ -95,3 +97,16 @@ export function fitLabel(gauge: Gauge): string {
   const over = [gauge.overLength && "long", gauge.overWidth && "wide", gauge.overHeight && "high"].filter(Boolean);
   return over.length === 0 ? "Fits" : `Too ${over.join(" + too ")}`;
 }
+
+/**
+ * The cargo table's word on a line: "Fits" when a standard container takes the piece, else what it
+ * is too much of. A piece of the right size can still be too heavy: for the floor on the length it
+ * rests on, or for the weight the company moves out of standard containers.
+ */
+export function standardLabel(line: CargoLine, rules?: PlanRules, with45 = false): string {
+  const size = fitLabel(gaugeOf(line, rules?.clearance, with45));
+  if (size !== "Fits") return size;
+  const standard = containersWith(rules).filter((c) => c.group === "standard" && (with45 || !c.onRequest));
+  return standard.some((c) => fitIn(c, line).length > 0) ? "Fits" : "Too heavy";
+}
+

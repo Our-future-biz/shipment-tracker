@@ -1,6 +1,6 @@
 import { jsPDF } from "jspdf";
-import { NO_CLEARANCE, type Clearance } from "./containers";
-import { fitLabel, gaugeOf, type CargoLine } from "./gauge";
+import { NO_CLEARANCE, type PlanRules } from "./containers";
+import { standardLabel, type CargoLine } from "./gauge";
 import { balanceLimitText, END_WALLS_NOTE, floorOverloadText, outOfBalanceText, ruleWarnings, hasDoors, lineColour, loadStats, planTotals, type PieceGroup } from "./loadStats";
 import type { ContainerLoad, LoadPlan } from "./plan";
 import { formatDim, formatKg, formatSize, type DimUnit } from "./units";
@@ -25,8 +25,8 @@ export interface PlanPdfInput {
   /** The names of the nominated container types; null when the planner chose. */
   nominated: string[] | null;
   unit: DimUnit;
-  /** The room left free in standard containers; none when left out. */
-  clearance?: Clearance;
+  /** The company's rules the plan was worked out with; none when left out. */
+  rules?: PlanRules;
   /** A 45' is nominated: "fits a standard container" is then judged against its length. */
   with45?: boolean;
   /** Typed cargo lines left out of the plan because a figure is missing. */
@@ -304,7 +304,7 @@ function summaryPage(doc: jsPDF, input: PlanPdfInput, colourOf: (lineId: string)
   const equipment = input.nominated
     ? `Equipment nominated: ${input.nominated.join(", ") || "none"}.`
     : "Equipment chosen by the planner: standard containers first, open tops for over-height, flat racks last; a 45' or a hard-top only when nominated.";
-  const clear = input.clearance ?? NO_CLEARANCE;
+  const clear = input.rules?.clearance ?? NO_CLEARANCE;
   const anyClearance = clear.doorWidthMm > 0 || clear.doorHeightMm > 0 || clear.lengthMm > 0;
   const clearanceNote = anyClearance
     ? ` Standard containers are planned with a clearance left free: ${formatDim(clear.doorWidthMm, unit)} ${unit} on door width, ${formatDim(clear.doorHeightMm, unit)} ${unit} on door height and ${formatDim(clear.lengthMm, unit)} ${unit} on length.`
@@ -355,7 +355,7 @@ function summaryPage(doc: jsPDF, input: PlanPdfInput, colourOf: (lineId: string)
         String(line.colli),
         formatKg(line.weightKg * line.colli),
         line.stackable ? "Yes" : "No",
-        fitLabel(gaugeOf(line, input.clearance ?? NO_CLEARANCE, input.with45)),
+        standardLabel(line, input.rules, input.with45),
       ],
       y,
     );

@@ -21,8 +21,8 @@ export interface ContainerSpec {
   doorH: number | null;
   /** The cargo weight the planner loads up to. */
   payloadKg: number;
-  /** Floor strength: tonnes per running metre of floor the cargo rests on. */
-  maxTonnesPerMetre: number;
+  /** How much weight the floor carries on a given length of it. */
+  floor: FloorStrength;
   /** A hard-top: loaded like an open top, but the planner picks a plain open top when it can. */
   hardTop?: true;
   /** Offered by few trades: the planner takes it only when it is nominated. */
@@ -82,28 +82,93 @@ export const MAX_CLEARANCE_MM = 500;
 /** A heavy piece also leaves standard containers when the bedding it needs is this many times its own length. */
 export const BEDDING_FACTOR = 2;
 
+/**
+ * What a floor carries, by the length the cargo rests on: points of (resting length in mm, weight
+ * in kg), read in a straight line between them and flat beyond the last. `anyKg` is what a flat
+ * rack carries on any length, however short.
+ *
+ * Source: Hapag-Lloyd, "Weight Distribution Guideline" (2022), the tables "Maximum payload related
+ * to the Resting Length". General purpose, open top and hard-top containers have a wooden floor
+ * (4.8 t per running metre on a 20', 3 t on a 40') or a steel floor (7.6 t and 6 t); the planner
+ * takes the hard-tops as steel-floored, as before. Flat racks follow the table of their payload
+ * class: the 20' of 31.2 t, the 40' of 39.3 t and the 40' high cube of 49 t; half that payload may
+ * be loaded on any length. The 45' is read like a 40'.
+ */
+export interface FloorStrength {
+  points: [number, number][];
+  anyKg?: number;
+}
+
+const WOOD_20: FloorStrength = { points: [[0, 0], [6000, 28800]] };
+const WOOD_40: FloorStrength = { points: [[0, 0], [6000, 18000], [7000, 21000], [8000, 23000], [9000, 26000], [9001, 28400]] };
+const STEEL_20: FloorStrength = { points: [[0, 0], [3000, 22800], [4000, 30200]] };
+const STEEL_40: FloorStrength = { points: [[0, 0], [4000, 24000], [5000, 28500]] };
+const RACK_20: FloorStrength = { anyKg: 15600, points: [[2000, 18700], [4000, 23400], [6000, 31200]] };
+const RACK_40: FloorStrength = { anyKg: 19650, points: [[2000, 21400], [4000, 23500], [6000, 26200], [8000, 29400], [10000, 33600], [12000, 39300]] };
+const RACK_40_HIGH: FloorStrength = { anyKg: 24500, points: [[2000, 25600], [4000, 29400], [6000, 32700], [8000, 36800], [10000, 42100], [12000, 49100]] };
+
+/** Beams under a piece may carry its weight this far beyond each of its ends, the carrier says: no further. */
+export const BEDDING_END_MM = 1000;
+
 export const CONTAINERS: ContainerSpec[] = [
-  { id: "20dc", name: "20' DC", group: "standard", feet: 20, internalL: 5898, internalW: 2352, internalH: 2385, doorW: 2343, doorH: 2280, payloadKg: 28230, maxTonnesPerMetre: 4.5 },
-  { id: "20hc", name: "20' HC", group: "standard", feet: 20, internalL: 5898, internalW: 2352, internalH: 2698, doorW: 2343, doorH: 2585, payloadKg: 28130, maxTonnesPerMetre: 4.5 },
-  { id: "40dc", name: "40' DC", group: "standard", feet: 40, internalL: 12032, internalW: 2352, internalH: 2385, doorW: 2343, doorH: 2280, payloadKg: 28720, maxTonnesPerMetre: 3.0 },
-  { id: "40hc", name: "40' HC", group: "standard", feet: 40, internalL: 12032, internalW: 2352, internalH: 2698, doorW: 2343, doorH: 2585, payloadKg: 28600, maxTonnesPerMetre: 3.0 },
-  { id: "45hq", name: "45' HQ", group: "standard", feet: 45, internalL: 13556, internalW: 2352, internalH: 2698, doorW: 2343, doorH: 2585, payloadKg: 29300, maxTonnesPerMetre: 3.0, onRequest: true },
-  { id: "20ot", name: "20' OT", group: "open-top", feet: 20, internalL: 5897, internalW: 2350, internalH: 2377, doorW: 2338, doorH: 2347, payloadKg: 28130, maxTonnesPerMetre: 4.5 },
-  { id: "40ot", name: "40' OT", group: "open-top", feet: 40, internalL: 12029, internalW: 2350, internalH: 2380, doorW: 2338, doorH: 2346, payloadKg: 28450, maxTonnesPerMetre: 3.0 },
-  { id: "40hot", name: "40' HOT", group: "open-top", feet: 40, internalL: 12025, internalW: 2350, internalH: 2680, doorW: 2338, doorH: 2585, payloadKg: 28350, maxTonnesPerMetre: 3.0 },
-  { id: "20ht", name: "20' Hard-Top", group: "open-top", feet: 20, internalL: 5560, internalW: 2342, internalH: 2408, doorW: 2338, doorH: 2258, payloadKg: 28080, maxTonnesPerMetre: 7.6, hardTop: true, onRequest: true },
-  { id: "40ht", name: "40' Hard-Top", group: "open-top", feet: 40, internalL: 12020, internalW: 2342, internalH: 2693, doorW: 2338, doorH: 2258, payloadKg: 28300, maxTonnesPerMetre: 6.0, hardTop: true, onRequest: true },
-  { id: "20fr", name: "20' FR", group: "flat-rack", feet: 20, internalL: 5612, internalW: 2210, internalH: 2233, doorW: null, doorH: null, payloadKg: 31250, maxTonnesPerMetre: 6.0 },
+  { id: "20dc", name: "20' DC", group: "standard", feet: 20, internalL: 5898, internalW: 2352, internalH: 2385, doorW: 2343, doorH: 2280, payloadKg: 28230, floor: WOOD_20 },
+  { id: "20hc", name: "20' HC", group: "standard", feet: 20, internalL: 5898, internalW: 2352, internalH: 2698, doorW: 2343, doorH: 2585, payloadKg: 28130, floor: WOOD_20 },
+  { id: "40dc", name: "40' DC", group: "standard", feet: 40, internalL: 12032, internalW: 2352, internalH: 2385, doorW: 2343, doorH: 2280, payloadKg: 28720, floor: WOOD_40 },
+  { id: "40hc", name: "40' HC", group: "standard", feet: 40, internalL: 12032, internalW: 2352, internalH: 2698, doorW: 2343, doorH: 2585, payloadKg: 28600, floor: WOOD_40 },
+  { id: "45hq", name: "45' HQ", group: "standard", feet: 45, internalL: 13556, internalW: 2352, internalH: 2698, doorW: 2343, doorH: 2585, payloadKg: 29300, floor: WOOD_40, onRequest: true },
+  { id: "20ot", name: "20' OT", group: "open-top", feet: 20, internalL: 5897, internalW: 2350, internalH: 2377, doorW: 2338, doorH: 2347, payloadKg: 28130, floor: WOOD_20 },
+  { id: "40ot", name: "40' OT", group: "open-top", feet: 40, internalL: 12029, internalW: 2350, internalH: 2380, doorW: 2338, doorH: 2346, payloadKg: 28450, floor: WOOD_40 },
+  { id: "40hot", name: "40' HOT", group: "open-top", feet: 40, internalL: 12025, internalW: 2350, internalH: 2680, doorW: 2338, doorH: 2585, payloadKg: 28350, floor: WOOD_40 },
+  { id: "20ht", name: "20' Hard-Top", group: "open-top", feet: 20, internalL: 5560, internalW: 2342, internalH: 2408, doorW: 2338, doorH: 2258, payloadKg: 28080, floor: STEEL_20, hardTop: true, onRequest: true },
+  { id: "40ht", name: "40' Hard-Top", group: "open-top", feet: 40, internalL: 12020, internalW: 2342, internalH: 2693, doorW: 2338, doorH: 2258, payloadKg: 28300, floor: STEEL_40, hardTop: true, onRequest: true },
+  { id: "20fr", name: "20' FR", group: "flat-rack", feet: 20, internalL: 5612, internalW: 2210, internalH: 2233, doorW: null, doorH: null, payloadKg: 31250, floor: RACK_20 },
   // The 40' flat racks carry 39,800 and 49,100 kg by the book; the planner loads them to 33,500 kg.
-  { id: "40fr", name: "40' FR", group: "flat-rack", feet: 40, internalL: 11652, internalW: 2374, internalH: 1959, doorW: null, doorH: null, payloadKg: 33500, maxTonnesPerMetre: 8.0 },
-  { id: "40hfr", name: "40' HFR", group: "flat-rack", feet: 40, internalL: 11652, internalW: 2347, internalH: 2265, doorW: null, doorH: null, payloadKg: 33500, maxTonnesPerMetre: 8.0 },
+  { id: "40fr", name: "40' FR", group: "flat-rack", feet: 40, internalL: 11652, internalW: 2374, internalH: 1959, doorW: null, doorH: null, payloadKg: 33500, floor: RACK_40 },
+  { id: "40hfr", name: "40' HFR", group: "flat-rack", feet: 40, internalL: 11652, internalW: 2347, internalH: 2265, doorW: null, doorH: null, payloadKg: 33500, floor: RACK_40_HIGH },
 ];
 
-/**
- * The most cargo a container takes, in kg: its payload, or less where the floor would not carry
- * that much even spread over its whole length (a 20' DC: 4.5 t/m on 5.9 m is 26.5 t).
- */
-export const maxCargoKg = (container: ContainerSpec): number => Math.min(container.payloadKg, Math.floor(container.maxTonnesPerMetre * container.internalL));
+/** The most weight the container carries on this length of its floor, in kg; never more than its payload. */
+export function maxWeightOn(c: ContainerSpec, restingMm: number): number {
+  const { points, anyKg = 0 } = c.floor;
+  const length = Math.min(restingMm, c.internalL);
+  let kg = points[points.length - 1]![1];
+  if (length < points[0]![0]) kg = 0;
+  else {
+    for (let i = 0; i + 1 < points.length; i++) {
+      const [[l0, k0], [l1, k1]] = [points[i]!, points[i + 1]!];
+      if (length <= l1) {
+        kg = k0 + ((k1 - k0) * (length - l0)) / (l1 - l0);
+        break;
+      }
+    }
+  }
+  return Math.min(c.payloadKg, Math.floor(Math.max(anyKg, kg)));
+}
+
+/** The same for a piece of this length along the container, with beams under it as far as the carrier allows. */
+export const maxWeightWithBedding = (c: ContainerSpec, lengthMm: number): number => maxWeightOn(c, lengthMm + 2 * BEDDING_END_MM);
+
+/** The shortest length of floor that carries this weight, in mm; null when the container never does. */
+export function restingNeeded(c: ContainerSpec, weightKg: number): number | null {
+  if (weightKg > maxWeightOn(c, c.internalL)) return null;
+  let [low, high] = [0, c.internalL];
+  while (high - low > 1) {
+    const mid = Math.floor((low + high) / 2);
+    if (maxWeightOn(c, mid) >= weightKg) high = mid;
+    else low = mid;
+  }
+  return high;
+}
+
+/** A wooden or steel floor's strength in tonnes per running metre; a flat rack has no such single figure. */
+export const tonnesPerMetre = (c: ContainerSpec): number => maxWeightOn({ ...c, payloadKg: Infinity }, 1000) / 1000;
+
+/** A container's floor strength in words: "4.8 t per metre", or for a flat rack what it takes on any length. */
+export const floorText = (c: ContainerSpec): string =>
+  c.floor.anyKg ? `${(c.floor.anyKg / 1000).toFixed(1)} t on any length, more by resting length` : `${tonnesPerMetre(c).toFixed(1)} t per running metre`;
+
+/** The most cargo a container takes, in kg: its payload, or less where its floor carries less even over its whole length. */
+export const maxCargoKg = (container: ContainerSpec): number => maxWeightOn(container, container.internalL);
 
 /**
  * The equipment as planned with the company's rules: standard containers carry the clearance and
@@ -120,7 +185,8 @@ export const containersWith = (rules?: PlanRules): ContainerSpec[] =>
 export function tooHeavyToStuff(c: ContainerSpec, weightKg: number, longSideMm: number): boolean {
   if (!c.heavy) return false;
   if (weightKg > c.heavy.moveKg) return true;
-  return weightKg > c.heavy.warnKg && weightKg / c.maxTonnesPerMetre > BEDDING_FACTOR * longSideMm;
+  const needed = restingNeeded(c, weightKg);
+  return weightKg > c.heavy.warnKg && (needed === null || needed > BEDDING_FACTOR * longSideMm);
 }
 
 /** The widest and the highest piece that passes into the container, and the length of floor cargo may take. */

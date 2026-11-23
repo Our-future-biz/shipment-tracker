@@ -7,8 +7,8 @@ import { Pill } from "@/components/Pill";
 import { PillTabs, SectionCard } from "@/components/SectionCard";
 import { BTN, HINT, ICON_BTN_DANGER, TD, TH } from "@/styles/ui";
 import { completeLine, lineLabel, MAX_COLLI, missingFigures, type DraftLine } from "../_lib/cargoForm";
-import type { Clearance } from "../_lib/containers";
-import { fitLabel, gaugeOf } from "../_lib/gauge";
+import type { PlanRules } from "../_lib/containers";
+import { standardLabel } from "../_lib/gauge";
 import { lineColour } from "../_lib/loadStats";
 import { DIM_DECIMALS, DIM_UNITS, fromMm, toMm, type DimUnit } from "../_lib/units";
 
@@ -22,8 +22,8 @@ interface CargoCardProps {
   onRead: () => void;
   /** The cargo is being read from a job: the table waits for it. */
   busy?: boolean;
-  /** The room left free in standard containers: "Fits" is judged with it. */
-  clearance: Clearance;
+  /** The company's rules: "Fits" is judged with them. */
+  rules: PlanRules;
   /** A 45' is nominated: "Fits" is then judged against its length. */
   with45: boolean;
 }
@@ -34,7 +34,7 @@ const UNIT_TABS = DIM_UNITS.map((unit) => ({ key: unit, label: unit }));
 // chosen unit and kept in millimetres. A line is planned as soon as all its figures are in; until
 // then its last column says which figure is missing. Each line has a number, which every drawing
 // and table of the plan uses for it.
-export function CargoCard({ lines, unit, onUnitChange, onChange, onAdd, onRead, busy = false, clearance, with45 }: CargoCardProps) {
+export function CargoCard({ lines, unit, onUnitChange, onChange, onAdd, onRead, busy = false, rules, with45 }: CargoCardProps) {
   const patch = (id: string, change: Partial<DraftLine>) => onChange(lines.map((line) => (line.id === id ? { ...line, ...change } : line)));
 
   const sizeCell = (line: DraftLine, field: "lengthMm" | "widthMm" | "heightMm", label: string) => {
@@ -91,8 +91,7 @@ export function CargoCard({ lines, unit, onUnitChange, onChange, onAdd, onRead, 
           <tbody>
             {lines.map((line, index) => {
               const complete = completeLine(line);
-              const gauge = complete ? gaugeOf(complete, clearance, with45) : null;
-              const fits = gauge && !gauge.overLength && !gauge.overWidth && !gauge.overHeight;
+              const standard = complete ? standardLabel(complete, rules, with45) : null;
               const missing = missingFigures(line);
               return (
                 <tr key={line.id}>
@@ -154,7 +153,7 @@ export function CargoCard({ lines, unit, onUnitChange, onChange, onAdd, onRead, 
                     <Checkbox aria-label={`${line.name || "The line"} is stackable`} checked={line.stackable} onChange={(e) => patch(line.id, { stackable: e.target.checked })} />
                   </td>
                   <td className={TD}>
-                    {gauge && <Pill tone={fits ? "green" : "amber"}>{fitLabel(gauge)}</Pill>}
+                    {standard && <Pill tone={standard === "Fits" ? "green" : "amber"}>{standard}</Pill>}
                     {missing.length > 0 && <span className="text-[12px] font-medium text-amber-700">Not planned: fill in {missing.join(", ")}</span>}
                   </td>
                   <td className={TD}>
@@ -171,7 +170,8 @@ export function CargoCard({ lines, unit, onUnitChange, onChange, onAdd, onRead, 
       <p className={`${HINT} m-0 px-4 py-2.5`}>
         A line is planned once its length, width, height, weight per piece and colli are filled in. <strong>May turn</strong>: the piece may also be loaded crosswise; without it,
         its long side goes along the container. <strong>Stackable</strong>: pieces of this line may stand on each other, two high. <strong>Standard container</strong>: “Fits” means
-        the piece goes into a standard container through its doors; otherwise the plan takes an open top or a flat rack.
+        the piece goes into a standard container through its doors and its floor carries it; otherwise the plan takes an open top or a flat rack. “Too heavy” is a piece
+        whose weight is too much for the length of floor it rests on, or over the weight set for standard containers.
       </p>
     </SectionCard>
   );

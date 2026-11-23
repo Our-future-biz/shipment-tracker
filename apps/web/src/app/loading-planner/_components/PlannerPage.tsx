@@ -97,7 +97,6 @@ function PlanEditor({ saved }: { saved: interfaces.LoadingPlanItem | null }) {
   const { modal } = App.useApp();
   // The company's rules, the same for every plan: clearance, heavy pieces, out-of-gauge warning limits.
   const { rules } = usePlannerSettings();
-  const { clearance } = rules;
   const [settingsOpen, setSettingsOpen] = useState(false);
 
   const [name, setName] = useState(saved?.name ?? "");
@@ -239,7 +238,7 @@ function PlanEditor({ saved }: { saved: interfaces.LoadingPlanItem | null }) {
         lines: cargo,
         numberOf,
         plan: planLoad(cargo, nominated ?? undefined, rules),
-        clearance,
+        rules,
         with45,
         nominated: nominated ? CONTAINERS.filter((c) => nominated.includes(c.id)).map((c) => c.name) : null,
         unit,
@@ -398,7 +397,7 @@ function PlanEditor({ saved }: { saved: interfaces.LoadingPlanItem | null }) {
           onAdd={() => setLines([...lines, newDraftLine(newId())])}
           onRead={() => setReading(true)}
           busy={readingJob}
-          clearance={clearance}
+          rules={rules}
           with45={with45}
         />
         <EquipmentCard nominated={nominated} unit={unit} onChange={setNominated} rules={rules} onSettings={() => setSettingsOpen(true)} />

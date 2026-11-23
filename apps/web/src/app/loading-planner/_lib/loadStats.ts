@@ -1,5 +1,5 @@
 import { balanceLimits, balanceOf, floorOverloads, type Balance, type FloorOverload } from "./balance";
-import type { ContainerSpec } from "./containers";
+import { BEDDING_END_MM, tonnesPerMetre, type ContainerSpec } from "./containers";
 import { isOutOfGauge, overhang, type ContainerLoad, type LoadPlan, type PlacedPiece } from "./plan";
 import { formatDim, type DimUnit } from "./units";
 
@@ -139,11 +139,17 @@ export function ruleWarnings(load: ContainerLoad, unit: DimUnit): string[] {
 
 /** One overloaded stretch of floor as a sentence, the same on the screen and in the PDF. */
 export function floorOverloadText(overload: FloorOverload, container: ContainerSpec, unit: DimUnit): string {
-  return (
-    `${overload.names.join(", ")}: ${overload.tonnesPerMetre.toFixed(1)} t per metre on ${formatDim(overload.lengthMm, unit)} ${unit} of floor ` +
-    `(the floor's limit is ${container.maxTonnesPerMetre} t per metre). Spread the weight over at least ${formatDim(overload.spreadMm, unit)} ${unit}: ` +
-    "bedding (timber under the cargo, along the container) or more floor."
-  );
+  const size = (mm: number) => `${formatDim(mm, unit)} ${unit}`;
+  const kg = (value: number) => `${value.toLocaleString("en-US")} kg`;
+  const what =
+    overload.allowedKg !== undefined
+      ? `${kg(overload.weightKg)} resting on ${size(overload.lengthMm)} (this flat rack carries ${kg(overload.allowedKg)} on that length)`
+      : `${overload.tonnesPerMetre.toFixed(1)} t per metre on ${size(overload.lengthMm)} of floor (the floor's limit is ${tonnesPerMetre(container).toFixed(1)} t per metre)`;
+  const cure =
+    overload.spreadMm > 0
+      ? `Spread the weight over at least ${size(overload.spreadMm)} with beams under the cargo, along the container, reaching no more than ${size(BEDDING_END_MM)} beyond each end of a piece.`
+      : "No length of this floor carries that weight: take it off this container.";
+  return `${overload.names.join(", ")}: ${what}. ${cure}`;
 }
 
 /** What a load with a piece longer than its flat rack needs, said the same on the screen and in the PDF. */

@@ -2,7 +2,7 @@
 
 import { PillTabs, SectionCard } from "@/components/SectionCard";
 import { CHIP, CHIP_ON, HINT, LABEL_TEXT } from "@/styles/ui";
-import { CONTAINERS, GROUP_ORDER, type Clearance, type ContainerGroup, type PlanRules } from "../_lib/containers";
+import { CONTAINERS, floorText, GROUP_ORDER, type Clearance, type ContainerGroup, type PlanRules } from "../_lib/containers";
 import { formatDim, formatKg, type DimUnit } from "../_lib/units";
 
 interface EquipmentCardProps {
@@ -61,9 +61,9 @@ export function EquipmentCard({ nominated, unit, onChange, rules, onSettings }: 
                       className={`${CHIP} !h-auto flex-col !items-start !gap-0 py-1 ${on ? CHIP_ON : ""}`}
                     >
                       <span>{c.name}</span>
-                      {/* What the type takes, readable without a mouse: inside size and payload. */}
+                      {/* What the type takes, readable without a mouse: inside size, payload and floor strength. */}
                       <span className="text-[11px] font-normal text-slate-500">
-                        {formatDim(c.internalL, unit)} × {formatDim(c.internalW, unit)} × {formatDim(c.internalH, unit)} {unit} · {formatKg(c.payloadKg)}
+                        {formatDim(c.internalL, unit)} × {formatDim(c.internalW, unit)} × {formatDim(c.internalH, unit)} {unit} · {formatKg(c.payloadKg)} · {floorText(c)}
                       </span>
                     </button>
                   );
@@ -72,14 +72,14 @@ export function EquipmentCard({ nominated, unit, onChange, rules, onSettings }: 
             </div>
           ))}
           <p className={`${HINT} m-0`}>
-            {nominated.length === 0 ? "Choose the container types to load into. " : ""}Each type shows its inside size (length × width × height) and its payload. Cargo the chosen
+            {nominated.length === 0 ? "Choose the container types to load into. " : ""}Each type shows its inside size (length × width × height), its payload and what its floor carries. Cargo the chosen
             types cannot take is listed as not loaded, with what it needs.
           </p>
         </div>
       )}
       <p className={`${HINT} m-0 mt-3`}>
         Standard containers are planned with a clearance left free: {clearanceText(rules.clearance, unit)}. A single piece over {formatKg(rules.heavyPiece.moveKg)} is planned
-        onto an open top or flat rack.{" "}
+        onto an open top or flat rack. A piece too heavy for the length of floor it rests on, even with 1 m of beams under each end, is not loaded.{" "}
         <button type="button" className="cursor-pointer border-0 bg-transparent p-0 text-[13px] font-medium text-indigo-600 hover:underline" onClick={onSettings}>
           Settings
         </button>
