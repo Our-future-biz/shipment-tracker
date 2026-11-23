@@ -2,7 +2,7 @@
 
 import { PillTabs, SectionCard } from "@/components/SectionCard";
 import { CHIP, CHIP_ON, HINT, LABEL_TEXT } from "@/styles/ui";
-import { CONTAINERS, GROUP_ORDER, type ContainerGroup } from "../_lib/containers";
+import { CONTAINERS, GROUP_ORDER, type Clearance, type ContainerGroup } from "../_lib/containers";
 import { formatDim, formatKg, type DimUnit } from "../_lib/units";
 
 interface EquipmentCardProps {
@@ -10,7 +10,14 @@ interface EquipmentCardProps {
   nominated: string[] | null;
   unit: DimUnit;
   onChange: (nominated: string[] | null) => void;
+  /** The room left free in standard containers, and the way to the screen that sets it. */
+  clearance: Clearance;
+  onSettings: () => void;
 }
+
+/** "50 mm on door width, 50 mm on door height and 100 mm on length" in the unit of the screen. */
+export const clearanceText = (clearance: Clearance, unit: DimUnit): string =>
+  `${formatDim(clearance.doorWidthMm, unit)} ${unit} on door width, ${formatDim(clearance.doorHeightMm, unit)} ${unit} on door height and ${formatDim(clearance.lengthMm, unit)} ${unit} on length`;
 
 const MODE_TABS = [
   { key: "auto", label: "Planner chooses" },
@@ -21,7 +28,7 @@ const GROUP_TITLE: Record<ContainerGroup, string> = { standard: "Standard", "ope
 
 // Which equipment the plan may use: the planner's own choice from all types, or only the types the
 // user nominates.
-export function EquipmentCard({ nominated, unit, onChange }: EquipmentCardProps) {
+export function EquipmentCard({ nominated, unit, onChange, clearance, onSettings }: EquipmentCardProps) {
   const toggle = (id: string) => {
     const now = nominated ?? [];
     onChange(now.includes(id) ? now.filter((n) => n !== id) : [...now, id]);
@@ -70,6 +77,12 @@ export function EquipmentCard({ nominated, unit, onChange }: EquipmentCardProps)
           </p>
         </div>
       )}
+      <p className={`${HINT} m-0 mt-3`}>
+        Standard containers are planned with a clearance left free: {clearanceText(clearance, unit)}.{" "}
+        <button type="button" className="cursor-pointer border-0 bg-transparent p-0 text-[13px] font-medium text-indigo-600 hover:underline" onClick={onSettings}>
+          Settings
+        </button>
+      </p>
     </SectionCard>
   );
 }

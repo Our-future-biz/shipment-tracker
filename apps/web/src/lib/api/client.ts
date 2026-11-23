@@ -2612,6 +2612,8 @@ export namespace loadingPlanner {
             this.loadingPlanGet = this.loadingPlanGet.bind(this)
             this.loadingPlanList = this.loadingPlanList.bind(this)
             this.loadingPlanUpdate = this.loadingPlanUpdate.bind(this)
+            this.plannerSettingsGet = this.plannerSettingsGet.bind(this)
+            this.plannerSettingsSet = this.plannerSettingsSet.bind(this)
         }
 
         /**
@@ -2664,6 +2666,24 @@ export namespace loadingPlanner {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("PUT", `/loading-plans/${encodeURIComponent(id)}`, JSON.stringify(params))
             return await resp.json() as controllers.LoadingPlanUpdateResponse
+        }
+
+        /**
+         * The clearance every plan of the company leaves in a standard container. Open to every user.
+         */
+        public async plannerSettingsGet(): Promise<controllers.PlannerSettingsResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/loading-planner/settings`)
+            return await resp.json() as controllers.PlannerSettingsResponse
+        }
+
+        /**
+         * Sets the company's clearance. Managers and admins only.
+         */
+        public async plannerSettingsSet(params: controllers.PlannerSettingsSetRequest): Promise<controllers.PlannerSettingsResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("PUT", `/loading-planner/settings`, JSON.stringify(params))
+            return await resp.json() as controllers.PlannerSettingsResponse
         }
     }
 }
@@ -10747,6 +10767,19 @@ export namespace controllers {
          * There are more plans than the list shows (the 500 last saved): the oldest are left out.
          */
         capped: boolean
+    }
+
+    export interface PlannerSettingsResponse {
+        clearance: interfaces.PlannerClearance
+        /**
+         * A manager changed the figures; false while the company plans with the starting ones.
+         */
+        changed: boolean
+        canEdit: boolean
+    }
+
+    export interface PlannerSettingsSetRequest {
+        clearance: interfaces.PlannerClearance
     }
 
     export interface LoadingPlanUpdateRequest extends LoadingPlanCreateRequest {
@@ -20281,6 +20314,24 @@ export namespace interfaces {
      * What a plan can be linked to. A plan without a link is a what-if plan.
      */
     export type PlanLinkKind = "shipment" | "quote"
+
+    /**
+     * The room the planner leaves free in a standard container, in whole mm.
+     */
+    export interface PlannerClearance {
+        /**
+         * Beside a piece passing the door.
+         */
+        doorWidthMm: number
+        /**
+         * Above a piece passing the door.
+         */
+        doorHeightMm: number
+        /**
+         * Along the floor, between the cargo and the doors.
+         */
+        lengthMm: number
+    }
 
     /**
      * One line of a loading plan's cargo list. Sizes in mm, weight in kg per colli.

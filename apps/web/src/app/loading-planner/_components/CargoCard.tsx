@@ -7,6 +7,7 @@ import { Pill } from "@/components/Pill";
 import { PillTabs, SectionCard } from "@/components/SectionCard";
 import { BTN, HINT, ICON_BTN_DANGER, TD, TH } from "@/styles/ui";
 import { completeLine, lineLabel, MAX_COLLI, missingFigures, type DraftLine } from "../_lib/cargoForm";
+import type { Clearance } from "../_lib/containers";
 import { fitLabel, gaugeOf } from "../_lib/gauge";
 import { lineColour } from "../_lib/loadStats";
 import { DIM_DECIMALS, DIM_UNITS, fromMm, toMm, type DimUnit } from "../_lib/units";
@@ -21,6 +22,8 @@ interface CargoCardProps {
   onRead: () => void;
   /** The cargo is being read from a job: the table waits for it. */
   busy?: boolean;
+  /** The room left free in standard containers: "Fits" is judged with it. */
+  clearance: Clearance;
 }
 
 const UNIT_TABS = DIM_UNITS.map((unit) => ({ key: unit, label: unit }));
@@ -29,7 +32,7 @@ const UNIT_TABS = DIM_UNITS.map((unit) => ({ key: unit, label: unit }));
 // chosen unit and kept in millimetres. A line is planned as soon as all its figures are in; until
 // then its last column says which figure is missing. Each line has a number, which every drawing
 // and table of the plan uses for it.
-export function CargoCard({ lines, unit, onUnitChange, onChange, onAdd, onRead, busy = false }: CargoCardProps) {
+export function CargoCard({ lines, unit, onUnitChange, onChange, onAdd, onRead, busy = false, clearance }: CargoCardProps) {
   const patch = (id: string, change: Partial<DraftLine>) => onChange(lines.map((line) => (line.id === id ? { ...line, ...change } : line)));
 
   const sizeCell = (line: DraftLine, field: "lengthMm" | "widthMm" | "heightMm", label: string) => {
@@ -86,7 +89,7 @@ export function CargoCard({ lines, unit, onUnitChange, onChange, onAdd, onRead, 
           <tbody>
             {lines.map((line, index) => {
               const complete = completeLine(line);
-              const gauge = complete ? gaugeOf(complete) : null;
+              const gauge = complete ? gaugeOf(complete, clearance) : null;
               const fits = gauge && !gauge.overLength && !gauge.overWidth && !gauge.overHeight;
               const missing = missingFigures(line);
               return (

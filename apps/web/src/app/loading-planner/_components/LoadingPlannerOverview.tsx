@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { Input } from "antd";
-import { DeleteOutlined, PlusOutlined, SearchOutlined } from "@ant-design/icons";
+import { DeleteOutlined, PlusOutlined, SearchOutlined, SettingOutlined } from "@ant-design/icons";
 import { ShippingContainerIcon } from "@phosphor-icons/react";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { useLoadingPlans, useLoadingPlanWrites } from "@/hooks/useLoadingPlans";
@@ -11,8 +11,9 @@ import { apiErrorMessage } from "@/lib/api";
 import type { interfaces } from "@/lib/api/client";
 import { formatDateTime } from "@/lib/date";
 import { useMessages } from "@/lib/toast";
-import { BTN_PRIMARY, CARD, EMPTY, EMPTY_STATE, HINT, ICON_BTN_DANGER, LINK, PAGE_SUBTITLE, PAGE_TITLE, REF, TD, TH } from "@/styles/ui";
+import { BTN, BTN_PRIMARY, CARD, EMPTY, EMPTY_STATE, HINT, ICON_BTN_DANGER, LINK, PAGE_SUBTITLE, PAGE_TITLE, REF, TD, TH } from "@/styles/ui";
 import { formatKg } from "../_lib/units";
+import { PlannerSettingsModal } from "./PlannerSettingsModal";
 
 const LINK_KIND_LABEL: Record<interfaces.PlanLinkKind, string> = { shipment: "Shipment", quote: "Quote" };
 
@@ -23,6 +24,7 @@ export function LoadingPlannerOverview() {
   const { deletePlan, isDeleting } = useLoadingPlanWrites();
   const message = useMessages();
   const [query, setQuery] = useState("");
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [deleting, setDeleting] = useState<interfaces.LoadingPlanSummary | null>(null);
 
   const shown = useMemo(() => {
@@ -76,8 +78,10 @@ export function LoadingPlannerOverview() {
               className="w-[320px] max-w-full"
             />
           </div>
-          {/* As wide as the button, so the search stays in the middle. */}
-          <div className="shrink-0 w-[104px] max-sm:hidden" aria-hidden />
+          <button type="button" className={BTN} onClick={() => setSettingsOpen(true)}>
+            <SettingOutlined />
+            Settings
+          </button>
         </div>
 
         {capped && (
@@ -139,6 +143,7 @@ export function LoadingPlannerOverview() {
         </div>
       </div>
 
+      <PlannerSettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
       <ConfirmModal
         open={!!deleting}
         onClose={() => setDeleting(null)}

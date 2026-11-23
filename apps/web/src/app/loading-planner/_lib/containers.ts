@@ -25,7 +25,24 @@ export interface ContainerSpec {
   maxTonnesPerMetre: number;
   /** A hard-top: loaded like an open top, but the planner picks a plain open top when it can. */
   hardTop?: true;
+  /** The room to leave free in it; only standard containers carry one (containersWith). */
+  clear?: Clearance;
 }
+
+/** The room the planner leaves free in a standard container, in whole mm. Managers set it per company. */
+export interface Clearance {
+  /** Beside a piece passing the door. */
+  doorWidthMm: number;
+  /** Above a piece passing the door. */
+  doorHeightMm: number;
+  /** Along the floor, between the cargo and the doors. */
+  lengthMm: number;
+}
+
+export const NO_CLEARANCE: Clearance = { doorWidthMm: 0, doorHeightMm: 0, lengthMm: 0 };
+/** What a company plans with until a manager sets its own; the server holds the same figures. */
+export const DEFAULT_CLEARANCE: Clearance = { doorWidthMm: 50, doorHeightMm: 50, lengthMm: 100 };
+export const MAX_CLEARANCE_MM = 500;
 
 export const CONTAINERS: ContainerSpec[] = [
   { id: "20dc", name: "20' DC", group: "standard", feet: 20, internalL: 5898, internalW: 2352, internalH: 2385, doorW: 2343, doorH: 2280, payloadKg: 28230, maxTonnesPerMetre: 4.5 },
@@ -49,6 +66,15 @@ export const CONTAINERS: ContainerSpec[] = [
  * that much even spread over its whole length (a 20' DC: 4.5 t/m on 5.9 m is 26.5 t).
  */
 export const maxCargoKg = (container: ContainerSpec): number => Math.min(container.payloadKg, Math.floor(container.maxTonnesPerMetre * container.internalL));
+
+/** The equipment as planned with this clearance: the standard containers carry it, the others are as they are. */
+export const containersWith = (clearance: Clearance): ContainerSpec[] =>
+  CONTAINERS.map((c) => (c.group === "standard" ? { ...c, clear: clearance } : c));
+
+/** The widest and the highest piece that passes into the container, and the length of floor cargo may take. */
+export const passWidth = (c: ContainerSpec): number => Math.min(c.internalW, (c.doorW ?? c.internalW) - (c.clear?.doorWidthMm ?? 0));
+export const passHeight = (c: ContainerSpec): number => Math.min(c.internalH, (c.doorH ?? c.internalH) - (c.clear?.doorHeightMm ?? 0));
+export const usableLength = (c: ContainerSpec): number => c.internalL - (c.clear?.lengthMm ?? 0);
 
 /** Standard first, open tops for over-height, flat racks last. */
 export const GROUP_ORDER: ContainerGroup[] = ["standard", "open-top", "flat-rack"];

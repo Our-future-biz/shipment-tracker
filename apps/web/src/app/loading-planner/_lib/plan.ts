@@ -1,5 +1,5 @@
 import { balanceOf, centreLoad } from "./balance";
-import { CONTAINERS, GROUP_LABEL, GROUP_ORDER, maxCargoKg, type ContainerGroup, type ContainerSpec } from "./containers";
+import { containersWith, GROUP_LABEL, GROUP_ORDER, maxCargoKg, NO_CLEARANCE, usableLength, type Clearance, type ContainerGroup, type ContainerSpec } from "./containers";
 import { findSpot, mirroredSlots, newFloor, occupy, PLACE_RULES, type Floor, type PlaceRule, type Slot } from "./floor";
 import { fitIn, type CargoLine } from "./gauge";
 
@@ -86,7 +86,7 @@ interface Bin {
 
 const newBin = (container: ContainerSpec, rule: PlaceRule): Bin => ({
   container,
-  floor: newFloor(container.internalL, container.internalW),
+  floor: newFloor(usableLength(container), container.internalW),
   rule,
   lines: [],
   pieces: [],
@@ -373,11 +373,11 @@ function balanced(bin: Bin): Bin {
 const kg = (value: number) => `${value.toLocaleString("en-US")} kg`;
 
 /** Why none of the allowed containers takes this piece. */
-function refusal(line: CargoLine, allowed: ContainerSpec[]): string {
+function refusal(line: CargoLine, allowed: ContainerSpec[], all: ContainerSpec[]): string {
   if (allowed.length === 0) return "No equipment is nominated.";
   const most = Math.max(...allowed.map(maxCargoKg));
   if (line.weightKg > most) return `Weighs ${kg(line.weightKg)} a piece; the most any allowed container carries is ${kg(most)}.`;
-  const taker = GROUP_ORDER.flatMap((group) => CONTAINERS.filter((c) => c.group === group)).find((c) => fitIn(c, line).length > 0);
+  const taker = GROUP_ORDER.flatMap((group) => all.filter((c) => c.group === group)).find((c) => fitIn(c, line).length > 0);
   if (!taker) return "Does not fit any container.";
   // When that kind of equipment is nominated, only its size or strength is wrong: name the type.
   const kindNominated = allowed.some((c) => c.group === taker.group);
@@ -411,7 +411,7 @@ function sortedPieces(lines: CargoLine[], allowed: ContainerSpec[]): { waiting: 
  * @param flatRacks the flat-rack types this plan may open
  * @param openTops the open-top types this plan may open
  */
-function buildPlan(sorted: { waiting: Waiting; refused: CargoLine[] }, allowed: ContainerSpec[], flatRacks: ContainerSpec[], openTops: ContainerSpec[]): LoadPlan {
+function buildPlan(sorted: { waiting: Waiting; refused: CargoLine[] }, allowed: ContainerSpec[], all: ContainerSpec[], flatRacks: ContainerSpec[], openTops: ContainerSpec[]): LoadPlan {
   const flat = loadGroup(flatRacks, sorted.waiting["flat-rack"]);
   const afterFlat = { open: fill(flat.bins, sorted.waiting["open-top"]), standard: fill(flat.bins, sorted.waiting.standard) };
 
@@ -427,7 +427,7 @@ function buildPlan(sorted: { waiting: Waiting; refused: CargoLine[] }, allowed: 
     entry.colli += 1;
     notLoaded.set(line.id, entry);
   };
-  for (const line of sorted.refused) note(line, refusal(line, allowed));
+  for (const line of sorted.refused) note(line, refusal(line, allowed, all));
   for (const line of [...flat.left, ...open.left, ...standard.left]) note(line, "No room was found for it in the allowed equipment.");
 
   const loads = [...standard.bins, ...open.bins, ...flat.bins].map(balanced).map((bin) => ({
@@ -448,9 +448,11 @@ function buildPlan(sorted: { waiting: Waiting; refused: CargoLine[] }, allowed: 
  * equipment. Cargo that needs neither is planned once.
  *
  * @param nominated ids of the container types to use; leave out to let the planner choose from all
+ * @param clearance the room to leave free in standard containers; none when left out
  */
-export function planLoad(lines: CargoLine[], nominated?: string[]): LoadPlan {
-  const allowed = nominated ? CONTAINERS.filter((c) => nominated.includes(c.id)) : CONTAINERS;
+export function planLoad(lines: CargoLine[], nominated?: string[], clearance: Clearance = NO_CLEARANCE): LoadPlan {
+  const all = containersWith(clearance);
+  const allowed = nominated ? all.filter((c) => nominated.includes(c.id)) : all;
   const sorted = sortedPieces(lines, allowed);
   const choices = (group: ContainerGroup) => {
     const types = allowed.filter((c) => c.group === group);
@@ -461,7 +463,7 @@ export function planLoad(lines: CargoLine[], nominated?: string[]): LoadPlan {
   let best: LoadPlan | null = null;
   for (const flatRacks of choices("flat-rack")) {
     for (const openTops of choices("open-top")) {
-      const plan = buildPlan(sorted, allowed, flatRacks, openTops);
+      const plan = buildPlan(sorted, allowed, all, flatRacks, openTops);
       if (!best || cheaper(planCost(plan), planCost(best))) best = plan;
     }
   }

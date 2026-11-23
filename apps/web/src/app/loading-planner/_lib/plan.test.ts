@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { balanceOf, centreLoad, floorOverloads } from "./balance";
-import { CONTAINERS } from "./containers";
+import { CONTAINERS, containersWith, DEFAULT_CLEARANCE } from "./containers";
 import { findSpot, newFloor, occupy } from "./floor";
 import { fitIn, fitLabel, footprints, gaugeOf, type CargoLine } from "./gauge";
 import { isOutOfGauge, overhang, planLoad, type LoadPlan } from "./plan";
@@ -428,5 +428,45 @@ describe("planLoad", () => {
       const plan = planLoad([line("press", 2000, 2000, 2000, 27000)], ["20dc"]);
       expect(plan.notLoaded.map((n) => n.reason)).toEqual(["Weighs 27,000 kg a piece; the most any allowed container carries is 26,541 kg."]);
     });
+  });
+});
+
+describe("clearance in standard containers", () => {
+  const cleared = (id: string) => containersWith(DEFAULT_CLEARANCE).find((c) => c.id === id)!;
+
+  it("keeps a piece the size of the door out of a standard container once a clearance is set", () => {
+    const doorSized = line("Case", 3000, 2343, 2280, 1000);
+    expect(fitIn(spec("20dc"), doorSized).length).toBeGreaterThan(0);
+    expect(fitIn(cleared("20dc"), doorSized)).toEqual([]);
+    // 50 mm free beside and above it: 2,293 wide and 2,230 high still pass.
+    expect(fitIn(cleared("20dc"), line("Case", 3000, 2293, 2230, 1000)).length).toBeGreaterThan(0);
+    expect(fitIn(cleared("20dc"), line("Case", 3000, 2294, 2230, 1000))).toEqual([]);
+    expect(fitIn(cleared("20dc"), line("Case", 3000, 2293, 2231, 1000))).toEqual([]);
+  });
+
+  it("leaves open tops and flat racks as they are", () => {
+    expect(cleared("40ot")).toBe(spec("40ot"));
+    expect(cleared("40fr")).toBe(spec("40fr"));
+  });
+
+  it("plans the door-sized piece into an open top instead", () => {
+    const doorSized = [line("Case", 3000, 2300, 2280, 1000)];
+    expect(planLoad(doorSized).loads[0]!.container.group).toBe("standard");
+    expect(planLoad(doorSized, undefined, DEFAULT_CLEARANCE).loads[0]!.container.group).toBe("open-top");
+  });
+
+  it("keeps the length clearance free on the floor", () => {
+    // Twelve rows of two 1,000 mm crates are 12,000 mm: they fill a 40' (12,032 mm) but not one with 100 mm left free.
+    const rows = [line("Crate", 1000, 1000, 1000, 500, { colli: 24 })];
+    expect(planLoad(rows, ["40dc"]).loads).toHaveLength(1);
+    const plan = planLoad(rows, ["40dc"], DEFAULT_CLEARANCE);
+    expect(plan.loads.map((load) => load.pieces.length)).toEqual([22, 2]);
+    for (const load of plan.loads) expect(Math.max(...load.pieces.map((p) => p.z + p.length)) - Math.min(...load.pieces.map((p) => p.z))).toBeLessThanOrEqual(12032 - 100);
+  });
+
+  it("says what a standard container takes with the clearance", () => {
+    const high = line("Case", 2000, 1000, 2550, 1000);
+    expect(fitLabel(gaugeOf(high))).toBe("Fits");
+    expect(fitLabel(gaugeOf(high, DEFAULT_CLEARANCE))).toBe("Too high");
   });
 });

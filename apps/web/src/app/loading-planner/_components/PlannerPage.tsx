@@ -10,6 +10,7 @@ import { ConfirmModal } from "@/components/ConfirmModal";
 import { Pill } from "@/components/Pill";
 import { JobNotFound, useLoadingPlanJob, type PlanJob } from "@/hooks/useLoadingPlanJob";
 import { useLoadingPlan, useLoadingPlanWrites } from "@/hooks/useLoadingPlans";
+import { usePlannerSettings } from "@/hooks/usePlannerSettings";
 import { apiErrorMessage, isNotFound } from "@/lib/api";
 import type { interfaces } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth/AuthContext";
@@ -38,6 +39,7 @@ import { DIM_UNITS, type DimUnit } from "../_lib/units";
 import { CargoCard } from "./CargoCard";
 import { EquipmentCard } from "./EquipmentCard";
 import { LinkJobModal } from "./LinkJobModal";
+import { PlannerSettingsModal } from "./PlannerSettingsModal";
 import { ReadCargoModal } from "./ReadCargoModal";
 import { ResultPanel } from "./ResultPanel";
 
@@ -93,6 +95,9 @@ function PlanEditor({ saved }: { saved: interfaces.LoadingPlanItem | null }) {
   const { createPlan, updatePlan, deletePlan, isSaving, isDeleting } = useLoadingPlanWrites();
   const { readJob, isReading } = useLoadingPlanJob();
   const { modal } = App.useApp();
+  // The clearance left free in standard containers: the company's setting, the same for every plan.
+  const { clearance } = usePlannerSettings();
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   const [name, setName] = useState(saved?.name ?? "");
   const [lines, setLines] = useState<DraftLine[]>(() => (saved ? draftsOf(saved.lines) : [newDraftLine(newId())]));
@@ -198,8 +203,8 @@ function PlanEditor({ saved }: { saved: interfaces.LoadingPlanItem | null }) {
   const plannedCargo = useDeferredValue(cargo);
   const plannedEquipment = useDeferredValue(nominated);
   const loadPlan = useMemo(
-    () => (limitProblem(plannedCargo) ? NO_PLAN : planLoad(plannedCargo, plannedEquipment ?? undefined)),
-    [plannedCargo, plannedEquipment],
+    () => (limitProblem(plannedCargo) ? NO_PLAN : planLoad(plannedCargo, plannedEquipment ?? undefined, clearance)),
+    [plannedCargo, plannedEquipment, clearance],
   );
   const unplanned = unplannedCount(lines);
   const numbers = useMemo(() => lineNumbers(lines), [lines]);
@@ -230,7 +235,8 @@ function PlanEditor({ saved }: { saved: interfaces.LoadingPlanItem | null }) {
         madeBy: user?.displayName || user?.email || "",
         lines: cargo,
         numberOf,
-        plan: planLoad(cargo, nominated ?? undefined),
+        plan: planLoad(cargo, nominated ?? undefined, clearance),
+        clearance,
         nominated: nominated ? CONTAINERS.filter((c) => nominated.includes(c.id)).map((c) => c.name) : null,
         unit,
         unplanned,
@@ -388,8 +394,9 @@ function PlanEditor({ saved }: { saved: interfaces.LoadingPlanItem | null }) {
           onAdd={() => setLines([...lines, newDraftLine(newId())])}
           onRead={() => setReading(true)}
           busy={readingJob}
+          clearance={clearance}
         />
-        <EquipmentCard nominated={nominated} unit={unit} onChange={setNominated} />
+        <EquipmentCard nominated={nominated} unit={unit} onChange={setNominated} clearance={clearance} onSettings={() => setSettingsOpen(true)} />
         <ResultPanel
           plan={loadPlan}
           unit={unit}
@@ -409,6 +416,7 @@ function PlanEditor({ saved }: { saved: interfaces.LoadingPlanItem | null }) {
         existing={lines}
         onAdd={(read) => setLines([...lines.filter((line) => !isBlank(line)), ...read])}
       />
+      <PlannerSettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
       <LinkJobModal open={linking} onClose={() => setLinking(false)} readJob={readJob} onLinked={takeJob} hasCargo={hasCargo} />
       <ConfirmModal
         open={deleting}

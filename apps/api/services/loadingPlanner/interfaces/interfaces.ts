@@ -62,3 +62,13 @@ export interface LoadingPlanSummary {
   createdAt: string;
   updatedAt: string;
 }
+
+/** The room the planner leaves free in a standard container, in whole mm. */
+export interface PlannerClearance {
+  /** Beside a piece passing the door. */
+  doorWidthMm: number;
+  /** Above a piece passing the door. */
+  doorHeightMm: number;
+  /** Along the floor, between the cargo and the doors. */
+  lengthMm: number;
+}
