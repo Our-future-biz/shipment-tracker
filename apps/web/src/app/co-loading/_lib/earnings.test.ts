@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { amountWords, earningsNotes, earningsWarnings, invoicedHint, type EarningsAmount, type EarningsRow, type SailingEarnings } from "./earnings";
+import { amountWords, boxCostWords, boxRateWords, changeWords, earningsNotes, earningsWarnings, invoicedHint, marginWords, type BoxCostChange, type EarningsAmount, type EarningsRow, type SailingBoxCosts, type SailingEarnings } from "./earnings";
 
 const amt = (czk: number, eur: number | null = czk / 25): EarningsAmount => ({ czk, eur });
 const row = (more: Partial<EarningsRow> = {}): EarningsRow => ({
@@ -17,6 +17,9 @@ const row = (more: Partial<EarningsRow> = {}): EarningsRow => ({
   beforeBox: amt(20000),
   ownBox: amt(0),
   masterJob: amt(0),
+  boxShare: null,
+  profit: null,
+  noShare: false,
   noSelling: false,
   untickedLines: 0,
   unrecognisedLines: 0,
@@ -24,11 +27,25 @@ const row = (more: Partial<EarningsRow> = {}): EarningsRow => ({
   inMasterJob: false,
   ...more,
 });
+const box = (more: Partial<SailingBoxCosts> = {}): SailingBoxCosts => ({
+  set: false,
+  containers: [{ containerNo: 1, lines: [], total: amt(0) }],
+  total: amt(0),
+  eurRate: 25,
+  rateDate: null,
+  rateProvisional: true,
+  missingCurrencies: [],
+  notSet: [],
+  ignoredContainers: [],
+  ...more,
+});
 const earnings = (more: Partial<SailingEarnings> = {}, notes: Partial<SailingEarnings["notes"]> = {}): SailingEarnings => ({
   moneyKnown: true,
   complete: true,
-  totals: { shipments: 1, freightTons: 2, selling: amt(25000), invoiced: amt(10000), inland: amt(5000), other: amt(0), beforeBox: amt(20000), ownBox: amt(0), masterJob: amt(0) },
-  notes: { noSelling: 0, unticked: 0, ownBox: 0, inMasterJob: 0, unrecognised: 0, missingCurrencies: [], ...notes },
+  totals: { shipments: 1, freightTons: 2, selling: amt(25000), invoiced: amt(10000), inland: amt(5000), other: amt(0), beforeBox: amt(20000), ownBox: amt(0), masterJob: amt(0), boxCosts: null, profit: null, marginPct: null },
+  boxCosts: box(),
+  boxUnshared: false,
+  notes: { noSelling: 0, unticked: 0, ownBox: 0, inMasterJob: 0, unrecognised: 0, noShare: 0, missingCurrencies: [], ...notes },
   notCounted: 0,
   notCountedSelling: amt(0),
   rows: [row()],
@@ -98,5 +115,79 @@ describe("how much is invoiced", () => {
     expect(invoicedHint(earnings())).toBe("40% of the revenue");
     expect(invoicedHint(earnings({ totals: { ...earnings().totals, invoiced: amt(25000) } }))).toBe("all of the revenue");
     expect(invoicedHint(earnings({ totals: { ...earnings().totals, selling: amt(0) } }))).toBe("nothing to invoice yet");
+  });
+});
+
+describe("the warnings about the box costs", () => {
+  it("are none while no box cost is set", () => {
+    expect(earningsWarnings(earnings({ boxCosts: box({ notSet: [{ containerNo: 1, kind: "ocean" }] }) }))).toEqual([]);
+  });
+  it("name a cost not set yet, a currency with no rate, shipments with no share and a container that is gone", () => {
+    const two = [
+      { containerNo: 1, lines: [], total: amt(0) },
+      { containerNo: 2, lines: [], total: amt(0) },
+    ];
+    const w = earningsWarnings(
+      earnings({ boxCosts: box({ set: true, containers: two, missingCurrencies: ["CNY"], notSet: [{ containerNo: 2, kind: "ocean" }], ignoredContainers: [3] }) }, { noShare: 1 }),
+    );
+    expect(w).toEqual([
+      "No exchange rate for the box costs in CNY: those amounts are left out, so the profit is too high.",
+      "Not set yet: Ocean Freight of container 2. The profit does not carry it.",
+      "1 shipment has no weight and no volume, so it carries no share of the box costs.",
+      "Costs are kept for container 3, which the sailing no longer has. They are not counted.",
+    ]);
+  });
+  it("say when the box costs cannot be shared at all", () => {
+    expect(earningsWarnings(earnings({ boxCosts: box({ set: true }), boxUnshared: true }))).toEqual([
+      "No shipment has a weight or a volume, so the box costs cannot be shared: the total carries them, no shipment does.",
+    ]);
+  });
+});
+
+describe("box costs in words", () => {
+  it("say an amount in its own currency, or that it is not set", () => {
+    expect(boxCostWords(2100, "USD")).toBe("2,100.00 USD");
+    expect(boxCostWords(0, "EUR")).toBe("0.00 EUR");
+    expect(boxCostWords(null, "EUR")).toBe("Not set");
+  });
+  it("say the margin with one decimal", () => {
+    expect(marginWords(24.8)).toBe("24.8%");
+    expect(marginWords(-5)).toBe("-5.0%");
+    expect(marginWords(null)).toBe("—");
+  });
+  it("say which day's rates value them", () => {
+    const day = (d: string) => d.split("-").reverse().join(".");
+    expect(boxRateWords(box(), day)).toBeNull();
+    expect(boxRateWords(box({ set: true, rateDate: "2026-11-23", eurRate: 24.455 }), day)).toBe(
+      "Valued at the ČNB rates of 23.11.2026 (1 EUR = 24.455 CZK). The latest rates are used, so the figures move with them.",
+    );
+    expect(boxRateWords(box({ set: true, rateDate: null }), day)).toBe("The exchange rates could not be read: only amounts in CZK are valued.");
+  });
+  it("say a kept change", () => {
+    const change = (more: Partial<BoxCostChange>): BoxCostChange => ({
+      id: "1",
+      containerNo: 2,
+      kind: "ocean",
+      oldAmount: 2100,
+      oldCurrency: "USD",
+      oldNote: "",
+      newAmount: 2250,
+      newCurrency: "USD",
+      newNote: "",
+      changedByName: "Jana",
+      changedAt: "2026-11-23T10:00:00Z",
+      ...more,
+    });
+    expect(changeWords(change({}), true)).toBe("Ocean Freight of container 2: 2,100.00 USD → 2,250.00 USD");
+    expect(changeWords(change({ oldAmount: null, oldCurrency: "" }), false)).toBe("Ocean Freight: Not set → 2,250.00 USD");
+    expect(changeWords(change({ newAmount: 2100, newNote: "MSC" }), false)).toBe('Ocean Freight: note "MSC"');
+    expect(changeWords(change({ newAmount: 2100, newCurrency: "EUR" }), false)).toBe("Ocean Freight: 2,100.00 USD → 2,100.00 EUR");
+  });
+});
+
+describe("the marks about the box on a shipment's row", () => {
+  it("say it has no share, or that it loses after its share", () => {
+    expect(earningsNotes(row({ noShare: true })).map((n) => n.text)).toEqual(["No weight or volume: no share of the box"]);
+    expect(earningsNotes(row({ profit: amt(-100) })).map((n) => n.text)).toEqual(["Loss after its share of the box"]);
   });
 });

@@ -118,6 +118,25 @@ export function useSailingEarnings(id: string, enabled = true) {
   return { earnings: query.data ?? null, isLoading: query.isLoading, isError: query.isError, refetch: query.refetch };
 }
 
+/** Setting one container's box costs. The earnings and the record of changes are read again. */
+export function useSailingBoxCosts(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (costs: { containerNo: number; lines: { kind: string; amount: number | null; currency: string; note: string }[] }) => api.shipments.coLoadingSailingBoxCostsSave(id, costs),
+    onSuccess: () => qc.invalidateQueries({ queryKey: [...LIST_KEY, "sailing", id] }),
+  });
+}
+
+/** Every change of a sailing's box costs, the last one first; read only once asked for. */
+export function useSailingBoxCostChanges(id: string, enabled: boolean) {
+  const query = useQuery({
+    queryKey: [...LIST_KEY, "sailing", id, "box-cost-changes"],
+    queryFn: () => api.shipments.coLoadingSailingBoxCostChanges(id),
+    enabled: enabled && isUuid(id),
+  });
+  return { changes: query.data?.data ?? [], isLoading: query.isLoading, isError: query.isError };
+}
+
 /** "Edit sailing": its number of containers and its cut-off. Every view of the sailing is read again. */
 export function useSailingDetails(id: string) {
   const qc = useQueryClient();

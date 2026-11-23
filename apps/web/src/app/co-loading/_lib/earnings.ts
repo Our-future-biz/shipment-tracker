@@ -7,6 +7,13 @@ import { fmtMoney } from "@/lib/money";
 export type SailingEarnings = interfaces.SailingEarnings;
 export type EarningsRow = interfaces.EarningsRow;
 export type EarningsAmount = interfaces.EarningsAmount;
+export type SailingBoxCosts = interfaces.SailingBoxCosts;
+export type BoxCostKind = interfaces.BoxCostKind;
+export type BoxCostChange = interfaces.BoxCostChange;
+
+export const BOX_COST_LABEL: Record<BoxCostKind, string> = { origin: "Origin Costs", ocean: "Ocean Freight", destination: "Destination Costs" };
+/** The currencies a box cost is typed in: EUR first, as most are. */
+export const BOX_COST_CURRENCIES = ["EUR", "USD", "CZK", "GBP", "CHF", "CNY", "JPY"] as const;
 
 /** An amount as the tab shows it: EUR first with CZK underneath; CZK alone where no EUR rate is known. */
 export function amountWords(a: EarningsAmount): { main: string; under: string | null } {
@@ -32,7 +39,49 @@ export function earningsWarnings(e: SailingEarnings): string[] {
     out.push(`${shipments(notes.ownBox)} ${has(notes.ownBox)} freight or local charges as buying costs of ${notes.ownBox === 1 ? "its" : "their"} own. They are not counted here: the box's costs cover them.`);
   if (notes.inMasterJob > 0) out.push(`${shipments(notes.inMasterJob)} ${notes.inMasterJob === 1 ? "is" : "are"} in a master job as well. Costs shared from a master job are not counted here.`);
   if (notes.unrecognised > 0) out.push(`${shipments(notes.unrecognised)} ${has(notes.unrecognised)} buying lines with no charge code the app knows: they are counted as other shipment costs.`);
+  out.push(...boxWarnings(e));
   return out;
+}
+
+const containerOf = (e: SailingEarnings, containerNo: number) => (e.boxCosts.containers.length > 1 ? ` of container ${containerNo}` : "");
+
+/** What is off about the box costs, in words. */
+function boxWarnings(e: SailingEarnings): string[] {
+  const box = e.boxCosts;
+  if (!box.set) return [];
+  const out: string[] = [];
+  if (box.missingCurrencies.length > 0)
+    out.push(`No exchange rate for the box costs in ${box.missingCurrencies.join(", ")}: those amounts are left out, so the profit is too high.`);
+  if (box.notSet.length > 0)
+    out.push(`Not set yet: ${box.notSet.map((n) => `${BOX_COST_LABEL[n.kind]}${containerOf(e, n.containerNo)}`).join(", ")}. The profit does not carry ${box.notSet.length === 1 ? "it" : "them"}.`);
+  if (e.boxUnshared) out.push("No shipment has a weight or a volume, so the box costs cannot be shared: the total carries them, no shipment does.");
+  else if (e.notes.noShare > 0) out.push(`${shipments(e.notes.noShare)} ${has(e.notes.noShare)} no weight and no volume, so ${e.notes.noShare === 1 ? "it carries" : "they carry"} no share of the box costs.`);
+  if (box.ignoredContainers.length > 0)
+    out.push(`Costs are kept for container ${box.ignoredContainers.join(", ")}, which the sailing no longer has. They are not counted.`);
+  return out;
+}
+
+/** A box cost as typed: "2,100.00 USD", or "Not set". */
+export const boxCostWords = (amount: number | null, currency: string): string => (amount === null ? "Not set" : fmtMoney(amount, currency, true));
+
+/** The margin for its tile: "24.8%", or a dash without revenue or box costs. */
+export const marginWords = (pct: number | null): string => (pct === null ? "—" : `${pct.toLocaleString("en-US", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`);
+
+/** The day's rate the box costs are valued at, in words; null when nothing needed a rate. */
+export function boxRateWords(box: SailingBoxCosts, formatDate: (d: string) => string): string | null {
+  if (!box.set) return null;
+  if (!box.rateDate) return "The exchange rates could not be read: only amounts in CZK are valued.";
+  return `Valued at the ČNB rates of ${formatDate(box.rateDate)}${box.eurRate ? ` (1 EUR = ${box.eurRate.toLocaleString("en-US", { maximumFractionDigits: 3 })} CZK)` : ""}. The latest rates are used, so the figures move with them.`;
+}
+
+/** One kept change in words: "Ocean Freight of container 2: 2,100.00 USD → 2,250.00 USD". */
+export function changeWords(c: BoxCostChange, severalContainers: boolean): string {
+  const what = `${BOX_COST_LABEL[c.kind]}${severalContainers ? ` of container ${c.containerNo}` : ""}`;
+  const parts: string[] = [];
+  const amountChanged = c.oldAmount !== c.newAmount || (c.newAmount !== null && c.oldCurrency !== c.newCurrency);
+  if (amountChanged) parts.push(`${boxCostWords(c.oldAmount, c.oldCurrency)} → ${boxCostWords(c.newAmount, c.newCurrency)}`);
+  if (c.oldNote !== c.newNote) parts.push(c.newNote ? `note "${c.newNote}"` : "note removed");
+  return `${what}: ${parts.join(", ") || "saved again"}`;
 }
 
 /** The marks on a shipment's row. */
@@ -46,7 +95,9 @@ export function earningsNotes(row: EarningsRow): { text: string; tone: "amber" |
   if (row.counted && row.noSelling) notes.push({ text: "No selling lines", tone: "amber" });
   if (row.untickedLines > 0) notes.push({ text: `${row.untickedLines} selling ${row.untickedLines === 1 ? "line" : "lines"} not ticked`, tone: "amber" });
   if (row.missingCurrencies.length > 0) notes.push({ text: `No rate: ${row.missingCurrencies.join(", ")}`, tone: "red" });
+  if (row.noShare) notes.push({ text: "No weight or volume: no share of the box", tone: "amber" });
   if (row.counted && row.beforeBox.czk < 0) notes.push({ text: "Costs more than it sells for", tone: "red" });
+  else if (row.profit && row.profit.czk < 0) notes.push({ text: "Loss after its share of the box", tone: "red" });
   if (row.ownBox.czk !== 0) notes.push({ text: `Own freight costs ${amountWords(row.ownBox).main}: not counted`, tone: "amber" });
   if (row.inMasterJob) notes.push({ text: "In a master job", tone: "slate" });
   if (row.unrecognisedLines > 0) notes.push({ text: `${row.unrecognisedLines} cost ${row.unrecognisedLines === 1 ? "line" : "lines"} without a code`, tone: "slate" });

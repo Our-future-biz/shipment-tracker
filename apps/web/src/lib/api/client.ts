@@ -3412,6 +3412,8 @@ export namespace shipments {
             this.coLoadingSailingGet = this.coLoadingSailingGet.bind(this)
             this.coLoadingSailingLinkShipments = this.coLoadingSailingLinkShipments.bind(this)
             this.coLoadingSailingList = this.coLoadingSailingList.bind(this)
+            this.coLoadingSailingBoxCostChanges = this.coLoadingSailingBoxCostChanges.bind(this)
+            this.coLoadingSailingBoxCostsSave = this.coLoadingSailingBoxCostsSave.bind(this)
             this.coLoadingSailingDetails = this.coLoadingSailingDetails.bind(this)
             this.coLoadingSailingMoveShipment = this.coLoadingSailingMoveShipment.bind(this)
             this.coLoadingSailingEarnings = this.coLoadingSailingEarnings.bind(this)
@@ -3719,6 +3721,22 @@ export namespace shipments {
          */
         public async coLoadingSailingUnlinkShipment(id: string, shipmentId: string): Promise<void> {
             await this.baseClient.callTypedAPI("DELETE", `/co-loading/sailings/${encodeURIComponent(id)}/shipments/${encodeURIComponent(shipmentId)}`)
+        }
+
+        /**
+         * Every change of the sailing's box costs, the last one first. Managers and admins.
+         */
+        public async coLoadingSailingBoxCostChanges(id: string): Promise<{ data: interfaces.BoxCostChange[] }> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/co-loading/sailings/${encodeURIComponent(id)}/box-cost-changes`)
+            return await resp.json() as { data: interfaces.BoxCostChange[] }
+        }
+
+        /**
+         * Sets one container's box costs: estimates, for managers and admins, also on a closed service.
+         */
+        public async coLoadingSailingBoxCostsSave(id: string, params: { containerNo: number; lines: { kind: string; amount: number | null; currency: string; note: string }[] }): Promise<void> {
+            await this.baseClient.callTypedAPI("PUT", `/co-loading/sailings/${encodeURIComponent(id)}/box-costs`, JSON.stringify(params))
         }
 
         /**
@@ -16035,6 +16053,63 @@ export namespace interfaces {
     }
 
     /**
+     * The three costs of a box: its origin charges, its ocean freight, its destination charges.
+     */
+    export type BoxCostKind = "origin" | "ocean" | "destination"
+
+    /**
+     * One cost of one container: an estimate in its own currency; no amount = not set.
+     */
+    export interface BoxCostLine {
+        kind: BoxCostKind
+        amount: number | null
+        currency: string
+        note: string
+        /**
+         * Its value in CZK; null when not set or when its currency has no rate.
+         */
+        czk: number | null
+    }
+
+    export interface BoxCostContainer {
+        containerNo: number
+        lines: BoxCostLine[]
+        total: EarningsAmount
+    }
+
+    /**
+     * The costs of a sailing's boxes, per container and added up.
+     */
+    export interface SailingBoxCosts {
+        set: boolean
+        containers: BoxCostContainer[]
+        total: EarningsAmount
+        eurRate: number | null
+        rateDate: string | null
+        rateProvisional: boolean
+        missingCurrencies: string[]
+        notSet: { containerNo: number; kind: BoxCostKind }[]
+        ignoredContainers: number[]
+    }
+
+    /**
+     * One kept change of a box cost.
+     */
+    export interface BoxCostChange {
+        id: string
+        containerNo: number
+        kind: BoxCostKind
+        oldAmount: number | null
+        oldCurrency: string
+        oldNote: string
+        newAmount: number | null
+        newCurrency: string
+        newNote: string
+        changedByName: string
+        changedAt: string
+    }
+
+    /**
      * An amount of a sailing's earnings: in CZK, and in EUR at the shipment's own rate (null when that is not known).
      */
     export interface EarningsAmount {
@@ -16075,6 +16150,15 @@ export namespace interfaces {
          */
         ownBox: EarningsAmount
         masterJob: EarningsAmount
+        /**
+         * Its share of the box costs by W/M, and what it earns after it; null while no box cost is set or it has no share.
+         */
+        boxShare: EarningsAmount | null
+        profit: EarningsAmount | null
+        /**
+         * Counted, but with no weight and no volume: it carries no share of the box.
+         */
+        noShare: boolean
         noSelling: boolean
         untickedLines: number
         unrecognisedLines: number
@@ -16101,11 +16185,25 @@ export namespace interfaces {
             beforeBox: EarningsAmount
             ownBox: EarningsAmount
             masterJob: EarningsAmount
+            /**
+             * The box costs, and the profit after them; null while no box cost is set.
+             */
+            boxCosts: EarningsAmount | null
+            profit: EarningsAmount | null
+            /**
+             * Profit as a share of the revenue, in %, one decimal; null without revenue.
+             */
+            marginPct: number | null
         }
+        boxCosts: SailingBoxCosts
+        /**
+         * The box costs are set but no shipment has a W/M to share them by.
+         */
+        boxUnshared: boolean
         /**
          * How many counted shipments each remark is about.
          */
-        notes: { noSelling: number; unticked: number; ownBox: number; inMasterJob: number; unrecognised: number; missingCurrencies: string[] }
+        notes: { noSelling: number; unticked: number; ownBox: number; inMasterJob: number; unrecognised: number; noShare: number; missingCurrencies: string[] }
         notCounted: number
         notCountedSelling: EarningsAmount
         rows: EarningsRow[]

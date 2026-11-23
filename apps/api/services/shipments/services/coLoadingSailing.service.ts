@@ -1,9 +1,11 @@
 import { APIError } from "encore.dev/api";
 import log from "encore.dev/log";
-import { invoicing } from "~encore/clients";
+import { fx, invoicing } from "~encore/clients";
 import { isUuid } from "../../../lib/uuid";
 import { capacityOf, containerCapacity } from "../../../lib/containerCapacity";
-import type { BoxUtilization, CoLoadingSailingItem, SailingEarnings, SailingRemovedShipment } from "../interfaces/interfaces";
+import type { BoxCostChange, BoxCostKind, BoxUtilization, CoLoadingSailingItem, SailingBoxCosts, SailingEarnings, SailingRemovedShipment } from "../interfaces/interfaces";
+import { boxCostChanges, boxCostsOf, checkBoxCosts, type BoxCostLineInput, type BoxCostStored } from "../lib/coLoadingBoxCosts";
+import { coLoadingBoxCostRepository as boxCostRepo } from "../repositories/coLoadingBoxCost.repository";
 import { sailingEarnings, type ShipmentMoney } from "../lib/coLoadingEarnings";
 import { boxFillOf, boxUtilization } from "../lib/boxUtilization";
 import { CANCELLED_STATUS } from "../lib/fieldDefaults";
@@ -32,6 +34,15 @@ const toItem = (r: CoLoadingSailingRecord): CoLoadingSailingItem => ({
  * The fill of a sailing's containers together, on this service, holding these shipments, planned to the company's share of their volume. A cancelled
  * one is listed, not counted; one of another kind than the box is for is counted and remarked on.
  */
+/** A stored box cost as the rules read it. */
+const storedCost = (r: { containerNo: number; kind: string; amount: string | null; currency: string; note: string }): BoxCostStored => ({
+  containerNo: r.containerNo,
+  kind: r.kind,
+  amount: r.amount === null ? null : Number(r.amount),
+  currency: r.currency,
+  note: r.note,
+});
+
 const fillOf = (sailing: { containerType: string; containerCount: number }, service: { mode: string; inlandWeightKg: number | null }, planningPct: number, shipments: LinkedCargo[]) => {
   const one = containerCapacity(sailing.containerType, planningPct / 100);
   return boxUtilization(
@@ -99,7 +110,60 @@ class CoLoadingSailingService {
     } catch (err) {
       log.warn(err, "Co-Loading earnings: the shipments' money could not be read", { sailingId: sailing.id });
     }
-    return sailingEarnings(box.rows, money, new Set(linked.filter((s) => s.masterJobId).map((s) => s.id)));
+    return sailingEarnings(box.rows, money, new Set(linked.filter((s) => s.masterJobId).map((s) => s.id)), await this.boxCosts(sailing, companyId));
+  }
+
+  /**
+   * The costs of the sailing's boxes, valued at the latest ČNB rates (the sailing has no departure
+   * date yet: the next build step). When the rates cannot be read, only CZK amounts are valued and
+   * the other currencies are named as left out.
+   */
+  async boxCosts(sailing: { id: string; containerCount: number }, companyId: string): Promise<SailingBoxCosts> {
+    const stored = (await boxCostRepo.list(sailing.id, companyId)).map(storedCost);
+    let rates: Map<string, number> | null = null;
+    let rateDate: string | null = null;
+    // CZK needs no rate: the rates are asked for only when they are needed, for EUR beside CZK too.
+    if (stored.some((s) => s.amount !== null)) {
+      try {
+        const day = await fx.fxRatesOn({});
+        rates = new Map(day.rates.map((r) => [r.currency, r.rate]));
+        rateDate = day.fixingDate ?? day.date;
+      } catch (err) {
+        log.warn(err, "Co-Loading earnings: the rates for the box costs could not be read", { sailingId: sailing.id });
+      }
+    }
+    return boxCostsOf(sailing.containerCount, stored, rates, rateDate);
+  }
+
+  /**
+   * Sets one container's Origin Costs, Ocean Freight and Destination Costs. For managers and admins
+   * (the controller); allowed on a closed service too, to correct them (D17). Every changed line is
+   * recorded with who changed it and the old and new figure (D16).
+   */
+  async saveBoxCosts(id: string, containerNo: number, lines: BoxCostLineInput[], actor: { userID: string; companyID: string }): Promise<void> {
+    const sailing = await this.get(id, actor.companyID);
+    const checked = checkBoxCosts(containerNo, sailing.containerCount, lines);
+    if ("error" in checked) throw APIError.invalidArgument(checked.error);
+    const stored = (await boxCostRepo.list(sailing.id, actor.companyID)).map(storedCost).filter((s) => s.containerNo === containerNo);
+    await boxCostRepo.save(sailing.id, actor.companyID, containerNo, boxCostChanges(stored, checked.lines), { id: actor.userID, name: await userNameOf(actor.userID) });
+  }
+
+  /** The record of the box costs' changes, the last one first. */
+  async boxCostChanges(id: string, companyId: string): Promise<BoxCostChange[]> {
+    const sailing = await this.get(id, companyId);
+    return (await boxCostRepo.changes(sailing.id, companyId)).map((c) => ({
+      id: c.id,
+      containerNo: c.containerNo,
+      kind: c.kind as BoxCostKind,
+      oldAmount: c.oldAmount === null ? null : Number(c.oldAmount),
+      oldCurrency: c.oldCurrency,
+      oldNote: c.oldNote,
+      newAmount: c.newAmount === null ? null : Number(c.newAmount),
+      newCurrency: c.newCurrency,
+      newNote: c.newNote,
+      changedByName: c.changedByName,
+      changedAt: c.changedAt.toISOString(),
+    }));
   }
 
   /** The shipments taken off the sailing, the last one first, with who took each off and why. */

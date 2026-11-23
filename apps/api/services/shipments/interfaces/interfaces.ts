@@ -2463,6 +2463,11 @@ export interface EarningsRow {
   /** Its own freight and local-charge buying lines, and a master job's shares: NOT counted, the box covers them. */
   ownBox: EarningsAmount;
   masterJob: EarningsAmount;
+  /** Its share of the box costs by W/M, and what it earns after it; null while no box cost is set or it has no share. */
+  boxShare: EarningsAmount | null;
+  profit: EarningsAmount | null;
+  /** Counted, but with no weight and no volume: it carries no share of the box. */
+  noShare: boolean;
   noSelling: boolean;
   untickedLines: number;
   unrecognisedLines: number;
@@ -2486,11 +2491,71 @@ export interface SailingEarnings {
     beforeBox: EarningsAmount;
     ownBox: EarningsAmount;
     masterJob: EarningsAmount;
+    /** The box costs, and the profit after them; null while no box cost is set. */
+    boxCosts: EarningsAmount | null;
+    profit: EarningsAmount | null;
+    /** Profit as a share of the revenue, in %, one decimal; null without revenue. */
+    marginPct: number | null;
   };
+  boxCosts: SailingBoxCosts;
+  /** The box costs are set but no shipment has a W/M to share them by: the total carries them, no row does. */
+  boxUnshared: boolean;
   /** How many counted shipments each remark is about. */
-  notes: { noSelling: number; unticked: number; ownBox: number; inMasterJob: number; unrecognised: number; missingCurrencies: string[] };
+  notes: { noSelling: number; unticked: number; ownBox: number; inMasterJob: number; unrecognised: number; noShare: number; missingCurrencies: string[] };
   /** Linked shipments not in the totals (cancelled), and what they sell for. */
   notCounted: number;
   notCountedSelling: EarningsAmount;
   rows: EarningsRow[];
+}
+
+/** The three costs of a box: its origin charges, its ocean freight, its destination charges. */
+export type BoxCostKind = "origin" | "ocean" | "destination";
+
+/** One cost of one container: an estimate in its own currency; no amount = not set. */
+export interface BoxCostLine {
+  kind: BoxCostKind;
+  amount: number | null;
+  currency: string;
+  note: string;
+  /** Its value in CZK; null when not set or when its currency has no rate. */
+  czk: number | null;
+}
+
+export interface BoxCostContainer {
+  containerNo: number;
+  lines: BoxCostLine[];
+  total: EarningsAmount;
+}
+
+/** The costs of a sailing's boxes, per container and added up (lib/coLoadingBoxCosts). */
+export interface SailingBoxCosts {
+  /** False while no cost has an amount: no profit is shown then. */
+  set: boolean;
+  containers: BoxCostContainer[];
+  total: EarningsAmount;
+  /** CZK for one EUR, and the day whose ČNB rates value the costs; null when the rates could not be read. */
+  eurRate: number | null;
+  rateDate: string | null;
+  rateProvisional: boolean;
+  /** Currencies with no rate: their amounts are left out of the total. */
+  missingCurrencies: string[];
+  /** Costs still without an amount, once any is set. */
+  notSet: { containerNo: number; kind: BoxCostKind }[];
+  /** Containers the sailing no longer has whose costs are kept and not counted. */
+  ignoredContainers: number[];
+}
+
+/** One kept change of a box cost. */
+export interface BoxCostChange {
+  id: string;
+  containerNo: number;
+  kind: BoxCostKind;
+  oldAmount: number | null;
+  oldCurrency: string;
+  oldNote: string;
+  newAmount: number | null;
+  newCurrency: string;
+  newNote: string;
+  changedByName: string;
+  changedAt: string;
 }

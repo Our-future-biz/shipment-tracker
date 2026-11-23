@@ -166,7 +166,7 @@ export function CoLoadingSailingPage() {
         ) : sailing && tab === "box" ? (
           <BoxUtilizationTab sailingId={sailing.id} onOpenShipments={() => openTab("shipments")} />
         ) : sailing ? (
-          <EarningsTab sailingId={sailing.id} onOpenShipments={() => openTab("shipments")} />
+          <EarningsTab sailingId={sailing.id} containerType={sailing.containerType} onOpenShipments={() => openTab("shipments")} />
         ) : isLoading ? (
           <div className="flex justify-center p-20">
             <Spin size="large" />

@@ -2,7 +2,7 @@ import { api } from "encore.dev/api";
 import type { MaxLen } from "encore.dev/validate";
 import { getAuthData } from "~encore/auth";
 import { requireRole } from "../../../lib/rbac";
-import type { BoxUtilization, CoLoadingSailingItem, SailingEarnings, SailingRemovedShipment } from "../interfaces/interfaces";
+import type { BoxCostChange, BoxUtilization, CoLoadingSailingItem, SailingEarnings, SailingRemovedShipment } from "../interfaces/interfaces";
 import { coLoadingSailingService as service } from "../services/coLoadingSailing.service";
 
 // A Co-Loading Concept service's sailings (lib/coLoadingSailing), for everyone in the company.
@@ -37,6 +37,30 @@ export const coLoadingSailingEarnings = api(
   { expose: true, auth: true, method: "GET", path: "/co-loading/sailings/:id/earnings" },
   async ({ id }: { id: string }): Promise<SailingEarnings> => {
     return service.earnings(id, requireRole("superadmin", "admin", "manager").companyID);
+  },
+);
+
+interface BoxCostsRequest {
+  id: string;
+  /** Which of the sailing's containers: 1 up to its number of containers. */
+  containerNo: number;
+  /** Its Origin Costs ("origin"), Ocean Freight ("ocean") and Destination Costs ("destination"); no amount = not set. */
+  lines: { kind: string; amount: number | null; currency: string; note: string }[] & MaxLen<3>;
+}
+
+// Sets one container's box costs: estimates, for managers and admins, also on a closed service (D14, D17).
+export const coLoadingSailingBoxCostsSave = api(
+  { expose: true, auth: true, method: "PUT", path: "/co-loading/sailings/:id/box-costs" },
+  async ({ id, containerNo, lines }: BoxCostsRequest): Promise<void> => {
+    await service.saveBoxCosts(id, containerNo, lines, requireRole("superadmin", "admin", "manager"));
+  },
+);
+
+// Every change of the sailing's box costs, the last one first (D16). Managers and admins.
+export const coLoadingSailingBoxCostChanges = api(
+  { expose: true, auth: true, method: "GET", path: "/co-loading/sailings/:id/box-cost-changes" },
+  async ({ id }: { id: string }): Promise<{ data: BoxCostChange[] }> => {
+    return { data: await service.boxCostChanges(id, requireRole("superadmin", "admin", "manager").companyID) };
   },
 );
 

@@ -715,6 +715,13 @@
       "when": 1795437501385,
       "tag": "0101_co_loading_boxes_cutoff_move",
       "breakpoints": true
+    },
+    {
+      "idx": 102,
+      "version": "7",
+      "when": 1795446815396,
+      "tag": "0102_co_loading_box_costs",
+      "breakpoints": true
     }
   ]
 }

@@ -7,7 +7,8 @@
 // its selling is shown apart. An amount with no rate is left out and named: a total with gaps says
 // "incomplete". Money that could not be read is not known - never shown as 0.
 
-import type { BoxUtilizationRow, EarningsAmount, EarningsRow, SailingEarnings } from "../interfaces/interfaces";
+import type { BoxUtilizationRow, EarningsAmount, EarningsRow, SailingBoxCosts, SailingEarnings } from "../interfaces/interfaces";
+import { boxCostsOf, shareCents } from "./coLoadingBoxCosts";
 
 /** A shipment's money as Invoicing gives it (its `_internalCoLoadingMoney`). */
 export interface ShipmentMoney {
@@ -41,9 +42,16 @@ function total(amounts: readonly EarningsAmount[]): EarningsAmount {
 /**
  * The earnings of a sailing. `shipments` are the box's rows (lib/boxUtilization), `money` each
  * shipment's money by id - null when Invoicing could not be read - and `inMasterJob` the shipments
- * a master job shares costs into.
+ * a master job shares costs into. `box` are the costs of the sailing's boxes: once one is set, they
+ * are shared over the counted shipments by W/M, to the cent - the loaded shipments carry the whole
+ * box - and each shipment's profit and the sailing's follow. A shipment with no W/M carries none.
  */
-export function sailingEarnings(shipments: readonly BoxUtilizationRow[], money: ReadonlyMap<string, ShipmentMoney> | null, inMasterJob: ReadonlySet<string>): SailingEarnings {
+export function sailingEarnings(
+  shipments: readonly BoxUtilizationRow[],
+  money: ReadonlyMap<string, ShipmentMoney> | null,
+  inMasterJob: ReadonlySet<string>,
+  box: SailingBoxCosts = boxCostsOf(1, [], null, null),
+): SailingEarnings {
   const rows: EarningsRow[] = shipments.map((s) => {
     const m = money?.get(s.shipmentId) ?? null;
     const of = (czk: number) => amount(czk, m?.eurRate ?? null);
@@ -62,6 +70,9 @@ export function sailingEarnings(shipments: readonly BoxUtilizationRow[], money: 
       beforeBox: of((m?.sellingCzk ?? 0) - (m?.inlandCzk ?? 0) - (m?.otherCzk ?? 0)),
       ownBox: of(m?.ownBoxCzk ?? 0),
       masterJob: of(m?.masterJobCzk ?? 0),
+      boxShare: null,
+      profit: null,
+      noShare: box.set && s.counted && !(s.freightTons > 0),
       noSelling: m !== null && m.sellingLines === 0,
       untickedLines: m?.untickedLines ?? 0,
       unrecognisedLines: m?.unrecognisedLines ?? 0,
@@ -72,30 +83,57 @@ export function sailingEarnings(shipments: readonly BoxUtilizationRow[], money: 
 
   const counted = rows.filter((r) => r.counted);
   const sum = (pick: (r: EarningsRow) => EarningsAmount) => total(counted.map(pick));
+
+  // The box costs, shared by W/M: the CZK to the haléř and the EUR to the cent, each adding up to its total.
+  const weights = counted.map((r) => r.freightTons);
+  const czkParts = box.set ? shareCents(Math.round(box.total.czk * 100), weights) : null;
+  const eurParts = box.set && box.total.eur !== null ? shareCents(Math.round(box.total.eur * 100), weights) : null;
+  if (czkParts) {
+    counted.forEach((r, i) => {
+      if (!(r.freightTons > 0)) return;
+      r.boxShare = { czk: czkParts[i]! / 100, eur: eurParts ? eurParts[i]! / 100 : null };
+      r.profit = {
+        czk: round2(r.beforeBox.czk - r.boxShare.czk),
+        eur: r.beforeBox.eur !== null && r.boxShare.eur !== null ? round2(r.beforeBox.eur - r.boxShare.eur) : null,
+      };
+    });
+  }
   // The rows that earn least stand first: the ones to look at.
-  rows.sort((a, b) => Number(b.counted) - Number(a.counted) || a.beforeBox.czk - b.beforeBox.czk || a.jobNumber.localeCompare(b.jobNumber));
+  const earns = (r: EarningsRow) => (r.profit ?? r.beforeBox).czk;
+  rows.sort((a, b) => Number(b.counted) - Number(a.counted) || earns(a) - earns(b) || a.jobNumber.localeCompare(b.jobNumber));
+  const beforeBox = sum((r) => r.beforeBox);
+  const selling = sum((r) => r.selling);
+  const profit: EarningsAmount | null = box.set
+    ? { czk: round2(beforeBox.czk - box.total.czk), eur: beforeBox.eur !== null && box.total.eur !== null ? round2(beforeBox.eur - box.total.eur) : null }
+    : null;
 
   const missingCurrencies = [...new Set(counted.flatMap((r) => r.missingCurrencies))].sort();
   return {
     moneyKnown: money !== null,
-    complete: money !== null && missingCurrencies.length === 0 && counted.every((r) => r.moneyKnown),
+    complete: money !== null && missingCurrencies.length === 0 && counted.every((r) => r.moneyKnown) && box.missingCurrencies.length === 0,
     totals: {
       shipments: counted.length,
       freightTons: round2(counted.reduce((t, r) => t + r.freightTons, 0) * 10) / 10,
-      selling: sum((r) => r.selling),
+      selling,
       invoiced: sum((r) => r.invoiced),
       inland: sum((r) => r.inland),
       other: sum((r) => r.other),
-      beforeBox: sum((r) => r.beforeBox),
+      beforeBox,
       ownBox: sum((r) => r.ownBox),
       masterJob: sum((r) => r.masterJob),
+      boxCosts: box.set ? box.total : null,
+      profit,
+      marginPct: profit && selling.czk > 0 ? Math.round((profit.czk / selling.czk) * 1000) / 10 : null,
     },
+    boxCosts: box,
+    boxUnshared: box.set && czkParts === null,
     notes: {
       noSelling: counted.filter((r) => r.noSelling).length,
       unticked: counted.filter((r) => r.untickedLines > 0).length,
       ownBox: counted.filter((r) => r.ownBox.czk !== 0).length,
       inMasterJob: counted.filter((r) => r.inMasterJob).length,
       unrecognised: counted.filter((r) => r.unrecognisedLines > 0).length,
+      noShare: counted.filter((r) => r.noShare).length,
       missingCurrencies,
     },
     notCounted: rows.length - counted.length,
