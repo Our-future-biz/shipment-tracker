@@ -8497,6 +8497,11 @@ export namespace controllers {
     export interface CoLoadingServiceCreateRequest {
         name: string
         /**
+         * A shipment's Service Name: ISHA | Domestic
+         */
+        serviceName: string
+
+        /**
          * import | export
          */
         direction: string
@@ -15553,6 +15558,11 @@ export namespace interfaces {
     export interface CoLoadingServiceItem {
         id: string
         name: string
+        /**
+         * The shipments' Service Name it stands for: ISHA | Domestic
+         */
+        serviceName: string
+
         /**
          * import | export
          */

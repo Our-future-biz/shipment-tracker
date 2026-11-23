@@ -8,9 +8,17 @@ export type CoLoadingDirection = (typeof CO_LOADING_DIRECTIONS)[number];
 export const CO_LOADING_MODES = ["sea_lcl", "sea_fcl", "air", "rail", "road"] as const;
 export type CoLoadingMode = (typeof CO_LOADING_MODES)[number];
 
+/**
+ * The Service Names a service is picked from: a shipment's Service Name list (the web's
+ * DROPDOWN_OPTIONS["Service Name"], columnConfig), the same two. A service carries one, so it knows
+ * the shipments that are its own.
+ */
+export const CO_LOADING_SERVICE_NAMES = ["ISHA", "Domestic"] as const;
+
 /** What a new service is made from, as typed in the form. */
 export interface CoLoadingServiceInput {
   name: string;
+  serviceName: string;
   direction: string;
   mode: string;
   origin?: string;
@@ -21,6 +29,7 @@ export interface CoLoadingServiceInput {
 /** A service as it is saved: every field trimmed, the optional ones "" when left out. */
 export interface CoLoadingServiceValues {
   name: string;
+  serviceName: string;
   direction: CoLoadingDirection;
   mode: CoLoadingMode;
   origin: string;
@@ -37,11 +46,14 @@ export function checkServiceInput(input: CoLoadingServiceInput): { values: CoLoa
   const name = input.name.trim().replace(/\s+/g, " ");
   if (!name) return { error: "Give the service a name." };
   if (name.length > NAME_MAX) return { error: `The name can be at most ${NAME_MAX} characters.` };
+  const serviceName = input.serviceName.trim();
+  if (!isOneOf(CO_LOADING_SERVICE_NAMES, serviceName)) return { error: "Pick the Service Name." };
   if (!isOneOf(CO_LOADING_DIRECTIONS, input.direction)) return { error: "Pick Import or Export." };
   if (!isOneOf(CO_LOADING_MODES, input.mode)) return { error: "Pick the mode of transport." };
   return {
     values: {
       name,
+      serviceName,
       direction: input.direction,
       mode: input.mode,
       origin: (input.origin ?? "").trim(),

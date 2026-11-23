@@ -21,6 +21,8 @@ export const modeLabel = (value: string) => labelOf(MODE_OPTIONS, value);
 
 export interface ServiceWords {
   name: string;
+  /** The shipments' Service Name it stands for: "ISHA". */
+  serviceName: string;
   direction: string;
   mode: string;
   origin: string;
@@ -36,18 +38,19 @@ export function routeOf(s: Pick<ServiceWords, "origin" | "destination">): string
   return "";
 }
 
-/** The line under the tile's name: "Import · Sea LCL · From Shanghai (CNSHA)", then the note. */
-export const tileLine = (s: ServiceWords): string => [directionLabel(s.direction), modeLabel(s.mode), routeOf(s)].filter(Boolean).join(" · ");
+/** The line under the tile's name: "ISHA · Import · Sea LCL · From Shanghai (CNSHA)", then the note. */
+export const tileLine = (s: ServiceWords): string =>
+  [s.serviceName, directionLabel(s.direction), modeLabel(s.mode), routeOf(s)].filter(Boolean).join(" · ");
 
 /**
- * The services the search finds: every word typed is in the name, the direction, the mode, the route
- * or the note, whatever the case ("shanghai lcl" finds Import from Shanghai).
+ * The services the search finds: every word typed is in the name, the Service Name, the direction, the
+ * mode, the route or the note, whatever the case ("shanghai lcl" finds Import from Shanghai, "isha" too).
  */
 export function searchServices<T extends ServiceWords>(services: T[], query: string): T[] {
   const words = query.toLowerCase().split(/\s+/).filter(Boolean);
   if (words.length === 0) return services;
   return services.filter((s) => {
-    const text = [s.name, directionLabel(s.direction), modeLabel(s.mode), s.origin, s.destination, s.note].join(" ").toLowerCase();
+    const text = [s.name, s.serviceName, directionLabel(s.direction), modeLabel(s.mode), s.origin, s.destination, s.note].join(" ").toLowerCase();
     return words.every((w) => text.includes(w));
   });
 }

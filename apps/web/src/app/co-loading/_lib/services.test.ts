@@ -1,15 +1,15 @@
 import { describe, expect, it } from "vitest";
 import { canManageServices, closedLine, routeOf, searchServices, tileLine, tilesInOrder } from "./services";
 
-const shanghai = { name: "Import from Shanghai", direction: "import", mode: "sea_lcl", origin: "Shanghai (CNSHA)", destination: "", note: "" };
-const ningbo = { name: "Import from Ningbo", direction: "import", mode: "sea_fcl", origin: "Ningbo (CNNGB)", destination: "Hamburg (DEHAM)", note: "Weekly, Thursday cut-off" };
-const air = { name: "Export to Chicago", direction: "export", mode: "air", origin: "", destination: "Chicago (USCHI)", note: "" };
+const shanghai = { name: "Import from Shanghai", serviceName: "ISHA", direction: "import", mode: "sea_lcl", origin: "Shanghai (CNSHA)", destination: "", note: "" };
+const ningbo = { name: "Import from Ningbo", serviceName: "", direction: "import", mode: "sea_fcl", origin: "Ningbo (CNNGB)", destination: "Hamburg (DEHAM)", note: "Weekly, Thursday cut-off" };
+const air = { name: "Export to Chicago", serviceName: "Domestic", direction: "export", mode: "air", origin: "", destination: "Chicago (USCHI)", note: "" };
 
 describe("Co-Loading Concept's services", () => {
   it("say their direction, mode and route on the tile", () => {
-    expect(tileLine(shanghai)).toBe("Import · Sea LCL · From Shanghai (CNSHA)");
+    expect(tileLine(shanghai)).toBe("ISHA · Import · Sea LCL · From Shanghai (CNSHA)");
     expect(tileLine(ningbo)).toBe("Import · Sea FCL · Ningbo (CNNGB) → Hamburg (DEHAM)");
-    expect(tileLine(air)).toBe("Export · Air · To Chicago (USCHI)");
+    expect(tileLine(air)).toBe("Domestic · Export · Air · To Chicago (USCHI)");
     expect(routeOf({ origin: "", destination: "" })).toBe("");
   });
 
@@ -20,6 +20,8 @@ describe("Co-Loading Concept's services", () => {
     expect(searchServices(all, "import fcl")).toEqual([ningbo]);
     expect(searchServices(all, "thursday")).toEqual([ningbo]);
     expect(searchServices(all, "EXPORT")).toEqual([air]);
+    // By its Service Name too.
+    expect(searchServices(all, "isha")).toEqual([shanghai]);
     expect(searchServices(all, "import rotterdam")).toEqual([]);
   });
 });

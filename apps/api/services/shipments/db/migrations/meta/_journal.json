@@ -666,6 +666,13 @@
       "when": 1795408287904,
       "tag": "0094_co_loading_service_closed",
       "breakpoints": true
+    },
+    {
+      "idx": 95,
+      "version": "7",
+      "when": 1795408805713,
+      "tag": "0095_co_loading_service_name",
+      "breakpoints": true
     }
   ]
 }

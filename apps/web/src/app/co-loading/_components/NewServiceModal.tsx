@@ -4,14 +4,17 @@ import { useState } from "react";
 import { Button, Input, Modal, Select, Space } from "antd";
 import { GeoSelect } from "@/components/GeoSelect";
 import { apiErrorMessage } from "@/lib/api";
+import { DROPDOWN_OPTIONS, SERVICE_NAME_HINTS } from "@/lib/columnConfig";
 import type { CoLoadingService, CoLoadingServiceNew } from "@/hooks/useCoLoadingServices";
 import { HINT, LABEL_TEXT, MODAL_TITLE } from "@/styles/ui";
 import { DIRECTION_OPTIONS, MODE_OPTIONS } from "../_lib/services";
 
-const EMPTY: CoLoadingServiceNew = { name: "", direction: "import", mode: "sea_lcl", origin: "", destination: "", note: "" };
+const EMPTY: CoLoadingServiceNew = { name: "", serviceName: "", direction: "import", mode: "sea_lcl", origin: "", destination: "", note: "" };
 
-// New Service: a lane customer service will consolidate on. The shipments come into it from the
+// New Service: a lane customer service will consolidate on. Its Service Name is picked from the shipments'
+// Service Name list (ISHA, Domestic), so the shipments that are its own can come into it from the
 // Shipments module later; here the service is only made.
+const SERVICE_NAME_OPTIONS = DROPDOWN_OPTIONS["Service Name"]!.map((value) => ({ value, label: value }));
 export function NewServiceModal({
   open,
   onClose,
@@ -25,7 +28,11 @@ export function NewServiceModal({
 }) {
   const [form, setForm] = useState<CoLoadingServiceNew>(EMPTY);
   const [error, setError] = useState<string | null>(null);
-  const set = <K extends keyof CoLoadingServiceNew>(key: K, value: CoLoadingServiceNew[K]) => setForm((f) => ({ ...f, [key]: value }));
+  // A change answers what the form last said was wrong, so that line goes until the next try.
+  const set = <K extends keyof CoLoadingServiceNew>(key: K, value: CoLoadingServiceNew[K]) => {
+    setForm((f) => ({ ...f, [key]: value }));
+    setError(null);
+  };
 
   const close = () => {
     setForm(EMPTY);
@@ -34,6 +41,7 @@ export function NewServiceModal({
   };
   const save = async () => {
     if (!form.name.trim()) return setError("Give the service a name.");
+    if (!form.serviceName) return setError("Pick the Service Name.");
     try {
       await onCreate(form);
       close();
@@ -77,6 +85,28 @@ export function NewServiceModal({
             onChange={(e) => set("name", e.target.value)}
             onPressEnter={save}
           />,
+        )}
+        {field(
+          "Service Name",
+          <Select
+            value={form.serviceName || undefined}
+            placeholder="Pick from the shipments' Service Names"
+            options={SERVICE_NAME_OPTIONS}
+            // Each says what it stands for, as where a shipment's Service Name is picked.
+            optionRender={(o) => {
+              const hint = SERVICE_NAME_HINTS[String(o.value)];
+              return hint ? (
+                <span className="flex flex-col leading-tight py-0.5">
+                  <span>{o.label}</span>
+                  <span className="text-[11px] text-slate-500 whitespace-normal">{hint}</span>
+                </span>
+              ) : (
+                o.label
+              );
+            }}
+            onChange={(v) => set("serviceName", v)}
+          />,
+          SERVICE_NAME_HINTS[form.serviceName],
         )}
         <div className="grid grid-cols-2 gap-4">
           {field("Direction", <Select value={form.direction} options={[...DIRECTION_OPTIONS]} onChange={(v) => set("direction", v)} />)}

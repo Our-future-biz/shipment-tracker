@@ -9,6 +9,7 @@ import type { CoLoadingServiceRecord } from "../schemas/coLoadingService.schema"
 const toItem = (r: CoLoadingServiceRecord): CoLoadingServiceItem => ({
   id: r.id,
   name: r.name,
+  serviceName: r.serviceName,
   direction: r.direction,
   mode: r.mode,
   origin: r.origin,

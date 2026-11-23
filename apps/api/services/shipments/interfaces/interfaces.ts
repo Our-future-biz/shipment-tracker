@@ -2271,6 +2271,8 @@ export interface AbsenceCoverResult {
 export interface CoLoadingServiceItem {
   id: string;
   name: string;
+  /** The shipments' Service Name it stands for: ISHA | Domestic */
+  serviceName: string;
   /** import | export */
   direction: string;
   /** sea_lcl | sea_fcl | air | rail | road */

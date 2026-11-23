@@ -12,6 +12,8 @@ export const coLoadingServiceTable = pgTable(
     ...defaultTableColumns,
     ...tenantColumns,
     name: text("name").notNull(),
+    // The shipments' Service Name it stands for (lib/coLoadingService CO_LOADING_SERVICE_NAMES): "ISHA".
+    serviceName: text("service_name").notNull().default(""),
     direction: text("direction").$type<CoLoadingDirection>().notNull(),
     mode: text("mode").$type<CoLoadingMode>().notNull(),
     // Places as the app's place picker stores them ("Shanghai (CNSHA)"); "" when not given.
