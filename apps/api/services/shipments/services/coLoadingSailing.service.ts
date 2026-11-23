@@ -4,7 +4,7 @@ import { fx, invoicing } from "~encore/clients";
 import { isUuid } from "../../../lib/uuid";
 import { capacityOf, containerCapacity } from "../../../lib/containerCapacity";
 import type { BoxCostChange, BoxCostKind, BoxUtilization, CoLoadingSailingItem, SailingBoxCosts, SailingEarnings, SailingRemovedShipment } from "../interfaces/interfaces";
-import { boxCostChanges, boxCostsOf, checkBoxCosts, type BoxCostLineInput, type BoxCostStored } from "../lib/coLoadingBoxCosts";
+import { boxCostChanges, boxCostsOf, checkBoxCosts, type BoxCostLineInput, type BoxCostStored, type BoxRates } from "../lib/coLoadingBoxCosts";
 import { coLoadingBoxCostRepository as boxCostRepo } from "../repositories/coLoadingBoxCost.repository";
 import { sailingEarnings, type ShipmentMoney } from "../lib/coLoadingEarnings";
 import { boxFillOf, boxUtilization } from "../lib/boxUtilization";
@@ -26,6 +26,7 @@ const toItem = (r: CoLoadingSailingRecord): CoLoadingSailingItem => ({
   containerType: r.containerType,
   containerCount: r.containerCount,
   cutoffDate: r.cutoffDate,
+  departureDate: r.departureDate,
   createdByName: r.createdByName,
   createdAt: r.createdAt.toISOString(),
 });
@@ -114,25 +115,24 @@ class CoLoadingSailingService {
   }
 
   /**
-   * The costs of the sailing's boxes, valued at the latest ČNB rates (the sailing has no departure
-   * date yet: the next build step). When the rates cannot be read, only CZK amounts are valued and
-   * the other currencies are named as left out.
+   * The costs of the sailing's boxes, valued at the ČNB rates of its departure date (D10); the
+   * latest rates while it has none or that day is still ahead - marked provisional. When the rates
+   * cannot be read, only CZK amounts are valued and the other currencies are named as left out.
    */
-  async boxCosts(sailing: { id: string; containerCount: number }, companyId: string): Promise<SailingBoxCosts> {
+  async boxCosts(sailing: { id: string; containerCount: number; departureDate: string | null }, companyId: string): Promise<SailingBoxCosts> {
     const stored = (await boxCostRepo.list(sailing.id, companyId)).map(storedCost);
-    let rates: Map<string, number> | null = null;
-    let rateDate: string | null = null;
-    // CZK needs no rate: the rates are asked for only when they are needed, for EUR beside CZK too.
+    let day: BoxRates | null = null;
+    // The rates are asked for only once a cost is set.
     if (stored.some((s) => s.amount !== null)) {
       try {
-        const day = await fx.fxRatesOn({});
-        rates = new Map(day.rates.map((r) => [r.currency, r.rate]));
-        rateDate = day.fixingDate ?? day.date;
+        const on = await fx.fxRatesOn(sailing.departureDate ? { date: sailing.departureDate } : {});
+        // A fixing that should be stored and is not (the import failed) is no rate to trust yet.
+        day = { rates: new Map(on.rates.map((r) => [r.currency, r.rate])), fixingDate: on.fixingDate, provisional: on.provisional || on.missing };
       } catch (err) {
         log.warn(err, "Co-Loading earnings: the rates for the box costs could not be read", { sailingId: sailing.id });
       }
     }
-    return boxCostsOf(sailing.containerCount, stored, rates, rateDate);
+    return boxCostsOf(sailing.containerCount, stored, day, sailing.departureDate);
   }
 
   /**

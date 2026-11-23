@@ -3,7 +3,7 @@ import { checkSailingInput, linkRefusal, moveRefusal, oddInBox, sailingDetailsPr
 
 const PORTS = { pol: "Shanghai (CNSHA)", pod: "Hamburg (DEHAM)", hub: "Praha (CZPRG)", containerType: "40' HC" };
 // A sailing made without them has one container and no cut-off.
-const ONE_BOX = { containerCount: 1, cutoffDate: null };
+const ONE_BOX = { containerCount: 1, cutoffDate: null, departureDate: null };
 
 describe("a Co-Loading Concept sailing", () => {
   it("is saved trimmed, with its vessel and voyage", () => {
@@ -105,6 +105,11 @@ describe("what Edit sailing changes", () => {
   it("takes 1 to 20 containers and a cut-off day, or none", () => {
     expect(sailingDetailsProblem({ containerCount: 1, cutoffDate: null })).toBeNull();
     expect(sailingDetailsProblem({ containerCount: 20, cutoffDate: "2026-12-14" })).toBeNull();
+    // The departure date: a date, not before the cut-off; left out, it is not judged.
+    expect(sailingDetailsProblem({ containerCount: 1, cutoffDate: "2026-12-14", departureDate: "2026-12-18" })).toBeNull();
+    expect(sailingDetailsProblem({ containerCount: 1, cutoffDate: null, departureDate: null })).toBeNull();
+    expect(sailingDetailsProblem({ containerCount: 1, cutoffDate: null, departureDate: "18.12.2026" })).toBe("The departure date is not a date.");
+    expect(sailingDetailsProblem({ containerCount: 1, cutoffDate: "2026-12-19", departureDate: "2026-12-18" })).toBe("The cut-off cannot be after the departure date.");
     for (const count of [0, 21, 1.5, Number.NaN]) expect(sailingDetailsProblem({ containerCount: count, cutoffDate: null }), String(count)).toContain("from 1 to 20");
     for (const day of ["14.12.2026", "2026-13-40", "soon", ""]) expect(sailingDetailsProblem({ containerCount: 1, cutoffDate: day }), day).toBe("The cut-off is not a date.");
   });

@@ -23,6 +23,8 @@ export const coLoadingSailingTable = pgTable(
     containerCount: integer("container_count").notNull().default(1),
     // The day cargo must be in by; null while none is set. A warning when linking after it, never a refusal (D16).
     cutoffDate: date("cutoff_date", { mode: "string" }),
+    // The day the sailing leaves; null while not known. Its ČNB rates value the box costs on Earnings (Council Outlay 13, D10).
+    departureDate: date("departure_date", { mode: "string" }),
     createdById: uuid("created_by_id"),
     createdByName: text("created_by_name").notNull().default(""),
   },

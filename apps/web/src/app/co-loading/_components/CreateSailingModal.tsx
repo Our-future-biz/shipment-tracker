@@ -18,6 +18,7 @@ const EMPTY: CoLoadingSailingNew = {
   containerType: "",
   containerCount: 1,
   cutoffDate: null,
+  departureDate: null,
 };
 
 // The container types grouped by size, as Container Details offers them.
@@ -175,6 +176,11 @@ export function CreateSailingModal({
             "Cut-off (optional)",
             <Input type="date" aria-label="Cut-off date" value={form.cutoffDate ?? ""} onChange={(e) => set("cutoffDate", e.target.value || null)} allowClear />,
             "The day cargo must be in by.",
+          )}
+          {field(
+            "Departure date (optional)",
+            <Input type="date" aria-label="Departure date" value={form.departureDate ?? ""} onChange={(e) => set("departureDate", e.target.value || null)} allowClear />,
+            "The day the sailing leaves. Its exchange rates value the box costs.",
           )}
         </div>
         {error && (

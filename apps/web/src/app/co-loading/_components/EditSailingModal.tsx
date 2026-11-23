@@ -10,26 +10,30 @@ import { HINT, LABEL_TEXT } from "@/styles/ui";
 import { sailingTitle } from "../_lib/sailings";
 
 // "Edit sailing": how many containers of its type the sailing has - their capacity is added up in
-// Box utilization - and its cut-off, the day cargo must be in by. Past the cut-off, linking a
-// shipment is remarked on, never refused. Anyone changes these; nothing while the service is closed.
+// Box utilization - its cut-off, the day cargo must be in by, and its departure date, whose ČNB
+// rates value its box costs on Earnings. Past the cut-off, linking a shipment is remarked on, never
+// refused. Anyone changes these; nothing while the service is closed.
 export function EditSailingModal({ open, onClose, sailing }: { open: boolean; onClose: () => void; sailing: CoLoadingSailing }) {
   const save = useSailingDetails(sailing.id);
   const message = useMessages();
   const [count, setCount] = useState<number | null>(sailing.containerCount);
   const [cutoff, setCutoff] = useState(sailing.cutoffDate ?? "");
+  const [departure, setDeparture] = useState(sailing.departureDate ?? "");
   useEffect(() => {
     if (!open) return;
     setCount(sailing.containerCount);
     setCutoff(sailing.cutoffDate ?? "");
+    setDeparture(sailing.departureDate ?? "");
     // Only opening sets this off.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
-  const same = count === sailing.containerCount && cutoff === (sailing.cutoffDate ?? "");
+  const same = count === sailing.containerCount && cutoff === (sailing.cutoffDate ?? "") && departure === (sailing.departureDate ?? "");
+  const wrongOrder = !!cutoff && !!departure && cutoff > departure;
   const handleSave = async () => {
     if (count === null) return;
     try {
-      await save.mutateAsync({ containerCount: count, cutoffDate: cutoff || null });
+      await save.mutateAsync({ containerCount: count, cutoffDate: cutoff || null, departureDate: departure || null });
       message.success(`Sailing ${sailingTitle(sailing)} saved`);
       onClose();
     } catch (err) {
@@ -42,13 +46,13 @@ export function EditSailingModal({ open, onClose, sailing }: { open: boolean; on
       open={open}
       onClose={save.isPending ? () => undefined : onClose}
       title={`Edit sailing ${sailingTitle(sailing)}`}
-      subtitle={`Its ${sailing.containerType} containers and its cut-off.`}
+      subtitle={`Its ${sailing.containerType} containers, its cut-off and its departure date.`}
       footer={
         <div className="flex justify-end gap-2">
           <Button onClick={onClose} disabled={save.isPending}>
             Cancel
           </Button>
-          <Button type="primary" loading={save.isPending} disabled={count === null || same} onClick={handleSave}>
+          <Button type="primary" loading={save.isPending} disabled={count === null || same || wrongOrder} onClick={handleSave}>
             Save
           </Button>
         </div>
@@ -64,6 +68,13 @@ export function EditSailingModal({ open, onClose, sailing }: { open: boolean; on
           <span className={LABEL_TEXT}>Cut-off</span>
           <Input type="date" aria-label="Cut-off date" value={cutoff} onChange={(e) => setCutoff(e.target.value)} allowClear />
           <span className={HINT}>The day cargo must be in by. Leave it empty for none.</span>
+        </label>
+        <label className="flex flex-col gap-1.5">
+          <span className={LABEL_TEXT}>Departure date</span>
+          <Input type="date" aria-label="Departure date" value={departure} onChange={(e) => setDeparture(e.target.value)} allowClear />
+          <span className={wrongOrder ? "text-[12px] text-red-600" : HINT} role={wrongOrder ? "alert" : undefined}>
+            {wrongOrder ? "The cut-off cannot be after the departure date." : "The day the sailing leaves. Its exchange rates value the box costs on Earnings."}
+          </span>
         </label>
       </div>
     </AppModal>

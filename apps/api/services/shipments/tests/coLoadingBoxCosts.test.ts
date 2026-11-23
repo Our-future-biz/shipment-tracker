@@ -4,10 +4,14 @@ import { boxCostChanges, boxCostsOf, checkBoxCosts, shareCents, type BoxCostStor
 import { sailingEarnings, type ShipmentMoney } from "../lib/coLoadingEarnings";
 
 const cost = (containerNo: number, kind: string, amount: number | null, currency = "EUR", note = ""): BoxCostStored => ({ containerNo, kind, amount, currency, note });
-const RATES = new Map([
-  ["EUR", 25],
-  ["USD", 20],
-]);
+const RATES = {
+  rates: new Map([
+    ["EUR", 25],
+    ["USD", 20],
+  ]),
+  fixingDate: "2026-11-23",
+  provisional: false,
+};
 
 describe("checking a container's box costs", () => {
   it("gives every kind once, in order, a kind left out as not set", () => {
@@ -64,14 +68,14 @@ describe("the record of changes", () => {
 
 describe("a sailing's box costs", () => {
   it("are not set while no cost has an amount", () => {
-    const b = boxCostsOf(1, [], null, null);
+    const b = boxCostsOf(1, [], null);
     expect(b.set).toBe(false);
     expect(b.containers).toHaveLength(1);
     expect(b.containers[0]!.lines.map((l) => l.kind)).toEqual(["origin", "ocean", "destination"]);
     expect(b.notSet).toEqual([]);
   });
   it("list each container's own costs and add them up, each at its currency's rate", () => {
-    const b = boxCostsOf(2, [cost(1, "origin", 650), cost(1, "ocean", 2100, "USD"), cost(1, "destination", 10000, "CZK"), cost(2, "ocean", 2000, "USD")], RATES, "2026-11-23");
+    const b = boxCostsOf(2, [cost(1, "origin", 650), cost(1, "ocean", 2100, "USD"), cost(1, "destination", 10000, "CZK"), cost(2, "ocean", 2000, "USD")], RATES);
     expect(b.containers[0]!.total).toEqual({ czk: 68250, eur: 2730 });
     expect(b.containers[1]!.total).toEqual({ czk: 40000, eur: 1600 });
     expect(b.total).toEqual({ czk: 108250, eur: 4330 });
@@ -82,20 +86,38 @@ describe("a sailing's box costs", () => {
     expect(b.rateDate).toBe("2026-11-23");
   });
   it("leave an amount with no rate out and name its currency", () => {
-    const b = boxCostsOf(1, [cost(1, "origin", 100), cost(1, "ocean", 500, "CNY")], RATES, "2026-11-23");
+    const b = boxCostsOf(1, [cost(1, "origin", 100), cost(1, "ocean", 500, "CNY")], RATES);
     expect(b.total.czk).toBe(2500);
     expect(b.containers[0]!.lines[1]!.czk).toBeNull();
     expect(b.missingCurrencies).toEqual(["CNY"]);
   });
   it("value only CZK when the rates could not be read, with no EUR figure", () => {
-    const b = boxCostsOf(1, [cost(1, "origin", 100), cost(1, "destination", 5000, "CZK")], null, null);
+    const b = boxCostsOf(1, [cost(1, "origin", 100), cost(1, "destination", 5000, "CZK")], null);
     expect(b.total).toEqual({ czk: 5000, eur: null });
     expect(b.missingCurrencies).toEqual(["EUR"]);
   });
   it("do not count costs kept for a container the sailing no longer has, and name it", () => {
-    const b = boxCostsOf(1, [cost(1, "ocean", 100), cost(2, "ocean", 900)], RATES, "2026-11-23");
+    const b = boxCostsOf(1, [cost(1, "ocean", 100), cost(2, "ocean", 900)], RATES);
     expect(b.total.czk).toBe(2500);
     expect(b.ignoredContainers).toEqual([2]);
+  });
+});
+
+describe("the day whose rates value the box costs", () => {
+  const costs = [cost(1, "ocean", 100)];
+  it("is provisional while the sailing has no departure date: the latest rates are used", () => {
+    const b = boxCostsOf(1, costs, RATES);
+    expect(b).toMatchObject({ departureDate: null, rateDate: "2026-11-23", rateProvisional: true });
+  });
+  it("is fixed once the departure date's fixing is out", () => {
+    const b = boxCostsOf(1, costs, { ...RATES, fixingDate: "2026-11-20" }, "2026-11-21");
+    expect(b).toMatchObject({ departureDate: "2026-11-21", rateDate: "2026-11-20", rateProvisional: false });
+  });
+  it("is provisional while the departure date is still ahead", () => {
+    expect(boxCostsOf(1, costs, { ...RATES, provisional: true }, "2026-12-20").rateProvisional).toBe(true);
+  });
+  it("is provisional when the rates could not be read", () => {
+    expect(boxCostsOf(1, costs, null, "2026-11-21")).toMatchObject({ rateDate: null, rateProvisional: true });
   });
 });
 
@@ -150,7 +172,7 @@ const money = (shipmentId: string, sellingCzk: number, inlandCzk = 0): ShipmentM
 });
 const byId = (...items: ShipmentMoney[]) => new Map(items.map((m) => [m.shipmentId, m]));
 const NONE = new Set<string>();
-const box = (eur: number, containers = 1) => boxCostsOf(containers, [cost(1, "ocean", eur)], RATES, "2026-11-23");
+const box = (eur: number, containers = 1) => boxCostsOf(containers, [cost(1, "ocean", eur)], RATES);
 
 describe("a sailing's profit", () => {
   it("shows none while no box cost is set", () => {
@@ -229,7 +251,7 @@ describe("a sailing's profit", () => {
 
   it("is incomplete when a box cost has no rate", () => {
     const a = row(1);
-    const e = sailingEarnings([a], byId(money(a.shipmentId, 10000)), NONE, boxCostsOf(1, [cost(1, "ocean", 500, "CNY"), cost(1, "origin", 1)], RATES, "2026-11-23"));
+    const e = sailingEarnings([a], byId(money(a.shipmentId, 10000)), NONE, boxCostsOf(1, [cost(1, "ocean", 500, "CNY"), cost(1, "origin", 1)], RATES));
     expect(e.complete).toBe(false);
   });
 });

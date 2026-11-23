@@ -117,6 +117,7 @@ export function CoLoadingSailingPage() {
                 <Fact label="HUB">{text(sailing.hub)}</Fact>
                 <Fact label="Box utilization">{box ? <BoxFillChip fill={fillOfBox(box)} /> : text(null)}</Fact>
                 <Fact label="Cut-off">{text(formatDate(sailing.cutoffDate))}</Fact>
+                <Fact label="Departure">{text(formatDate(sailing.departureDate))}</Fact>
               </div>
             </div>
 

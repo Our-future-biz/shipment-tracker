@@ -50,7 +50,7 @@ export function sailingEarnings(
   shipments: readonly BoxUtilizationRow[],
   money: ReadonlyMap<string, ShipmentMoney> | null,
   inMasterJob: ReadonlySet<string>,
-  box: SailingBoxCosts = boxCostsOf(1, [], null, null),
+  box: SailingBoxCosts = boxCostsOf(1, [], null),
 ): SailingEarnings {
   const rows: EarningsRow[] = shipments.map((s) => {
     const m = money?.get(s.shipmentId) ?? null;

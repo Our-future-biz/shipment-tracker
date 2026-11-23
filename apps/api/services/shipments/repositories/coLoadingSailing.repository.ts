@@ -110,8 +110,8 @@ class CoLoadingSailingRepository {
     return rows.length;
   }
 
-  /** Sets the sailing's number of containers and its cut-off; the sailing as it is now, null when not found. */
-  async setDetails(id: string, companyId: string, details: { containerCount: number; cutoffDate: string | null }): Promise<CoLoadingSailingRecord | null> {
+  /** Sets the sailing's number of containers, its cut-off and - when given - its departure date; the sailing as it is now, null when not found. */
+  async setDetails(id: string, companyId: string, details: { containerCount: number; cutoffDate: string | null; departureDate?: string | null }): Promise<CoLoadingSailingRecord | null> {
     const [row] = await db
       .update(sailings)
       .set({ ...details, updatedAt: new Date() })

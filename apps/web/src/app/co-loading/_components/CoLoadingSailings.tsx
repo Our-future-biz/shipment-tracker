@@ -71,6 +71,7 @@ export function CoLoadingSailings({ serviceId, closed }: { serviceId: string; cl
                 <th className={TH}>Box utilization</th>
                 <th className={`${TH} !text-right`}>Shipments</th>
                 <th className={TH}>Cut-off</th>
+                <th className={TH}>Departure</th>
                 <th className={TH}>Created</th>
               </tr>
             </thead>
@@ -99,6 +100,7 @@ export function CoLoadingSailings({ serviceId, closed }: { serviceId: string; cl
                   <td className={TD}>{s.fill ? <BoxFillChip fill={s.fill} /> : "—"}</td>
                   <td className={`${TD} text-right tabular-nums`}>{s.fill ? s.fill.shipments : "—"}</td>
                   <td className={`${TD} whitespace-nowrap tabular-nums`}>{formatDate(s.cutoffDate) || "—"}</td>
+                  <td className={`${TD} whitespace-nowrap tabular-nums`}>{formatDate(s.departureDate) || "—"}</td>
                   <td className={`${TD} whitespace-nowrap text-slate-500`}>
                     {formatDate(s.createdAt)}
                     {s.createdByName ? ` · ${s.createdByName}` : ""}

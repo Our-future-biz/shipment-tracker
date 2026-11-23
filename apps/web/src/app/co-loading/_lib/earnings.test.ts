@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { amountWords, boxCostWords, boxRateWords, changeWords, earningsNotes, earningsWarnings, invoicedHint, marginWords, type BoxCostChange, type EarningsAmount, type EarningsRow, type SailingBoxCosts, type SailingEarnings } from "./earnings";
+import { profitProvisional, amountWords, boxCostWords, boxRateWords, changeWords, earningsNotes, earningsWarnings, invoicedHint, marginWords, type BoxCostChange, type EarningsAmount, type EarningsRow, type SailingBoxCosts, type SailingEarnings } from "./earnings";
 
 const amt = (czk: number, eur: number | null = czk / 25): EarningsAmount => ({ czk, eur });
 const row = (more: Partial<EarningsRow> = {}): EarningsRow => ({
@@ -33,6 +33,7 @@ const box = (more: Partial<SailingBoxCosts> = {}): SailingBoxCosts => ({
   total: amt(0),
   eurRate: 25,
   rateDate: null,
+  departureDate: null,
   rateProvisional: true,
   missingCurrencies: [],
   notSet: [],
@@ -159,7 +160,13 @@ describe("box costs in words", () => {
     const day = (d: string) => d.split("-").reverse().join(".");
     expect(boxRateWords(box(), day)).toBeNull();
     expect(boxRateWords(box({ set: true, rateDate: "2026-11-23", eurRate: 24.455 }), day)).toBe(
-      "Valued at the ČNB rates of 23.11.2026 (1 EUR = 24.455 CZK). The latest rates are used, so the figures move with them.",
+      "Provisional: valued at the ČNB rates of 23.11.2026 (1 EUR = 24.455 CZK), the latest ones, because the sailing has no departure date yet. Set it in Edit sailing to fix the rate.",
+    );
+    expect(boxRateWords(box({ set: true, rateDate: "2026-11-23", eurRate: 24.455, departureDate: "2026-12-18" }), day)).toBe(
+      "Provisional: valued at the ČNB rates of 23.11.2026 (1 EUR = 24.455 CZK), the latest ones, until the rates of the departure date, 18.12.2026, are out.",
+    );
+    expect(boxRateWords(box({ set: true, rateDate: "2026-11-20", eurRate: 24.4, departureDate: "2026-11-21", rateProvisional: false }), day)).toBe(
+      "Valued at the ČNB rates of 20.11.2026 (1 EUR = 24.4 CZK): the rates of the departure date, 21.11.2026.",
     );
     expect(boxRateWords(box({ set: true, rateDate: null }), day)).toBe("The exchange rates could not be read: only amounts in CZK are valued.");
   });
@@ -189,5 +196,18 @@ describe("the marks about the box on a shipment's row", () => {
   it("say it has no share, or that it loses after its share", () => {
     expect(earningsNotes(row({ noShare: true })).map((n) => n.text)).toEqual(["No weight or volume: no share of the box"]);
     expect(earningsNotes(row({ profit: amt(-100) })).map((n) => n.text)).toEqual(["Loss after its share of the box"]);
+  });
+});
+
+describe("a provisional profit", () => {
+  const line = (currency: string, amount: number | null = 100) => ({ kind: "ocean" as const, amount, currency, note: "", czk: 1 });
+  const withLines = (lines: ReturnType<typeof line>[], more: Partial<SailingBoxCosts> = {}) => earnings({ boxCosts: box({ set: true, containers: [{ containerNo: 1, lines, total: amt(0) }], ...more }) });
+  it("is one whose box costs in another currency are valued at a rate that may still move", () => {
+    expect(profitProvisional(withLines([line("USD")]))).toBe(true);
+    expect(profitProvisional(withLines([line("USD")], { rateProvisional: false }))).toBe(false);
+  });
+  it("is not one when every box cost is in CZK, or none is set", () => {
+    expect(profitProvisional(withLines([line("CZK"), line("USD", null)]))).toBe(false);
+    expect(profitProvisional(earnings())).toBe(false);
   });
 });

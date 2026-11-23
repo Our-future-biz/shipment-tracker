@@ -100,13 +100,15 @@ interface CoLoadingSailingDetailsRequest {
   containerCount: number;
   /** The day cargo must be in by, YYYY-MM-DD, or null for none */
   cutoffDate: string | null;
+  /** The day the sailing leaves, YYYY-MM-DD, or null for none; left out, it stays as it is */
+  departureDate?: string | null;
 }
 
-// "Edit sailing": its number of containers and its cut-off. Refused while the service is closed.
+// "Edit sailing": its number of containers, its cut-off and its departure date. Refused while the service is closed.
 export const coLoadingSailingDetails = api(
   { expose: true, auth: true, method: "PUT", path: "/co-loading/sailings/:id" },
-  async ({ id, containerCount, cutoffDate }: CoLoadingSailingDetailsRequest): Promise<{ sailing: CoLoadingSailingItem }> => {
-    return { sailing: await service.setDetails(id, { containerCount, cutoffDate }, getAuthData()!.companyID) };
+  async ({ id, containerCount, cutoffDate, departureDate }: CoLoadingSailingDetailsRequest): Promise<{ sailing: CoLoadingSailingItem }> => {
+    return { sailing: await service.setDetails(id, { containerCount, cutoffDate, ...(departureDate !== undefined ? { departureDate } : {}) }, getAuthData()!.companyID) };
   },
 );
 
@@ -142,6 +144,8 @@ interface CoLoadingSailingCreateRequest {
   containerCount?: number;
   /** The day cargo must be in by, YYYY-MM-DD; none when left out */
   cutoffDate?: string | null;
+  /** The day the sailing leaves, YYYY-MM-DD; none when left out */
+  departureDate?: string | null;
 }
 
 // "Create new sailing" on the service's page. Refused while the service is closed.

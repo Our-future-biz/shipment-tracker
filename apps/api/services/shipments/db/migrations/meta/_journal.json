@@ -722,6 +722,13 @@
       "when": 1795446815396,
       "tag": "0102_co_loading_box_costs",
       "breakpoints": true
+    },
+    {
+      "idx": 103,
+      "version": "7",
+      "when": 1795447392721,
+      "tag": "0103_co_loading_departure_date",
+      "breakpoints": true
     }
   ]
 }

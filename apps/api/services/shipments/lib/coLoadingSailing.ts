@@ -48,10 +48,12 @@ export interface SailingInput {
   containerCount?: number;
   /** The day cargo must be in by, YYYY-MM-DD; none when left out. */
   cutoffDate?: string | null;
+  /** The day it leaves, YYYY-MM-DD; none when left out. */
+  departureDate?: string | null;
 }
 
-/** A sailing as it is saved: every field trimmed, a week written "WEEK 44", one container and no cut-off unless given. */
-export type SailingValues = Required<Omit<SailingInput, "cutoffDate">> & { cutoffDate: string | null };
+/** A sailing as it is saved: every field trimmed, a week written "WEEK 44", one container, no cut-off and no departure date unless given. */
+export type SailingValues = Required<Omit<SailingInput, "cutoffDate" | "departureDate">> & { cutoffDate: string | null; departureDate: string | null };
 
 const tidy = (s: string | undefined) => (s ?? "").trim().replace(/\s+/g, " ");
 
@@ -73,7 +75,7 @@ export function checkSailingInput(input: SailingInput): { values: SailingValues 
   if (!hub) return { error: "Give the HUB." };
   const containerType = tidy(input.containerType);
   if (!(SAILING_CONTAINER_TYPES as readonly string[]).includes(containerType)) return { error: "Pick the container type." };
-  const details = { containerCount: input.containerCount ?? 1, cutoffDate: input.cutoffDate || null };
+  const details = { containerCount: input.containerCount ?? 1, cutoffDate: input.cutoffDate || null, departureDate: input.departureDate || null };
   const wrong = sailingDetailsProblem(details);
   if (wrong) return { error: wrong };
   return { values: { vessel: week ?? typed, voyage, pol, pod, hub, containerType, ...details } };
@@ -89,14 +91,19 @@ export interface SailingDetails {
   containerCount: number;
   /** YYYY-MM-DD, or null for none. */
   cutoffDate: string | null;
+  /** YYYY-MM-DD, or null for none; left out, it stays as it is. */
+  departureDate?: string | null;
 }
 
 const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
+const notADay = (day: string) => !ISO_DAY.test(day) || Number.isNaN(Date.parse(`${day}T00:00:00Z`));
 
 /** Why these details cannot be saved, in words for the form; null when they can. */
 export function sailingDetailsProblem(d: SailingDetails): string | null {
   if (!Number.isInteger(d.containerCount) || d.containerCount < 1 || d.containerCount > CONTAINER_COUNT_MAX) return `Give the number of containers, from 1 to ${CONTAINER_COUNT_MAX}.`;
-  if (d.cutoffDate !== null && (!ISO_DAY.test(d.cutoffDate) || Number.isNaN(Date.parse(`${d.cutoffDate}T00:00:00Z`)))) return "The cut-off is not a date.";
+  if (d.cutoffDate !== null && notADay(d.cutoffDate)) return "The cut-off is not a date.";
+  if (d.departureDate != null && notADay(d.departureDate)) return "The departure date is not a date.";
+  if (d.cutoffDate !== null && d.departureDate != null && d.cutoffDate > d.departureDate) return "The cut-off cannot be after the departure date.";
   return null;
 }
 

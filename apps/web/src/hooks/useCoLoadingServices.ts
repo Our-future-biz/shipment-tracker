@@ -137,11 +137,11 @@ export function useSailingBoxCostChanges(id: string, enabled: boolean) {
   return { changes: query.data?.data ?? [], isLoading: query.isLoading, isError: query.isError };
 }
 
-/** "Edit sailing": its number of containers and its cut-off. Every view of the sailing is read again. */
+/** "Edit sailing": its number of containers, its cut-off and its departure date. Every view of the sailing is read again. */
 export function useSailingDetails(id: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (details: { containerCount: number; cutoffDate: string | null }) => api.shipments.coLoadingSailingDetails(id, details),
+    mutationFn: (details: { containerCount: number; cutoffDate: string | null; departureDate: string | null }) => api.shipments.coLoadingSailingDetails(id, details),
     onSuccess: () => qc.invalidateQueries({ queryKey: LIST_KEY }),
   });
 }

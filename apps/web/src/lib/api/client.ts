@@ -3742,7 +3742,7 @@ export namespace shipments {
         /**
          * "Edit sailing": its number of containers and its cut-off. Refused while the service is closed.
          */
-        public async coLoadingSailingDetails(id: string, params: { containerCount: number; cutoffDate: string | null }): Promise<{ sailing: interfaces.CoLoadingSailingItem }> {
+        public async coLoadingSailingDetails(id: string, params: { containerCount: number; cutoffDate: string | null; departureDate?: string | null }): Promise<{ sailing: interfaces.CoLoadingSailingItem }> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("PUT", `/co-loading/sailings/${encodeURIComponent(id)}`, JSON.stringify(params))
             return await resp.json() as { sailing: interfaces.CoLoadingSailingItem }
@@ -8802,6 +8802,11 @@ export namespace controllers {
          * The day cargo must be in by, YYYY-MM-DD; none when left out
          */
         cutoffDate?: string | null
+
+        /**
+         * The day the sailing leaves, YYYY-MM-DD; none when left out
+         */
+        departureDate?: string | null
     }
 
     export interface CoLoadingSailingLinkRequest {
@@ -16086,6 +16091,10 @@ export namespace interfaces {
         total: EarningsAmount
         eurRate: number | null
         rateDate: string | null
+        /**
+         * The sailing's departure date; null while it has none - then the latest rates are used.
+         */
+        departureDate: string | null
         rateProvisional: boolean
         missingCurrencies: string[]
         notSet: { containerNo: number; kind: BoxCostKind }[]
@@ -16342,6 +16351,11 @@ export namespace interfaces {
          * The day cargo must be in by, YYYY-MM-DD; null while none is set.
          */
         cutoffDate: string | null
+
+        /**
+         * The day the sailing leaves, YYYY-MM-DD; null while not known. Its ČNB rates value the box costs.
+         */
+        departureDate: string | null
 
         createdByName: string
         createdAt: string

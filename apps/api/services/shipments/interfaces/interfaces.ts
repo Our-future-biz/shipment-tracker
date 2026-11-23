@@ -2318,6 +2318,8 @@ export interface CoLoadingSailingItem {
   containerCount: number;
   /** The day cargo must be in by, YYYY-MM-DD; null while none is set. */
   cutoffDate: string | null;
+  /** The day the sailing leaves, YYYY-MM-DD; null while not known. Its ČNB rates value the box costs. */
+  departureDate: string | null;
   createdByName: string;
   createdAt: string;
   /** How full its box is, on the service's list of sailings; left out where only the sailing itself is read. */
@@ -2536,6 +2538,9 @@ export interface SailingBoxCosts {
   /** CZK for one EUR, and the day whose ČNB rates value the costs; null when the rates could not be read. */
   eurRate: number | null;
   rateDate: string | null;
+  /** The sailing's departure date, whose rates are asked for; null while it has none - then the latest rates are used. */
+  departureDate: string | null;
+  /** The rates may still move: the sailing has no departure date, or its day's fixing is not out yet. */
   rateProvisional: boolean;
   /** Currencies with no rate: their amounts are left out of the total. */
   missingCurrencies: string[];

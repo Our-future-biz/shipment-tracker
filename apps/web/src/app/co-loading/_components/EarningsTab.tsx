@@ -22,6 +22,7 @@ import {
   earningsWarnings,
   invoicedHint,
   marginWords,
+  profitProvisional,
   type EarningsAmount,
   type SailingBoxCosts,
 } from "../_lib/earnings";
@@ -220,8 +221,8 @@ export function EarningsTab({ sailingId, containerType, onOpenShipments }: Earni
           value={tile(earned)}
           size="text"
           tone={known && earned.czk < 0 ? "red" : undefined}
-          hint={earnings.complete ? (under(earned) ?? undefined) : "incomplete"}
-          hintTone={earnings.complete ? undefined : "amber"}
+          hint={!earnings.complete ? "incomplete" : profitProvisional(earnings) ? "provisional: the rate may move" : (under(earned) ?? undefined)}
+          hintTone={!earnings.complete || profitProvisional(earnings) ? "amber" : undefined}
         />
         <KpiTile label="Margin" value={known ? marginWords(totals.marginPct) : "Not known"} size="text" tone={known && (totals.marginPct ?? 0) < 0 ? "red" : undefined} hint={boxSet ? "profit of the revenue" : "once box costs are set"} />
       </div>

@@ -45,6 +45,10 @@ export function earningsWarnings(e: SailingEarnings): string[] {
 
 const containerOf = (e: SailingEarnings, containerNo: number) => (e.boxCosts.containers.length > 1 ? ` of container ${containerNo}` : "");
 
+/** Whether the profit is provisional: a box cost is set and its rate may still move. Shown as a mark, not a warning. */
+export const profitProvisional = (e: SailingEarnings): boolean =>
+  e.boxCosts.set && e.boxCosts.rateProvisional && e.boxCosts.containers.some((c) => c.lines.some((l) => l.amount !== null && l.currency !== "CZK"));
+
 /** What is off about the box costs, in words. */
 function boxWarnings(e: SailingEarnings): string[] {
   const box = e.boxCosts;
@@ -71,7 +75,10 @@ export const marginWords = (pct: number | null): string => (pct === null ? "—"
 export function boxRateWords(box: SailingBoxCosts, formatDate: (d: string) => string): string | null {
   if (!box.set) return null;
   if (!box.rateDate) return "The exchange rates could not be read: only amounts in CZK are valued.";
-  return `Valued at the ČNB rates of ${formatDate(box.rateDate)}${box.eurRate ? ` (1 EUR = ${box.eurRate.toLocaleString("en-US", { maximumFractionDigits: 3 })} CZK)` : ""}. The latest rates are used, so the figures move with them.`;
+  const rates = `the ČNB rates of ${formatDate(box.rateDate)}${box.eurRate ? ` (1 EUR = ${box.eurRate.toLocaleString("en-US", { maximumFractionDigits: 3 })} CZK)` : ""}`;
+  if (!box.departureDate) return `Provisional: valued at ${rates}, the latest ones, because the sailing has no departure date yet. Set it in Edit sailing to fix the rate.`;
+  if (box.rateProvisional) return `Provisional: valued at ${rates}, the latest ones, until the rates of the departure date, ${formatDate(box.departureDate)}, are out.`;
+  return `Valued at ${rates}: the rates of the departure date, ${formatDate(box.departureDate)}.`;
 }
 
 /** One kept change in words: "Ocean Freight of container 2: 2,100.00 USD → 2,250.00 USD". */

@@ -13,6 +13,13 @@ const MAX_AMOUNT = 99_999_999.99;
 const MAX_NOTE = 200;
 const round2 = (v: number) => Math.round(v * 100) / 100 || 0;
 
+/** A day's ČNB rates: CZK for one unit of each currency, the fixing they are from, and whether a later fixing may still replace them. */
+export interface BoxRates {
+  rates: ReadonlyMap<string, number>;
+  fixingDate: string | null;
+  provisional: boolean;
+}
+
 /** A box cost as typed or as stored: no amount means "not set". */
 export interface BoxCostLineInput {
   kind: string;
@@ -64,12 +71,14 @@ export function boxCostChanges<T extends BoxCostLineInput>(stored: readonly BoxC
 }
 
 /**
- * The sailing's box costs, valued. `rates` are CZK for one unit of each currency on `rateDate`
- * (CZK itself needs none); null when the rates could not be read - then only CZK amounts are
- * valued. An amount with no rate is left out and its currency named. Costs kept for a container
+ * The sailing's box costs, valued. `rates` are CZK for one unit of each currency (CZK itself needs
+ * none) with the day of their fixing; null when the rates could not be read - then only CZK amounts
+ * are valued. They are the rates of the sailing's departure date (D10); until it has one, or until
+ * that day's fixing is out, the latest ones, and the valuation is provisional. An amount with no rate is left out and its currency named. Costs kept for a container
  * the sailing no longer has are not counted, and the container named.
  */
-export function boxCostsOf(containerCount: number, stored: readonly BoxCostStored[], rates: ReadonlyMap<string, number> | null, rateDate: string | null): SailingBoxCosts {
+export function boxCostsOf(containerCount: number, stored: readonly BoxCostStored[], day: BoxRates | null, departureDate: string | null = null): SailingBoxCosts {
+  const rates = day?.rates ?? null;
   const eurRate = rates?.get("EUR") ?? null;
   const missing = new Set<string>();
   const inCzk = (amount: number, currency: string): number | null => {
@@ -99,9 +108,9 @@ export function boxCostsOf(containerCount: number, stored: readonly BoxCostStore
     containers,
     total: amountOf(containers.reduce((sum, c) => sum + c.total.czk, 0)),
     eurRate,
-    rateDate,
-    // Until the sailing has a departure date (the next build step), the rate is the latest one.
-    rateProvisional: true,
+    rateDate: day?.fixingDate ?? null,
+    departureDate,
+    rateProvisional: departureDate === null || (day?.provisional ?? true),
     missingCurrencies: [...missing].sort(),
     notSet: set ? containers.flatMap((c) => c.lines.filter((l) => l.amount === null).map((l) => ({ containerNo: c.containerNo, kind: l.kind }))) : [],
     ignoredContainers: [...new Set(stored.filter((s) => s.containerNo > containerCount && s.amount !== null).map((s) => s.containerNo))].sort((a, b) => a - b),
