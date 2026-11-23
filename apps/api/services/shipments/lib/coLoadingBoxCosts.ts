@@ -71,6 +71,35 @@ export function boxCostChanges<T extends BoxCostLineInput>(stored: readonly BoxC
 }
 
 /**
+ * Whether a container's costs changed since the dialog read them (Council Review 7, K12): `expected`
+ * is what the dialog showed, `stored` what is there now. The name of who changed the first line that
+ * differs, "" when not recorded; null when nothing changed, and the save may go on. A kind with no
+ * row is "not set"; the currency of a cost that is not set does not count.
+ */
+export function boxCostsChangedBy(stored: readonly (BoxCostLineInput & { updatedByName?: string })[], expected: readonly BoxCostLineInput[]): string | null {
+  for (const kind of BOX_COST_KINDS) {
+    const now = stored.find((s) => s.kind === kind);
+    const then = expected.find((e) => e.kind === kind);
+    const a = { amount: now?.amount ?? null, currency: now?.currency ?? "", note: now?.note ?? "" };
+    const b = { amount: then?.amount ?? null, currency: (then?.currency ?? "").trim().toUpperCase(), note: (then?.note ?? "").trim() };
+    if (a.amount !== b.amount || a.note !== b.note || (a.amount !== null && a.currency !== b.currency)) return now?.updatedByName ?? "";
+  }
+  return null;
+}
+
+/** What "Edit sailing" changed that moves the box costs: the number of containers and the departure date (K13). Kept in the record of changes. */
+export function sailingDetailChanges(
+  before: { containerCount: number; departureDate: string | null },
+  after: { containerCount: number; departureDate?: string | null },
+): { kind: "containers" | "departure"; oldAmount: number | null; newAmount: number | null; oldNote: string; newNote: string }[] {
+  const out: ReturnType<typeof sailingDetailChanges> = [];
+  if (after.containerCount !== before.containerCount) out.push({ kind: "containers", oldAmount: before.containerCount, newAmount: after.containerCount, oldNote: "", newNote: "" });
+  if (after.departureDate !== undefined && (after.departureDate ?? null) !== before.departureDate)
+    out.push({ kind: "departure", oldAmount: null, newAmount: null, oldNote: before.departureDate ?? "", newNote: after.departureDate ?? "" });
+  return out;
+}
+
+/**
  * The sailing's box costs, valued. `rates` are CZK for one unit of each currency (CZK itself needs
  * none) with the day of their fixing; null when the rates could not be read - then only CZK amounts
  * are valued. They are the rates of the sailing's departure date (D10); until it has one, or until

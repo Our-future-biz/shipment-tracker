@@ -40,8 +40,12 @@ export function BoxCostsModal({ open, onClose, sailingId, container, containerTy
   const message = useMessages();
   const stored = container.lines.map(lineOf);
   const [lines, setLines] = useState<Line[]>(stored);
+  // The costs as they were when the dialog opened: a refresh behind it must not move them.
+  const [opened, setOpened] = useState<Line[]>(stored);
   useEffect(() => {
-    if (open) setLines(container.lines.map(lineOf));
+    if (!open) return;
+    setLines(container.lines.map(lineOf));
+    setOpened(container.lines.map(lineOf));
     // Only opening sets this off.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, container.containerNo]);
@@ -50,7 +54,8 @@ export function BoxCostsModal({ open, onClose, sailingId, container, containerTy
 
   const handleSave = async () => {
     try {
-      await save.mutateAsync({ containerNo: container.containerNo, lines: lines.map((l) => ({ ...l, note: l.note.trim() })) });
+      // With what the dialog showed when it opened: a save over costs somebody changed meanwhile is refused.
+      await save.mutateAsync({ containerNo: container.containerNo, lines: lines.map((l) => ({ ...l, note: l.note.trim() })), expected: opened });
       message.success(`Costs of ${name} saved`);
       onClose();
     } catch (err) {
@@ -69,7 +74,7 @@ export function BoxCostsModal({ open, onClose, sailingId, container, containerTy
           <Button onClick={onClose} disabled={save.isPending}>
             Cancel
           </Button>
-          <Button type="primary" loading={save.isPending} disabled={same(lines, stored)} onClick={handleSave}>
+          <Button type="primary" loading={save.isPending} disabled={same(lines, opened)} onClick={handleSave}>
             Save
           </Button>
         </div>

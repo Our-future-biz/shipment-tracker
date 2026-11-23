@@ -67,7 +67,7 @@ function BoxCostChanges({ sailingId, several }: { sailingId: string; several: bo
           <ul className="m-0 mt-2 flex list-none flex-col gap-1.5 p-0 text-[13px] text-slate-700">
             {changes.map((c) => (
               <li key={c.id}>
-                <span className="text-slate-500 tabular-nums">{formatDateTime(c.changedAt)}</span> · {c.changedByName || "Somebody"} · {changeWords(c, several)}
+                <span className="text-slate-500 tabular-nums">{formatDateTime(c.changedAt)}</span> · {c.changedByName || "Somebody"} · {changeWords(c, several, formatDate)}
               </li>
             ))}
           </ul>
@@ -81,10 +81,10 @@ function BoxCostChanges({ sailingId, several }: { sailingId: string; several: bo
  * Costs one under the other, its total, and the total of the sailing. "Set costs" opens a
  * container's dialog.
  */
-function BoxCosts({ sailingId, containerType, box }: { sailingId: string; containerType: string; box: SailingBoxCosts }) {
+function BoxCosts({ sailingId, containerType, box, closed }: { sailingId: string; containerType: string; box: SailingBoxCosts; closed: boolean }) {
   const [editing, setEditing] = useState<number | null>(null);
   const several = box.containers.length > 1;
-  const rate = boxRateWords(box, formatDate);
+  const rate = boxRateWords(box, formatDate, closed);
   const edited = box.containers.find((c) => c.containerNo === editing) ?? null;
   return (
     <SectionCard title="Box costs" bodyClassName="p-0" extra={<span className={HINT}>estimates, set per container</span>}>
@@ -152,6 +152,8 @@ interface EarningsTabProps {
   sailingId: string;
   /** "40' HC": what the sailing's containers are, for the box costs. */
   containerType: string;
+  /** The service is closed: box costs may still be corrected, the departure date not until it is reopened. */
+  closed: boolean;
   /** Opens the Linked shipments tab, where shipments are put in the box and taken out. */
   onOpenShipments: () => void;
 }
@@ -163,7 +165,7 @@ interface EarningsTabProps {
 // the loaded shipments by W/M, which gives each shipment's profit and the sailing's. Until one is
 // set, the tab shows what the sailing earns before them. A total with gaps says so; the shipment
 // that earns least stands first.
-export function EarningsTab({ sailingId, containerType, onOpenShipments }: EarningsTabProps) {
+export function EarningsTab({ sailingId, containerType, closed, onOpenShipments }: EarningsTabProps) {
   const { earnings, isLoading, isError, isFetching, refetch } = useSailingEarnings(sailingId);
 
   if (!earnings) {
@@ -244,7 +246,7 @@ export function EarningsTab({ sailingId, containerType, onOpenShipments }: Earni
         <KpiTile label="Margin" value={known ? marginWords(totals.marginPct) : "Not known"} size="text" tone={known && (totals.marginPct ?? 0) < 0 ? "red" : undefined} hint={boxSet ? "profit of the revenue" : "once box costs are set"} />
       </div>
 
-      <BoxCosts sailingId={sailingId} containerType={containerType} box={earnings.boxCosts} />
+      <BoxCosts sailingId={sailingId} containerType={containerType} box={earnings.boxCosts} closed={closed} />
 
       {known && (breakEvenWords(earnings) || unsoldWords(earnings) || unpriced.length > 0) && (
         <section className={`${CARD} flex flex-col gap-1.5 px-5 py-4 text-[13px] text-slate-700`} aria-label="Break-even and unsold space">

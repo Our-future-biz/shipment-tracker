@@ -3745,7 +3745,7 @@ export namespace shipments {
         /**
          * Sets one container's box costs: estimates, for managers and admins, also on a closed service.
          */
-        public async coLoadingSailingBoxCostsSave(id: string, params: { containerNo: number; lines: { kind: string; amount: number | null; currency: string; note: string }[] }): Promise<void> {
+        public async coLoadingSailingBoxCostsSave(id: string, params: { containerNo: number; lines: { kind: string; amount: number | null; currency: string; note: string }[]; expected?: { kind: string; amount: number | null; currency: string; note: string }[] }): Promise<void> {
             await this.baseClient.callTypedAPI("PUT", `/co-loading/sailings/${encodeURIComponent(id)}/box-costs`, JSON.stringify(params))
         }
 
@@ -16143,8 +16143,14 @@ export namespace interfaces {
      */
     export interface BoxCostChange {
         id: string
+        /**
+         * The container whose cost changed; 0 for a change of the sailing itself.
+         */
         containerNo: number
-        kind: BoxCostKind
+        /**
+         * A box cost, or a change of the sailing that moves them: "containers" (numbers in the amounts) or "departure" (dates in the notes).
+         */
+        kind: BoxCostKind | "containers" | "departure"
         oldAmount: number | null
         oldCurrency: string
         oldNote: string
@@ -16421,6 +16427,11 @@ export namespace interfaces {
          * The day the sailing leaves, YYYY-MM-DD; null while not known. Its ČNB rates value the box costs.
          */
         departureDate: string | null
+
+        /**
+         * On the sailing's own page only: the containers that have box costs. Once there is one, only managers and admins change the number of containers and the departure date.
+         */
+        costedContainers?: number[]
 
         createdByName: string
         createdAt: string

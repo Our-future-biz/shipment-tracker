@@ -2320,6 +2320,11 @@ export interface CoLoadingSailingItem {
   cutoffDate: string | null;
   /** The day the sailing leaves, YYYY-MM-DD; null while not known. Its ČNB rates value the box costs. */
   departureDate: string | null;
+  /**
+   * On the sailing's own page only: the containers that have box costs. Once there is one, only
+   * managers and admins change the number of containers and the departure date. No money.
+   */
+  costedContainers?: number[];
   createdByName: string;
   createdAt: string;
   /** How full its box is, on the service's list of sailings; left out where only the sailing itself is read. */
@@ -2591,8 +2596,10 @@ export interface SailingBoxCosts {
 /** One kept change of a box cost. */
 export interface BoxCostChange {
   id: string;
+  /** The container whose cost changed; 0 for a change of the sailing itself. */
   containerNo: number;
-  kind: BoxCostKind;
+  /** A box cost, or a change of the sailing that moves them: "containers" (old and new number in the amounts) or "departure" (old and new date in the notes). */
+  kind: BoxCostKind | "containers" | "departure";
   oldAmount: number | null;
   oldCurrency: string;
   oldNote: string;

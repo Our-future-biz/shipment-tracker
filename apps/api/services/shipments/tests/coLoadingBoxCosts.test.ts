@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { BoxUtilizationRow } from "../interfaces/interfaces";
-import { boxCostChanges, boxCostsOf, checkBoxCosts, shareCents, type BoxCostStored } from "../lib/coLoadingBoxCosts";
+import { boxCostChanges, boxCostsChangedBy, boxCostsOf, checkBoxCosts, sailingDetailChanges, shareCents, type BoxCostStored } from "../lib/coLoadingBoxCosts";
 import { profitProvisional, sailingEarnings, sailingProfit, type ShipmentMoney } from "../lib/coLoadingEarnings";
 
 const cost = (containerNo: number, kind: string, amount: number | null, currency = "EUR", note = ""): BoxCostStored => ({ containerNo, kind, amount, currency, note });
@@ -396,5 +396,48 @@ describe("cargo figures a share cannot be trusted on", () => {
     expect(e.rows.find((r) => r.shipmentId === air.shipmentId)!.odd).toBe("Air Freight");
     expect(e.rows.find((r) => r.shipmentId === road.shipmentId)!.handRoadLines).toBe(2);
     expect(e.notes).toMatchObject({ odd: 1, handRoad: 1 });
+  });
+});
+
+describe("a save over costs changed meanwhile", () => {
+  const shown = [
+    { kind: "origin", amount: null, currency: "EUR", note: "" },
+    { kind: "ocean", amount: 1000, currency: "EUR", note: "MSC" },
+    { kind: "destination", amount: null, currency: "EUR", note: "" },
+  ];
+  const stored = (amount: number | null, currency = "EUR", note = "MSC") => [{ kind: "ocean", amount, currency, note, updatedByName: "Jana Nová" }];
+  it("goes on when the costs are as the dialog showed them", () => {
+    expect(boxCostsChangedBy(stored(1000), shown)).toBeNull();
+    // A cost not set has no currency that counts, and a kind with no row is not set.
+    expect(boxCostsChangedBy([...stored(1000), { kind: "origin", amount: null, currency: "USD", note: "" }], shown)).toBeNull();
+    expect(boxCostsChangedBy([], [])).toBeNull();
+  });
+  it("is refused, naming who changed them, when an amount, a currency or a note differs", () => {
+    expect(boxCostsChangedBy(stored(1500), shown)).toBe("Jana Nová");
+    expect(boxCostsChangedBy(stored(1000, "USD"), shown)).toBe("Jana Nová");
+    expect(boxCostsChangedBy(stored(1000, "EUR", "Maersk"), shown)).toBe("Jana Nová");
+    expect(boxCostsChangedBy(stored(null), shown)).toBe("Jana Nová");
+  });
+  it("is refused when a cost was set that the dialog showed as not set, or the other way round", () => {
+    expect(boxCostsChangedBy([...stored(1000), { kind: "origin", amount: 300, currency: "EUR", note: "" }], shown)).toBe("");
+    expect(boxCostsChangedBy([], shown)).toBe("");
+  });
+});
+
+describe("changes of the sailing that move its box costs", () => {
+  const before = { containerCount: 2, departureDate: "2026-11-20" };
+  it("are none when neither the number of containers nor the departure date changed", () => {
+    expect(sailingDetailChanges(before, { containerCount: 2, departureDate: "2026-11-20" })).toEqual([]);
+    // A departure date left out stays as it is.
+    expect(sailingDetailChanges(before, { containerCount: 2 })).toEqual([]);
+  });
+  it("record the old and the new number of containers, and the old and the new date", () => {
+    expect(sailingDetailChanges(before, { containerCount: 1, departureDate: null })).toEqual([
+      { kind: "containers", oldAmount: 2, newAmount: 1, oldNote: "", newNote: "" },
+      { kind: "departure", oldAmount: null, newAmount: null, oldNote: "2026-11-20", newNote: "" },
+    ]);
+    expect(sailingDetailChanges({ containerCount: 1, departureDate: null }, { containerCount: 1, departureDate: "2026-12-01" })).toEqual([
+      { kind: "departure", oldAmount: null, newAmount: null, oldNote: "", newNote: "2026-12-01" },
+    ]);
   });
 });

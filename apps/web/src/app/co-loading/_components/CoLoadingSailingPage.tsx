@@ -93,7 +93,7 @@ export function CoLoadingSailingPage() {
               Edit sailing
             </button>
           )}
-          {sailing && <EditSailingModal open={editing} onClose={() => setEditing(false)} sailing={sailing} />}
+          {sailing && <EditSailingModal open={editing} onClose={() => setEditing(false)} sailing={sailing} isManager={isManager} />}
         </div>
 
         {sailing && (
@@ -187,7 +187,7 @@ export function CoLoadingSailingPage() {
         ) : sailing && tab === "box" ? (
           <BoxUtilizationTab sailingId={sailing.id} onOpenShipments={() => openTab("shipments")} />
         ) : sailing ? (
-          <EarningsTab sailingId={sailing.id} containerType={sailing.containerType} onOpenShipments={() => openTab("shipments")} />
+          <EarningsTab sailingId={sailing.id} containerType={sailing.containerType} closed={!!service?.closedAt} onOpenShipments={() => openTab("shipments")} />
         ) : isLoading ? (
           <div className="flex justify-center p-20">
             <Spin size="large" />

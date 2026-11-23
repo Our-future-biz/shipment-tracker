@@ -3,9 +3,10 @@ import log from "encore.dev/log";
 import { fx, invoicing } from "~encore/clients";
 import { isUuid } from "../../../lib/uuid";
 import { capacityOf, containerCapacity } from "../../../lib/containerCapacity";
-import type { BoxCostChange, BoxCostKind, BoxUtilization, CoLoadingSailingItem, SailingBoxCosts, SailingEarnings, SailingProfit, SailingRemovedShipment } from "../interfaces/interfaces";
-import { boxCostChanges, boxCostsOf, checkBoxCosts, type BoxCostLineInput, type BoxCostStored, type BoxRates } from "../lib/coLoadingBoxCosts";
-import { coLoadingBoxCostRepository as boxCostRepo } from "../repositories/coLoadingBoxCost.repository";
+import type { BoxCostChange, BoxUtilization, CoLoadingSailingItem, SailingBoxCosts, SailingEarnings, SailingProfit, SailingRemovedShipment } from "../interfaces/interfaces";
+import { boxCostsOf, checkBoxCosts, sailingDetailChanges, type BoxCostLineInput, type BoxCostStored, type BoxRates } from "../lib/coLoadingBoxCosts";
+import { canManageServices } from "../lib/coLoadingService";
+import { BoxCostsChangedMeanwhile, coLoadingBoxCostRepository as boxCostRepo } from "../repositories/coLoadingBoxCost.repository";
 import { sailingEarnings, sailingProfit, type ShipmentMoney } from "../lib/coLoadingEarnings";
 import { boxFillOf, boxUtilization } from "../lib/boxUtilization";
 import { CANCELLED_STATUS } from "../lib/fieldDefaults";
@@ -168,12 +169,24 @@ class CoLoadingSailingService {
    * (the controller); allowed on a closed service too, to correct them (D17). Every changed line is
    * recorded with who changed it and the old and new figure (D16).
    */
-  async saveBoxCosts(id: string, containerNo: number, lines: BoxCostLineInput[], actor: { userID: string; companyID: string }): Promise<void> {
+  async saveBoxCosts(id: string, containerNo: number, lines: BoxCostLineInput[], expected: BoxCostLineInput[] | null, actor: { userID: string; companyID: string }): Promise<void> {
     const sailing = await this.get(id, actor.companyID);
     const checked = checkBoxCosts(containerNo, sailing.containerCount, lines);
     if ("error" in checked) throw APIError.invalidArgument(checked.error);
-    const stored = (await boxCostRepo.list(sailing.id, actor.companyID)).map(storedCost).filter((s) => s.containerNo === containerNo);
-    await boxCostRepo.save(sailing.id, actor.companyID, containerNo, boxCostChanges(stored, checked.lines), { id: actor.userID, name: await userNameOf(actor.userID) });
+    try {
+      await boxCostRepo.save(sailing.id, actor.companyID, containerNo, checked.lines, expected, { id: actor.userID, name: await userNameOf(actor.userID) });
+    } catch (err) {
+      // Somebody else saved this container's costs since the dialog read them (K12): nothing is overwritten unseen.
+      if (err instanceof BoxCostsChangedMeanwhile)
+        throw APIError.failedPrecondition(`These costs were changed meanwhile${err.by ? ` by ${err.by}` : ""}. Nothing was saved: close the dialog and open it again to see them.`);
+      throw err;
+    }
+  }
+
+  /** One sailing for its page: with the containers that have box costs, which decide who may edit it (K13). No money. */
+  async page(id: string, companyId: string): Promise<CoLoadingSailingItem> {
+    const sailing = await this.get(id, companyId);
+    return { ...sailing, costedContainers: await boxCostRepo.costedContainers(sailing.id, companyId) };
   }
 
   /** The record of the box costs' changes, the last one first. */
@@ -182,7 +195,7 @@ class CoLoadingSailingService {
     return (await boxCostRepo.changes(sailing.id, companyId)).map((c) => ({
       id: c.id,
       containerNo: c.containerNo,
-      kind: c.kind as BoxCostKind,
+      kind: c.kind as BoxCostChange["kind"],
       oldAmount: c.oldAmount === null ? null : Number(c.oldAmount),
       oldCurrency: c.oldCurrency,
       oldNote: c.oldNote,
@@ -205,14 +218,23 @@ class CoLoadingSailingService {
     }));
   }
 
-  /** "Edit sailing": its number of containers and its cut-off. Not while the service is closed. */
-  async setDetails(id: string, details: SailingDetails, companyId: string): Promise<CoLoadingSailingItem> {
+  /**
+   * "Edit sailing": its number of containers, its cut-off and its departure date. Not while the
+   * service is closed. The number of containers and the departure date move the box costs, so once
+   * a box cost is set only managers and admins change them (Council Review 7, K13), and every such
+   * change goes into the record of changes.
+   */
+  async setDetails(id: string, details: SailingDetails, actor: { userID: string; companyID: string; role: string }): Promise<CoLoadingSailingItem> {
     const problem = sailingDetailsProblem(details);
     if (problem) throw APIError.invalidArgument(problem);
-    const sailing = await this.get(id, companyId);
-    await coLoadingServiceService.requireOpen(sailing.serviceId, companyId);
-    const row = await repo.setDetails(sailing.id, companyId, details);
+    const sailing = await this.get(id, actor.companyID);
+    await coLoadingServiceService.requireOpen(sailing.serviceId, actor.companyID);
+    const moved = sailingDetailChanges(sailing, details);
+    if (moved.length > 0 && !canManageServices(actor.role) && (await boxCostRepo.costedContainers(sailing.id, actor.companyID)).length > 0)
+      throw APIError.permissionDenied("This sailing has box costs: only managers and admins change its number of containers or its departure date.");
+    const row = await repo.setDetails(sailing.id, actor.companyID, details);
     if (!row) throw APIError.notFound("Sailing not found");
+    await boxCostRepo.recordSailingChanges(sailing.id, actor.companyID, moved, { id: actor.userID, name: await userNameOf(actor.userID) });
     return toItem(row);
   }
 

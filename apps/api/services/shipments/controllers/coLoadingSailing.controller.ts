@@ -19,7 +19,7 @@ export const coLoadingSailingList = api(
 export const coLoadingSailingGet = api(
   { expose: true, auth: true, method: "GET", path: "/co-loading/sailings/:id" },
   async ({ id }: { id: string }): Promise<CoLoadingSailingItem> => {
-    return service.get(id, getAuthData()!.companyID);
+    return service.page(id, getAuthData()!.companyID);
   },
 );
 
@@ -54,13 +54,15 @@ interface BoxCostsRequest {
   containerNo: number;
   /** Its Origin Costs ("origin"), Ocean Freight ("ocean") and Destination Costs ("destination"); no amount = not set. */
   lines: { kind: string; amount: number | null; currency: string; note: string }[] & MaxLen<3>;
+  /** The three costs as the dialog showed them when it opened: a save over costs changed since then is refused. */
+  expected?: { kind: string; amount: number | null; currency: string; note: string }[] & MaxLen<3>;
 }
 
 // Sets one container's box costs: estimates, for managers and admins, also on a closed service (D14, D17).
 export const coLoadingSailingBoxCostsSave = api(
   { expose: true, auth: true, method: "PUT", path: "/co-loading/sailings/:id/box-costs" },
-  async ({ id, containerNo, lines }: BoxCostsRequest): Promise<void> => {
-    await service.saveBoxCosts(id, containerNo, lines, requireRole("superadmin", "admin", "manager"));
+  async ({ id, containerNo, lines, expected }: BoxCostsRequest): Promise<void> => {
+    await service.saveBoxCosts(id, containerNo, lines, expected ?? null, requireRole("superadmin", "admin", "manager"));
   },
 );
 
@@ -116,7 +118,7 @@ interface CoLoadingSailingDetailsRequest {
 export const coLoadingSailingDetails = api(
   { expose: true, auth: true, method: "PUT", path: "/co-loading/sailings/:id" },
   async ({ id, containerCount, cutoffDate, departureDate }: CoLoadingSailingDetailsRequest): Promise<{ sailing: CoLoadingSailingItem }> => {
-    return { sailing: await service.setDetails(id, { containerCount, cutoffDate, ...(departureDate !== undefined ? { departureDate } : {}) }, getAuthData()!.companyID) };
+    return { sailing: await service.setDetails(id, { containerCount, cutoffDate, ...(departureDate !== undefined ? { departureDate } : {}) }, getAuthData()!) };
   },
 );
 

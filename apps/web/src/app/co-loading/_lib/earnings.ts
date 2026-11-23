@@ -138,17 +138,20 @@ export const boxCostWords = (amount: number | null, currency: string): string =>
 export const marginWords = (pct: number | null): string => (pct === null ? "—" : `${pct.toLocaleString("en-US", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`);
 
 /** The day's rate the box costs are valued at, in words; null when nothing needed a rate. */
-export function boxRateWords(box: SailingBoxCosts, formatDate: (d: string) => string): string | null {
+export function boxRateWords(box: SailingBoxCosts, formatDate: (d: string) => string, closed = false): string | null {
   if (!box.set) return null;
   if (!box.rateDate) return "The exchange rates could not be read: only amounts in CZK are valued.";
   const rates = `the ČNB rates of ${formatDate(box.rateDate)}${box.eurRate ? ` (1 EUR = ${box.eurRate.toLocaleString("en-US", { maximumFractionDigits: 3 })} CZK)` : ""}`;
-  if (!box.departureDate) return `Provisional: valued at ${rates}, the latest ones, because the sailing has no departure date yet. Set it in Edit sailing to fix the rate.`;
+  if (!box.departureDate) return `Provisional: valued at ${rates}, the latest ones, because the sailing has no departure date yet. ${closed ? "The service is closed: reopen it to set the date in Edit sailing." : "Set it in Edit sailing to fix the rate."}`;
   if (box.rateProvisional) return `Provisional: valued at ${rates}, the latest ones, until the rates of the departure date, ${formatDate(box.departureDate)}, are out.`;
   return `Valued at ${rates}: the rates of the departure date, ${formatDate(box.departureDate)}.`;
 }
 
 /** One kept change in words: "Ocean Freight of container 2: 2,100.00 USD → 2,250.00 USD". */
-export function changeWords(c: BoxCostChange, severalContainers: boolean): string {
+export function changeWords(c: BoxCostChange, severalContainers: boolean, formatDate: (d: string) => string = (d) => d): string {
+  // A change of the sailing itself that moves the box costs.
+  if (c.kind === "containers") return `Number of containers: ${c.oldAmount ?? "—"} → ${c.newAmount ?? "—"}`;
+  if (c.kind === "departure") return `Departure date: ${c.oldNote ? formatDate(c.oldNote) : "none"} → ${c.newNote ? formatDate(c.newNote) : "none"}`;
   const what = `${BOX_COST_LABEL[c.kind]}${severalContainers ? ` of container ${c.containerNo}` : ""}`;
   const parts: string[] = [];
   const amountChanged = c.oldAmount !== c.newAmount || (c.newAmount !== null && c.oldCurrency !== c.newCurrency);

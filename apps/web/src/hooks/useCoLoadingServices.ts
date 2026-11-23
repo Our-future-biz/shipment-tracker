@@ -129,11 +129,13 @@ export function useSailingProfits(serviceId: string, enabled: boolean) {
   return { profits: new Map((query.data?.data ?? []).map((p) => [p.sailingId, p])), isLoading: query.isLoading, isError: query.isError };
 }
 
+type BoxCostInput = { kind: string; amount: number | null; currency: string; note: string };
+
 /** Setting one container's box costs. The earnings and the record of changes are read again. */
 export function useSailingBoxCosts(id: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (costs: { containerNo: number; lines: { kind: string; amount: number | null; currency: string; note: string }[] }) => api.shipments.coLoadingSailingBoxCostsSave(id, costs),
+    mutationFn: (costs: { containerNo: number; lines: BoxCostInput[]; expected: BoxCostInput[] }) => api.shipments.coLoadingSailingBoxCostsSave(id, costs),
     onSuccess: () => qc.invalidateQueries({ queryKey: [...LIST_KEY, "sailing", id] }),
   });
 }

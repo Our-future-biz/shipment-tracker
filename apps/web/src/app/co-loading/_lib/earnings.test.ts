@@ -324,3 +324,18 @@ describe("fix step 2 of Council Review 7", () => {
     expect(earningsNotes(row({ cargoGap: "weight", cargoImplausible: true })).map((n) => n.text)).toEqual(["Cargo figures look wrong: check its share"]);
   });
 });
+
+describe("fix step 3 of Council Review 7", () => {
+  const day = (d: string) => d.split("-").reverse().join(".");
+  const change = (more: Partial<BoxCostChange>): BoxCostChange => ({ id: "1", containerNo: 0, kind: "containers", oldAmount: 2, oldCurrency: "", oldNote: "", newAmount: 1, newCurrency: "", newNote: "", changedByName: "Jana", changedAt: "2026-11-23T10:00:00Z", ...more });
+  it("says a change of the number of containers and of the departure date in the record", () => {
+    expect(changeWords(change({}), true, day)).toBe("Number of containers: 2 → 1");
+    expect(changeWords(change({ kind: "departure", oldAmount: null, newAmount: null, oldNote: "", newNote: "2026-11-20" }), false, day)).toBe("Departure date: none → 20.11.2026");
+    expect(changeWords(change({ kind: "departure", oldAmount: null, newAmount: null, oldNote: "2026-11-20", newNote: "" }), false, day)).toBe("Departure date: 20.11.2026 → none");
+  });
+  it("tells the manager to reopen a closed service to set the departure date", () => {
+    expect(boxRateWords(box({ set: true, rateDate: "2026-11-23", eurRate: 24.455 }), day, true)).toBe(
+      "Provisional: valued at the ČNB rates of 23.11.2026 (1 EUR = 24.455 CZK), the latest ones, because the sailing has no departure date yet. The service is closed: reopen it to set the date in Edit sailing.",
+    );
+  });
+});
