@@ -9,6 +9,7 @@ import { useCoLoadingSailings } from "@/hooks/useCoLoadingServices";
 import { formatDate } from "@/lib/date";
 import { useMessages } from "@/lib/toast";
 import { BTN_PRIMARY, CARD, EMPTY_STATE, HEADING, LINK, REF, TD, TH } from "@/styles/ui";
+import { containersWords } from "../_lib/boxUtilization";
 import { sailingHref } from "../_lib/sailings";
 import { BoxFillChip } from "./BoxFillChip";
 import { CreateSailingModal } from "./CreateSailingModal";
@@ -69,6 +70,7 @@ export function CoLoadingSailings({ serviceId, closed }: { serviceId: string; cl
                 <th className={TH}>Container Type</th>
                 <th className={TH}>Box utilization</th>
                 <th className={`${TH} !text-right`}>Shipments</th>
+                <th className={TH}>Cut-off</th>
                 <th className={TH}>Created</th>
               </tr>
             </thead>
@@ -93,9 +95,10 @@ export function CoLoadingSailings({ serviceId, closed }: { serviceId: string; cl
                   <td className={TD}>{s.pol}</td>
                   <td className={TD}>{s.pod}</td>
                   <td className={TD}>{s.hub}</td>
-                  <td className={TD}>{s.containerType}</td>
+                  <td className={TD}>{containersWords(s)}</td>
                   <td className={TD}>{s.fill ? <BoxFillChip fill={s.fill} /> : "—"}</td>
                   <td className={`${TD} text-right tabular-nums`}>{s.fill ? s.fill.shipments : "—"}</td>
+                  <td className={`${TD} whitespace-nowrap tabular-nums`}>{formatDate(s.cutoffDate) || "—"}</td>
                   <td className={`${TD} whitespace-nowrap text-slate-500`}>
                     {formatDate(s.createdAt)}
                     {s.createdByName ? ` · ${s.createdByName}` : ""}

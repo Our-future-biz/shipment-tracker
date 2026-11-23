@@ -64,8 +64,10 @@ const oddDensity = (weightKg: number, volumeCbm: number) => weightKg > 0 && volu
 export interface BoxPlanning {
   /** The share of the inside volume planned with, in whole percent: what `capacity.planningCbm` was worked out with. */
   planningPct: number;
-  /** The service's lower cargo weight for the inland leg, in kg; null for none. */
+  /** The service's lower cargo weight for the inland leg, in kg per container; null for none. */
   inlandWeightKg: number | null;
+  /** How many containers the sailing has: `capacity` is already theirs together (lib/containerCapacity capacityOf). */
+  containers: number;
 }
 
 /**
@@ -74,7 +76,9 @@ export interface BoxPlanning {
  * when the road or rail leg is.
  */
 export function boxUtilization(containerType: string, capacity: ContainerCapacity | null, shipments: readonly BoxShipment[], planning: BoxPlanning): BoxUtilization {
-  const inlandKg = capacity && planning.inlandWeightKg !== null && planning.inlandWeightKg < capacity.standardKg ? planning.inlandWeightKg : null;
+  // The inland weight is a container's: together the containers carry that many times it.
+  const inlandAll = planning.inlandWeightKg === null ? null : planning.inlandWeightKg * planning.containers;
+  const inlandKg = capacity && inlandAll !== null && inlandAll < capacity.standardKg ? inlandAll : null;
   const volumeLimit = capacity?.planningCbm ?? null;
   const weightLimit = capacity ? (inlandKg ?? capacity.standardKg) : null;
 
@@ -123,7 +127,7 @@ export function boxUtilization(containerType: string, capacity: ContainerCapacit
 
   return {
     containerType,
-    capacity: capacity ? { ...capacity, inlandKg, planningPct: planning.planningPct } : null,
+    capacity: capacity ? { ...capacity, inlandKg, planningPct: planning.planningPct, containers: planning.containers } : null,
     volume,
     weight,
     fullPct,

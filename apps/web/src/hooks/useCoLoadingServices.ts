@@ -106,6 +106,15 @@ export function useSailingUtilization(id: string) {
   return { box: query.data ?? null, isLoading: query.isLoading, isError: query.isError, refetch: query.refetch };
 }
 
+/** "Edit sailing": its number of containers and its cut-off. Every view of the sailing is read again. */
+export function useSailingDetails(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (details: { containerCount: number; cutoffDate: string | null }) => api.shipments.coLoadingSailingDetails(id, details),
+    onSuccess: () => qc.invalidateQueries({ queryKey: LIST_KEY }),
+  });
+}
+
 /** The shipments taken off a sailing, the last one first: who took each off, when and why. */
 export function useSailingRemoved(id: string) {
   const query = useQuery({ queryKey: [...LIST_KEY, "sailing", id, "removed"], queryFn: () => api.shipments.coLoadingSailingRemoved(id), enabled: isUuid(id) });
@@ -135,5 +144,11 @@ export function useSailingShipmentLinks(sailingId: string) {
     mutationFn: (shipmentId: string) => api.shipments.coLoadingSailingUnlinkShipment(sailingId, shipmentId),
     onSuccess: settle,
   });
-  return { link, unlink };
+  // The shipment leaves this sailing for another: both boxes change, so all of Co-Loading is read again.
+  const move = useMutation({
+    mutationFn: (input: { shipmentId: string; toSailingId: string; reason: string }) =>
+      api.shipments.coLoadingSailingMoveShipment(sailingId, input.shipmentId, { toSailingId: input.toSailingId, reason: input.reason }),
+    onSuccess: () => Promise.all([qc.invalidateQueries({ queryKey: ["shipments"] }), qc.invalidateQueries({ queryKey: LIST_KEY })]),
+  });
+  return { link, unlink, move };
 }

@@ -37,19 +37,21 @@ export const meterBar = (meter: BoxMeter) => ({
 /** A meter's state in words: how much room is left, or by how much it is over. */
 export function meterWords(kind: MeterKind, meter: BoxMeter, capacity: NonNullable<BoxUtilization["capacity"]>): string {
   const over = amount(kind, Math.abs(meter.free));
+  const many = capacity.containers > 1;
   switch (meter.state) {
     case "room":
       return meter.used > 0 ? `Room for ${amount(kind, meter.free)}` : `Empty: room for ${amount(kind, meter.free)}`;
     case "nearly_full":
       return meter.free > 0 ? `Nearly full: room for ${amount(kind, meter.free)}` : "Full";
     case "over":
-      if (kind === "volume") return `Over the planning volume by ${over}. The box holds ${cbm(meter.max)} inside, so it may still load if the cargo stows well.`;
-      if (capacity.inlandKg !== null) return `Over the inland weight by ${over}. The box itself takes ${kg(capacity.standardKg)}, so the limit is the leg between the port and the hub.`;
+      if (kind === "volume") return `Over the planning volume by ${over}. ${many ? "The boxes hold" : "The box holds"} ${cbm(meter.max)} inside, so it may still load if the cargo stows well.`;
+      if (capacity.inlandKg !== null) return `Over the inland weight by ${over}. ${many ? "The boxes themselves take" : "The box itself takes"} ${kg(capacity.standardKg)}, so the limit is the leg between the port and the hub.`;
       return capacity.heavyTestedKg
-        ? `Over the standard limit by ${over}. A heavy-tested box takes up to ${kg(capacity.heavyTestedKg)}.`
+        ? `Over the standard limit by ${over}. ${many ? "Heavy-tested boxes take" : "A heavy-tested box takes"} up to ${kg(capacity.heavyTestedKg)}.`
         : `Over the standard limit by ${over}. Up to ${kg(meter.max)} needs the shipping line's confirmation.`;
     case "beyond":
-      return kind === "volume" ? `Over by ${over}: more than the box holds inside (${cbm(meter.max)}).` : `Over by ${over}: more than a ${capacity.containerType} can take (${kg(meter.max)}).`;
+      if (kind === "volume") return `Over by ${over}: more than ${many ? "the boxes hold" : "the box holds"} inside (${cbm(meter.max)}).`;
+      return `Over by ${over}: more than ${many ? `${capacity.containers} × ${capacity.containerType}` : `a ${capacity.containerType}`} can take (${kg(meter.max)}).`;
   }
 }
 
@@ -184,5 +186,19 @@ export function oddWarning(kinds: string[]): string | null {
 }
 
 /** Why a shipment was taken off a sailing, in words. */
-export const removedReasonWords = (reason: string): string => (reason === "shipment_deleted" ? "The shipment was deleted" : reason === "removed" ? "Removed by hand" : "Not recorded");
+export function removedReasonWords(r: { reason: string; note?: string; movedTo?: string }): string {
+  if (r.reason === "moved") return `Moved to ${r.movedTo || "another sailing"}${r.note ? `: ${r.note}` : ""}`;
+  return r.reason === "shipment_deleted" ? "The shipment was deleted" : r.reason === "removed" ? "Removed by hand" : "Not recorded";
+}
+
+/** A sailing's containers in words: "40' HC", or "2 × 40' HC" when it has several. */
+export const containersWords = (s: { containerType: string; containerCount?: number }): string => ((s.containerCount ?? 1) > 1 ? `${s.containerCount} × ${s.containerType}` : s.containerType);
+
+/**
+ * The remark when shipments are linked after the sailing's cut-off; null before it, on the day
+ * itself, and when the sailing has none. `cutoffDate` and `today` are YYYY-MM-DD; `shown` is the
+ * cut-off as the app writes dates.
+ */
+export const cutoffWarning = (cutoffDate: string | null | undefined, today: string, shown: string): string | null =>
+  cutoffDate && today > cutoffDate ? `The cut-off of this sailing was ${shown}. You can still link shipments.` : null;
 

@@ -708,6 +708,13 @@
       "when": 1795436936615,
       "tag": "0100_co_loading_settings",
       "breakpoints": true
+    },
+    {
+      "idx": 101,
+      "version": "7",
+      "when": 1795437501385,
+      "tag": "0101_co_loading_boxes_cutoff_move",
+      "breakpoints": true
     }
   ]
 }

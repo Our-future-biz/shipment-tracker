@@ -21,6 +21,10 @@ export const coLoadingSailingShipmentTable = pgTable(
     removedById: uuid("removed_by_id"),
     removedByName: text("removed_by_name").notNull().default(""),
     removedReason: text("removed_reason").notNull().default(""),
+    // A link taken off by "Move to another sailing" (removed_reason "moved"): where the shipment
+    // went, and the reason typed for leaving it behind here (D17).
+    movedToSailingId: uuid("moved_to_sailing_id"),
+    removedNote: text("removed_note").notNull().default(""),
   },
   (table) => [
     ...defaultTableIndexes("co_loading_sailing_shipment", table),

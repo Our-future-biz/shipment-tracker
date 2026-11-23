@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CAPACITY_CONTAINER_TYPES, containerCapacity, PLANNING_VOLUME_SHARE } from "../containerCapacity";
+import { CAPACITY_CONTAINER_TYPES, capacityOf, containerCapacity, PLANNING_VOLUME_SHARE } from "../containerCapacity";
 import { SAILING_CONTAINER_TYPES } from "../../services/shipments/lib/coLoadingSailing";
 
 describe("containerCapacity", () => {
@@ -29,5 +29,11 @@ describe("containerCapacity", () => {
     expect(containerCapacity("53' HC")).toBeNull();
     expect(containerCapacity("")).toBeNull();
     expect(containerCapacity(null)).toBeNull();
+  });
+
+  it("adds up what several containers of a type take", () => {
+    expect(capacityOf(1, containerCapacity("40' HC")!)).toEqual(containerCapacity("40' HC"));
+    expect(capacityOf(3, containerCapacity("20' DC")!)).toEqual({ containerType: "20' DC", insideCbm: 99.3, planningCbm: 84.3, standardKg: 78600, heavyTestedKg: 84000, maxKg: 84750 });
+    expect(capacityOf(2, containerCapacity("40' HRF")!)).toMatchObject({ insideCbm: null, planningCbm: null, heavyTestedKg: null, standardKg: 55200 });
   });
 });

@@ -1,4 +1,5 @@
 import { and, asc, desc, eq, inArray, isNotNull, isNull } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 import { db } from "../db/db";
 import {
   coLoadingSailingTable as sailings,
@@ -100,10 +101,42 @@ class CoLoadingSailingRepository {
     return rows.length;
   }
 
+  /** Sets the sailing's number of containers and its cut-off; the sailing as it is now, null when not found. */
+  async setDetails(id: string, companyId: string, details: { containerCount: number; cutoffDate: string | null }): Promise<CoLoadingSailingRecord | null> {
+    const [row] = await db
+      .update(sailings)
+      .set({ ...details, updatedAt: new Date() })
+      .where(and(eq(sailings.id, id), eq(sailings.companyId, companyId), isNull(sailings.deletedAt)))
+      .returning();
+    return row ?? null;
+  }
+
+  /**
+   * Moves the shipment from one sailing to another in one turn: its link here is taken off, saying
+   * where it went and why, and it is linked there. False when it was not on the first sailing.
+   */
+  async move(fromSailingId: string, toSailingId: string, shipmentId: string, companyId: string, by: { id: string; name: string }, note: string): Promise<boolean> {
+    return db.transaction(async (tx) => {
+      const now = new Date();
+      const off = await tx
+        .update(links)
+        .set({ deletedAt: now, updatedAt: now, removedById: by.id, removedByName: by.name, removedReason: "moved", movedToSailingId: toSailingId, removedNote: note })
+        .where(and(eq(links.companyId, companyId), eq(links.sailingId, fromSailingId), eq(links.shipmentId, shipmentId), isNull(links.deletedAt)))
+        .returning({ id: links.id });
+      if (off.length === 0) return false;
+      await tx.insert(links).values({ companyId, sailingId: toSailingId, shipmentId, createdById: by.id, createdByName: by.name });
+      return true;
+    });
+  }
+
   /** The shipments taken off the sailing, the last one first: its history of removals. A deleted shipment is named too. */
   async removedFrom(sailingId: string, companyId: string) {
+    const movedTo = alias(sailings, "moved_to");
     return db
       .select({
+        note: links.removedNote,
+        movedToVessel: movedTo.vessel,
+        movedToVoyage: movedTo.voyage,
         shipmentId: links.shipmentId,
         jobNumber: shipmentTable.jobNumber,
         customer: shipmentTable.customer,
@@ -115,6 +148,7 @@ class CoLoadingSailingRepository {
       })
       .from(links)
       .innerJoin(shipmentTable, eq(shipmentTable.id, links.shipmentId))
+      .leftJoin(movedTo, eq(movedTo.id, links.movedToSailingId))
       .where(and(eq(links.companyId, companyId), eq(links.sailingId, sailingId), isNotNull(links.deletedAt), eq(shipmentTable.companyId, companyId)))
       .orderBy(desc(links.deletedAt))
       .limit(200);

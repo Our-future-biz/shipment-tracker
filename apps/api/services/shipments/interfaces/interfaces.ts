@@ -2314,6 +2314,10 @@ export interface CoLoadingSailingItem {
   hub: string;
   /** "40' HC" */
   containerType: string;
+  /** How many containers of that type it has; their capacity is added up. */
+  containerCount: number;
+  /** The day cargo must be in by, YYYY-MM-DD; null while none is set. */
+  cutoffDate: string | null;
   createdByName: string;
   createdAt: string;
   /** How full its box is, on the service's list of sailings; left out where only the sailing itself is read. */
@@ -2329,8 +2333,12 @@ export interface SailingRemovedShipment {
   removedAt: string;
   /** Who took it off, as named then; "" for one taken off before this was recorded. */
   removedByName: string;
-  /** "removed" by hand, "shipment_deleted" when the shipment itself was deleted, "" when not recorded. */
+  /** "removed" by hand, "moved" to another sailing, "shipment_deleted" when the shipment itself was deleted, "" when not recorded. */
   reason: string;
+  /** The reason typed when it was moved; "" otherwise. */
+  note: string;
+  /** The sailing it was moved to, as it is named now ("WEEK 52"); "" when it was not moved. */
+  movedTo: string;
   linkedByName: string;
   linkedAt: string;
 }
@@ -2409,6 +2417,8 @@ export interface BoxUtilization {
     inlandKg: number | null;
     /** The share of the inside volume the planning volume is, in whole percent. */
     planningPct: number;
+    /** How many containers the figures above are added up over. */
+    containers: number;
   } | null;
   /** null where the type has no volume (reefers, flat racks) or no capacity at all. */
   volume: BoxMeter | null;

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { checkSailingInput, linkRefusal, oddInBox, SAILING_CONTAINER_TYPES, sailingWeek, VESSEL_MAX } from "../lib/coLoadingSailing";
+import { checkSailingInput, linkRefusal, moveRefusal, oddInBox, sailingDetailsProblem, SAILING_CONTAINER_TYPES, sailingWeek, VESSEL_MAX } from "../lib/coLoadingSailing";
 
 const PORTS = { pol: "Shanghai (CNSHA)", pod: "Hamburg (DEHAM)", hub: "Praha (CZPRG)", containerType: "40' HC" };
 
@@ -84,5 +84,30 @@ describe("a shipment of another kind than the box is for", () => {
     expect(oddInBox("air", { freightMode: "Sea Freight", loadType: "Consolidation" })).toBe("Sea Freight");
     expect(oddInBox("road", { freightMode: "Road Freight", loadType: "Full Load" })).toBeNull();
     expect(oddInBox("rail", { freightMode: "Road Freight", loadType: "" })).toBe("Road Freight");
+  });
+});
+
+describe("what Edit sailing changes", () => {
+  it("takes 1 to 20 containers and a cut-off day, or none", () => {
+    expect(sailingDetailsProblem({ containerCount: 1, cutoffDate: null })).toBeNull();
+    expect(sailingDetailsProblem({ containerCount: 20, cutoffDate: "2026-12-14" })).toBeNull();
+    for (const count of [0, 21, 1.5, Number.NaN]) expect(sailingDetailsProblem({ containerCount: count, cutoffDate: null }), String(count)).toContain("from 1 to 20");
+    for (const day of ["14.12.2026", "2026-13-40", "soon", ""]) expect(sailingDetailsProblem({ containerCount: 1, cutoffDate: day }), day).toBe("The cut-off is not a date.");
+  });
+});
+
+describe("moving a shipment to another sailing", () => {
+  const from = { id: "a", serviceId: "s1" };
+
+  it("goes to another sailing of the same service, with a reason", () => {
+    expect(moveRefusal(from, { id: "b", serviceId: "s1" }, "Box full, rolled to next week")).toBeNull();
+  });
+
+  it("is refused without a target, to the same sailing, to another service, or without a reason", () => {
+    expect(moveRefusal(from, null, "x")).toBe("The sailing to move it to was not found.");
+    expect(moveRefusal(from, { id: "a", serviceId: "s1" }, "x")).toBe("Pick another sailing to move it to.");
+    expect(moveRefusal(from, { id: "b", serviceId: "s2" }, "x")).toBe("A shipment moves only to another sailing of the same service.");
+    expect(moveRefusal(from, { id: "b", serviceId: "s1" }, "   ")).toBe("Say why the shipment is moved.");
+    expect(moveRefusal(from, { id: "b", serviceId: "s1" }, "x".repeat(301))).toContain("at most 300");
   });
 });

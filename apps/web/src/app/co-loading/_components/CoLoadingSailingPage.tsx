@@ -1,15 +1,16 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Spin } from "antd";
 import { BackLink } from "@/components/BackLink";
 import { useCoLoadingSailing, useCoLoadingService, useSailingUtilization } from "@/hooks/useCoLoadingServices";
 import { formatDate } from "@/lib/date";
-import { CARD, EMPTY, HINT, LABEL_TEXT, PAGE_TITLE, REF } from "@/styles/ui";
-import { fillOfBox } from "../_lib/boxUtilization";
+import { BTN, CARD, EMPTY, HINT, LABEL_TEXT, PAGE_TITLE, REF } from "@/styles/ui";
+import { containersWords, fillOfBox } from "../_lib/boxUtilization";
 import { SAILING_TABS, sailingTabOf, sailingTitle } from "../_lib/sailings";
 import { BoxFillChip } from "./BoxFillChip";
+import { EditSailingModal } from "./EditSailingModal";
 import { BoxUtilizationTab } from "./BoxUtilizationTab";
 import { SailingShipmentsTab } from "./SailingShipmentsTab";
 
@@ -58,6 +59,7 @@ export function CoLoadingSailingPage() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const tab = sailingTabOf(searchParams.get("tab"));
+  const [editing, setEditing] = useState(false);
   const openTab = (key: string) => {
     const params = new URLSearchParams(searchParams.toString());
     if (key === SAILING_TABS[0].key) params.delete("tab");
@@ -75,6 +77,13 @@ export function CoLoadingSailingPage() {
           <BackLink href={sailing ? `/co-loading/${sailing.serviceId}` : "/co-loading"}>
             {service?.name ?? "Co-Loading Concept"}
           </BackLink>
+          {/* Its number of containers and its cut-off; not while the service is closed. */}
+          {sailing && service && !service.closedAt && (
+            <button type="button" className={BTN} onClick={() => setEditing(true)}>
+              Edit sailing
+            </button>
+          )}
+          {sailing && <EditSailingModal open={editing} onClose={() => setEditing(false)} sailing={sailing} />}
         </div>
 
         {sailing && (
@@ -90,7 +99,7 @@ export function CoLoadingSailingPage() {
                 <Fact label="Voyage">{text(sailing.voyage)}</Fact>
                 <Fact label="Service">{text(service?.name)}</Fact>
                 <Fact label="Service Name">{text(service?.serviceName)}</Fact>
-                <Fact label="Container Type">{text(sailing.containerType)}</Fact>
+                <Fact label="Container Type">{text(containersWords(sailing))}</Fact>
                 <Fact label="Created">
                   {text(
                     [formatDate(sailing.createdAt), sailing.createdByName]
@@ -102,6 +111,7 @@ export function CoLoadingSailingPage() {
                 <Fact label="Port of Discharge">{text(sailing.pod)}</Fact>
                 <Fact label="HUB">{text(sailing.hub)}</Fact>
                 <Fact label="Box utilization">{box ? <BoxFillChip fill={fillOfBox(box)} /> : text(null)}</Fact>
+                <Fact label="Cut-off">{text(formatDate(sailing.cutoffDate))}</Fact>
               </div>
             </div>
 

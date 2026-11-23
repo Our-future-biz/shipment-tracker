@@ -3412,6 +3412,8 @@ export namespace shipments {
             this.coLoadingSailingGet = this.coLoadingSailingGet.bind(this)
             this.coLoadingSailingLinkShipments = this.coLoadingSailingLinkShipments.bind(this)
             this.coLoadingSailingList = this.coLoadingSailingList.bind(this)
+            this.coLoadingSailingDetails = this.coLoadingSailingDetails.bind(this)
+            this.coLoadingSailingMoveShipment = this.coLoadingSailingMoveShipment.bind(this)
             this.coLoadingSailingRemoved = this.coLoadingSailingRemoved.bind(this)
             this.coLoadingSailingUnlinkShipment = this.coLoadingSailingUnlinkShipment.bind(this)
             this.coLoadingSailingUtilization = this.coLoadingSailingUtilization.bind(this)
@@ -3716,6 +3718,22 @@ export namespace shipments {
          */
         public async coLoadingSailingUnlinkShipment(id: string, shipmentId: string): Promise<void> {
             await this.baseClient.callTypedAPI("DELETE", `/co-loading/sailings/${encodeURIComponent(id)}/shipments/${encodeURIComponent(shipmentId)}`)
+        }
+
+        /**
+         * "Edit sailing": its number of containers and its cut-off. Refused while the service is closed.
+         */
+        public async coLoadingSailingDetails(id: string, params: { containerCount: number; cutoffDate: string | null }): Promise<{ sailing: interfaces.CoLoadingSailingItem }> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("PUT", `/co-loading/sailings/${encodeURIComponent(id)}`, JSON.stringify(params))
+            return await resp.json() as { sailing: interfaces.CoLoadingSailingItem }
+        }
+
+        /**
+         * "Move to another sailing": the shipment leaves this sailing for another of the service, with the reason.
+         */
+        public async coLoadingSailingMoveShipment(id: string, shipmentId: string, params: { toSailingId: string; reason: string }): Promise<void> {
+            await this.baseClient.callTypedAPI("POST", `/co-loading/sailings/${encodeURIComponent(id)}/shipments/${encodeURIComponent(shipmentId)}/move`, JSON.stringify(params))
         }
 
         /**
@@ -15929,9 +15947,17 @@ export namespace interfaces {
          */
         removedByName: string
         /**
-         * "removed" by hand, "shipment_deleted" when the shipment itself was deleted, "" when not recorded.
+         * "removed" by hand, "moved" to another sailing, "shipment_deleted" when the shipment itself was deleted, "" when not recorded.
          */
         reason: string
+        /**
+         * The reason typed when it was moved; "" otherwise.
+         */
+        note: string
+        /**
+         * The sailing it was moved to, as it is named now ("WEEK 52"); "" when it was not moved.
+         */
+        movedTo: string
         linkedByName: string
         linkedAt: string
     }
@@ -16054,6 +16080,10 @@ export namespace interfaces {
              * The share of the inside volume the planning volume is, in whole percent.
              */
             planningPct: number
+            /**
+             * How many containers the figures above are added up over.
+             */
+            containers: number
         } | null
         /**
          * null where the type has no volume (reefers, flat racks) or no capacity at all.
@@ -16109,6 +16139,14 @@ export namespace interfaces {
          * "40' HC"
          */
         containerType: string
+        /**
+         * How many containers of that type it has; their capacity is added up.
+         */
+        containerCount: number
+        /**
+         * The day cargo must be in by, YYYY-MM-DD; null while none is set.
+         */
+        cutoffDate: string | null
 
         createdByName: string
         createdAt: string

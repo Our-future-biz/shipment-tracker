@@ -1,10 +1,10 @@
 import { APIError } from "encore.dev/api";
 import { isUuid } from "../../../lib/uuid";
-import { containerCapacity } from "../../../lib/containerCapacity";
+import { capacityOf, containerCapacity } from "../../../lib/containerCapacity";
 import type { BoxUtilization, CoLoadingSailingItem, SailingRemovedShipment } from "../interfaces/interfaces";
 import { boxFillOf, boxUtilization } from "../lib/boxUtilization";
 import { CANCELLED_STATUS } from "../lib/fieldDefaults";
-import { checkSailingInput, linkRefusal, oddInBox, type SailingInput } from "../lib/coLoadingSailing";
+import { checkSailingInput, linkRefusal, moveRefusal, oddInBox, sailingDetailsProblem, type SailingDetails, type SailingInput } from "../lib/coLoadingSailing";
 import { userNameOf } from "../lib/userName";
 import { coLoadingSailingRepository as repo, type LinkedCargo } from "../repositories/coLoadingSailing.repository";
 import type { CoLoadingSailingRecord } from "../schemas/coLoadingSailing.schema";
@@ -19,21 +19,25 @@ const toItem = (r: CoLoadingSailingRecord): CoLoadingSailingItem => ({
   pod: r.pod,
   hub: r.hub,
   containerType: r.containerType,
+  containerCount: r.containerCount,
+  cutoffDate: r.cutoffDate,
   createdByName: r.createdByName,
   createdAt: r.createdAt.toISOString(),
 });
 
 /**
- * The fill of a box of this type, on this service, holding these shipments, planned to the company's share of its volume. A cancelled
+ * The fill of a sailing's containers together, on this service, holding these shipments, planned to the company's share of their volume. A cancelled
  * one is listed, not counted; one of another kind than the box is for is counted and remarked on.
  */
-const fillOf = (containerType: string, service: { mode: string; inlandWeightKg: number | null }, planningPct: number, shipments: LinkedCargo[]) =>
-  boxUtilization(
-    containerType,
-    containerCapacity(containerType, planningPct / 100),
+const fillOf = (sailing: { containerType: string; containerCount: number }, service: { mode: string; inlandWeightKg: number | null }, planningPct: number, shipments: LinkedCargo[]) => {
+  const one = containerCapacity(sailing.containerType, planningPct / 100);
+  return boxUtilization(
+    sailing.containerType,
+    one && capacityOf(sailing.containerCount, one),
     shipments.map(({ freightMode, loadType, ...s }) => ({ ...s, cancelled: s.status === CANCELLED_STATUS, odd: oddInBox(service.mode, { freightMode, loadType }) })),
-    { planningPct, inlandWeightKg: service.inlandWeightKg },
+    { planningPct, inlandWeightKg: service.inlandWeightKg, containers: sailing.containerCount },
   );
+};
 
 // A Co-Loading Concept service's sailings: listed on its page, made with "Create new sailing" by anyone
 // in the company - not while the service is closed (requireOpen).
@@ -44,7 +48,7 @@ class CoLoadingSailingService {
     const rows = await repo.listByService(serviceId, companyId);
     // Each sailing with how full its box is, so every open box is seen on the one list.
     const [cargo, planningPct] = await Promise.all([repo.boxShipmentsOf(rows.map((r) => r.id), companyId), coLoadingServiceService.planningVolumePct(companyId)]);
-    return rows.map((r) => ({ ...toItem(r), fill: boxFillOf(fillOf(r.containerType, service, planningPct, cargo.get(r.id) ?? [])) }));
+    return rows.map((r) => ({ ...toItem(r), fill: boxFillOf(fillOf(r, service, planningPct, cargo.get(r.id) ?? [])) }));
   }
 
   /** One sailing, for its own page (Box utilization, Linked shipments, Earnings). */
@@ -61,17 +65,43 @@ class CoLoadingSailingService {
   async utilization(id: string, companyId: string): Promise<BoxUtilization> {
     const sailing = await this.get(id, companyId);
     const service = await coLoadingServiceService.get(sailing.serviceId, companyId);
-    return fillOf(sailing.containerType, service, await coLoadingServiceService.planningVolumePct(companyId), await repo.boxShipments(sailing.id, companyId));
+    return fillOf(sailing, service, await coLoadingServiceService.planningVolumePct(companyId), await repo.boxShipments(sailing.id, companyId));
   }
 
   /** The shipments taken off the sailing, the last one first, with who took each off and why. */
   async removed(id: string, companyId: string): Promise<SailingRemovedShipment[]> {
     const sailing = await this.get(id, companyId);
-    return (await repo.removedFrom(sailing.id, companyId)).map((r) => ({
+    return (await repo.removedFrom(sailing.id, companyId)).map(({ movedToVessel, movedToVoyage, ...r }) => ({
       ...r,
+      movedTo: [movedToVessel, movedToVoyage].filter(Boolean).join(" "),
       removedAt: (r.removedAt ?? r.linkedAt).toISOString(),
       linkedAt: r.linkedAt.toISOString(),
     }));
+  }
+
+  /** "Edit sailing": its number of containers and its cut-off. Not while the service is closed. */
+  async setDetails(id: string, details: SailingDetails, companyId: string): Promise<CoLoadingSailingItem> {
+    const problem = sailingDetailsProblem(details);
+    if (problem) throw APIError.invalidArgument(problem);
+    const sailing = await this.get(id, companyId);
+    await coLoadingServiceService.requireOpen(sailing.serviceId, companyId);
+    const row = await repo.setDetails(sailing.id, companyId, details);
+    if (!row) throw APIError.notFound("Sailing not found");
+    return toItem(row);
+  }
+
+  /**
+   * "Move to another sailing": the shipment leaves this sailing for another of the same service,
+   * with the reason it is left behind here, in one turn. Not while the service is closed.
+   */
+  async moveShipment(sailingId: string, shipmentId: string, toSailingId: string, reason: string, actor: { userID: string; companyID: string }): Promise<void> {
+    const from = await this.get(sailingId, actor.companyID);
+    await coLoadingServiceService.requireOpen(from.serviceId, actor.companyID);
+    const to = isUuid(toSailingId) ? await repo.get(toSailingId, actor.companyID) : null;
+    const refusal = moveRefusal(from, to, reason);
+    if (refusal) throw APIError.invalidArgument(refusal);
+    const by = { id: actor.userID, name: await userNameOf(actor.userID) };
+    if (!isUuid(shipmentId) || !(await repo.move(from.id, toSailingId, shipmentId, actor.companyID, by, reason.trim()))) throw APIError.notFound("The shipment is not on this sailing.");
   }
 
   /**

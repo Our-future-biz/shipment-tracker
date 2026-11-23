@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { fillOfBox, fillWords, fullWords, meterBar, meterScale, meterTone, meterWords, missingNote, noVolumeWords, oddInBox, oddWarning, overfillWarning, removedReasonWords, rowNotes, shareWords, usedOfLimit, type BoxMeter, type BoxRow, type BoxUtilization } from "./boxUtilization";
+import { fillOfBox, fillWords, fullWords, meterBar, meterScale, meterTone, meterWords, missingNote, noVolumeWords, containersWords, cutoffWarning, oddInBox, oddWarning, overfillWarning, removedReasonWords, rowNotes, shareWords, usedOfLimit, type BoxMeter, type BoxRow, type BoxUtilization } from "./boxUtilization";
 
-const HC = { containerType: "40' HC", insideCbm: 76.4, planningCbm: 64.9, standardKg: 26200, heavyTestedKg: 28400, maxKg: 28400, inlandKg: null as number | null, planningPct: 85 };
-const OT = { containerType: "40' OT", insideCbm: 67.3, planningCbm: 57.2, standardKg: 26600, heavyTestedKg: null, maxKg: 28550, inlandKg: null, planningPct: 85 };
+const HC = { containerType: "40' HC", insideCbm: 76.4, planningCbm: 64.9, standardKg: 26200, heavyTestedKg: 28400, maxKg: 28400, inlandKg: null as number | null, planningPct: 85, containers: 1 };
+const OT = { containerType: "40' OT", insideCbm: 67.3, planningCbm: 57.2, standardKg: 26600, heavyTestedKg: null, maxKg: 28550, inlandKg: null, planningPct: 85, containers: 1 };
 const meter = (used: number, limit: number, max: number, state: BoxMeter["state"]): BoxMeter => ({ used, limit, max, pct: Math.floor((used / limit) * 100), free: Math.round((limit - used) * 1000) / 1000, state });
 const row = (more: Partial<BoxRow> = {}): BoxRow => ({
   shipmentId: "s1",
@@ -187,8 +187,32 @@ describe("a shipment of another kind than the box is for", () => {
   });
 
   it("says why a shipment was taken off a sailing", () => {
-    expect(removedReasonWords("removed")).toBe("Removed by hand");
-    expect(removedReasonWords("shipment_deleted")).toBe("The shipment was deleted");
-    expect(removedReasonWords("")).toBe("Not recorded");
+    expect(removedReasonWords({ reason: "removed" })).toBe("Removed by hand");
+    expect(removedReasonWords({ reason: "shipment_deleted" })).toBe("The shipment was deleted");
+    expect(removedReasonWords({ reason: "" })).toBe("Not recorded");
+    expect(removedReasonWords({ reason: "moved", movedTo: "WEEK 52", note: "Box full" })).toBe("Moved to WEEK 52: Box full");
+    expect(removedReasonWords({ reason: "moved", movedTo: "", note: "" })).toBe("Moved to another sailing");
+  });
+});
+
+describe("several containers and the cut-off", () => {
+  it("names a sailing's containers", () => {
+    expect(containersWords({ containerType: "40' HC", containerCount: 1 })).toBe("40' HC");
+    expect(containersWords({ containerType: "40' HC", containerCount: 2 })).toBe("2 × 40' HC");
+    expect(containersWords({ containerType: "20' DC" })).toBe("20' DC");
+  });
+
+  it("speaks of boxes when the sailing has more than one", () => {
+    const two = { ...HC, containers: 2, insideCbm: 152.8, planningCbm: 129.8, standardKg: 52400, heavyTestedKg: 56800, maxKg: 56800 };
+    expect(meterWords("volume", meter(131, 129.8, 152.8, "over"), two)).toBe("Over the planning volume by 1.2 cbm. The boxes hold 152.8 cbm inside, so it may still load if the cargo stows well.");
+    expect(meterWords("weight", meter(53000, 52400, 56800, "over"), two)).toBe("Over the standard limit by 600 kg. Heavy-tested boxes take up to 56,800 kg.");
+    expect(meterWords("weight", meter(57000, 52400, 56800, "beyond"), two)).toBe("Over by 4,600 kg: more than 2 × 40' HC can take (56,800 kg).");
+  });
+
+  it("remarks on linking after the cut-off, not on the day or before", () => {
+    expect(cutoffWarning("2026-11-20", "2026-11-23", "20.11.2026")).toBe("The cut-off of this sailing was 20.11.2026. You can still link shipments.");
+    expect(cutoffWarning("2026-11-23", "2026-11-23", "23.11.2026")).toBeNull();
+    expect(cutoffWarning("2026-11-30", "2026-11-23", "30.11.2026")).toBeNull();
+    expect(cutoffWarning(null, "2026-11-23", "")).toBeNull();
   });
 });

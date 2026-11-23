@@ -60,6 +60,39 @@ export const coLoadingSailingUnlinkShipment = api(
   },
 );
 
+interface CoLoadingSailingDetailsRequest {
+  id: string;
+  /** How many containers of its type the sailing has: 1 to 20 */
+  containerCount: number;
+  /** The day cargo must be in by, YYYY-MM-DD, or null for none */
+  cutoffDate: string | null;
+}
+
+// "Edit sailing": its number of containers and its cut-off. Refused while the service is closed.
+export const coLoadingSailingDetails = api(
+  { expose: true, auth: true, method: "PUT", path: "/co-loading/sailings/:id" },
+  async ({ id, containerCount, cutoffDate }: CoLoadingSailingDetailsRequest): Promise<{ sailing: CoLoadingSailingItem }> => {
+    return { sailing: await service.setDetails(id, { containerCount, cutoffDate }, getAuthData()!.companyID) };
+  },
+);
+
+interface CoLoadingSailingMoveRequest {
+  id: string;
+  shipmentId: string;
+  /** Another sailing of the same service */
+  toSailingId: string;
+  /** Why the shipment is left behind here */
+  reason: string & MaxLen<300>;
+}
+
+// "Move to another sailing": the shipment leaves this sailing for another of the service, with the reason.
+export const coLoadingSailingMoveShipment = api(
+  { expose: true, auth: true, method: "POST", path: "/co-loading/sailings/:id/shipments/:shipmentId/move" },
+  async ({ id, shipmentId, toSailingId, reason }: CoLoadingSailingMoveRequest): Promise<void> => {
+    await service.moveShipment(id, shipmentId, toSailingId, reason, getAuthData()!);
+  },
+);
+
 interface CoLoadingSailingCreateRequest {
   id: string;
   /** The vessel's name, or the week it sails ("WEEK 44") while the vessel is not known */

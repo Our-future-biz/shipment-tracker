@@ -1,4 +1,4 @@
-import { index, pgTable, text, uuid } from "drizzle-orm/pg-core";
+import { date, index, integer, pgTable, text, uuid } from "drizzle-orm/pg-core";
 import { defaultTableColumns, defaultTableIndexes, tenantColumns, tenantIndex } from "../../../lib/db/defaults";
 
 // A Co-Loading Concept service's sailing (lib/coLoadingSailing): the vessel the service's cargo goes on,
@@ -19,6 +19,10 @@ export const coLoadingSailingTable = pgTable(
     hub: text("hub").notNull(),
     // A container type as quotes and shipments name it ("40' HC").
     containerType: text("container_type").notNull(),
+    // How many containers of that type the sailing has: their capacity is added up (Council Outlay 12, D15).
+    containerCount: integer("container_count").notNull().default(1),
+    // The day cargo must be in by; null while none is set. A warning when linking after it, never a refusal (D16).
+    cutoffDate: date("cutoff_date", { mode: "string" }),
     createdById: uuid("created_by_id"),
     createdByName: text("created_by_name").notNull().default(""),
   },

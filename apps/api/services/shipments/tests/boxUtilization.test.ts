@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 // The figures rule sits beside code that names API errors; the box's fill itself raises none.
 vi.mock("encore.dev/api", () => import("../../../lib/tests/encoreApi.stub"));
 
-import { containerCapacity } from "../../../lib/containerCapacity";
+import { capacityOf, containerCapacity } from "../../../lib/containerCapacity";
 import { boxFillOf, boxUtilization, meterOf, wholePct, type BoxShipment } from "../lib/boxUtilization";
 import { NOT_STACKABLE } from "../lib/cargoProjection";
 
@@ -38,7 +38,7 @@ const line = (pieces: string, l: string, w: string, h: string, kg: string, more:
   stackable: "",
   ...more,
 });
-const PLAN = { planningPct: 85, inlandWeightKg: null };
+const PLAN = { planningPct: 85, inlandWeightKg: null, containers: 1 };
 const fill = (shipments: BoxShipment[], type = "40' HC") => boxUtilization(type, containerCapacity(type), shipments, PLAN);
 
 describe("wholePct", () => {
@@ -176,7 +176,7 @@ describe("boxUtilization", () => {
   });
 
   it("is full at the service's inland weight when that is below the box's own limit", () => {
-    const inland = (kg: number | null, cargo = [typed("23", "10")]) => boxUtilization("40' HC", containerCapacity("40' HC"), cargo, { planningPct: 85, inlandWeightKg: kg });
+    const inland = (kg: number | null, cargo = [typed("23", "10")]) => boxUtilization("40' HC", containerCapacity("40' HC"), cargo, { planningPct: 85, inlandWeightKg: kg, containers: 1 });
     expect(inland(24000).weight).toMatchObject({ used: 23000, limit: 24000, max: 28400, pct: 95, free: 1000, state: "nearly_full" });
     expect(inland(24000).capacity).toMatchObject({ inlandKg: 24000, standardKg: 26200 });
     expect(inland(22000).weight).toMatchObject({ pct: 105, state: "over", free: -1000 });
@@ -188,11 +188,24 @@ describe("boxUtilization", () => {
   });
 
   it("plans the volume to the company's share of the inside volume", () => {
-    const at = (pct: number) => boxUtilization("40' HC", containerCapacity("40' HC", pct / 100), [typed("5", "65")], { planningPct: pct, inlandWeightKg: null });
+    const at = (pct: number) => boxUtilization("40' HC", containerCapacity("40' HC", pct / 100), [typed("5", "65")], { planningPct: pct, inlandWeightKg: null, containers: 1 });
     expect(at(85).volume).toMatchObject({ limit: 64.9, pct: 101, state: "over" });
     expect(at(90).volume).toMatchObject({ limit: 68.8, pct: 94, state: "nearly_full" });
     expect(at(100).volume).toMatchObject({ limit: 76.4, max: 76.4, pct: 85, state: "room" });
     expect(at(90).capacity).toMatchObject({ planningPct: 90, planningCbm: 68.8 });
+  });
+
+  it("adds up the capacity of a sailing's containers", () => {
+    const two = (cargo: BoxShipment[], inlandWeightKg: number | null = null) =>
+      boxUtilization("40' HC", capacityOf(2, containerCapacity("40' HC")!), cargo, { planningPct: 85, inlandWeightKg, containers: 2 });
+    // Two 40' HC: 129.8 cbm planning of 152.8 inside; 52,400 kg standard, 56,800 at most.
+    const box = two([typed("27", "66")]);
+    expect(box.capacity).toMatchObject({ containers: 2, insideCbm: 152.8, planningCbm: 129.8, standardKg: 52400, heavyTestedKg: 56800, maxKg: 56800 });
+    expect(box.volume).toMatchObject({ limit: 129.8, pct: 50, state: "room" });
+    expect(box.weight).toMatchObject({ limit: 52400, pct: 51, state: "room" });
+    // The inland weight is a container's: two of them carry twice it.
+    expect(two([typed("27", "66")], 24000).weight).toMatchObject({ limit: 48000, pct: 56 });
+    expect(two([typed("27", "66")], 24000).capacity).toMatchObject({ inlandKg: 48000 });
   });
 
   it("holds 250 shipments without losing one", () => {

@@ -69,5 +69,18 @@ export function containerCapacity(type: string | null | undefined, planningShare
   };
 }
 
+/** What `count` containers of one type take together: every figure of one, added up. */
+export function capacityOf(count: number, one: ContainerCapacity): ContainerCapacity {
+  const times = (n: number | null) => (n === null ? null : round1(n * count));
+  return {
+    containerType: one.containerType,
+    insideCbm: times(one.insideCbm),
+    planningCbm: times(one.planningCbm),
+    standardKg: one.standardKg * count,
+    heavyTestedKg: one.heavyTestedKg === null ? null : one.heavyTestedKg * count,
+    maxKg: one.maxKg * count,
+  };
+}
+
 /** The container types the table knows. */
 export const CAPACITY_CONTAINER_TYPES = Object.keys(CAPACITY);

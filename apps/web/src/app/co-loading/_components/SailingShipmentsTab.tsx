@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Button, Checkbox, Dropdown, Input, Modal, Space, Spin, Tooltip } from "antd";
 import {
   DisconnectOutlined,
+  SwapOutlined,
   EllipsisOutlined,
   InboxOutlined,
   PlusOutlined,
@@ -19,12 +20,13 @@ import { useSailingRemoved, useSailingShipmentLinks, useSailingUtilization, type
 import { linkedCount } from "@/app/shipments/_components/MasterJobDialog";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { EMPTY_CELL } from "@/components/EmptyCell";
-import { formatDate, formatDateTime } from "@/lib/date";
+import { businessToday, formatDate, formatDateTime } from "@/lib/date";
 import { placeCodeOf } from "@/lib/places";
 import { useMessages } from "@/lib/toast";
 import { CARD, EMPTY_STATE, HINT, LINK, MODAL_TITLE, REF, TD, TD_TOTAL, TH } from "@/styles/ui";
-import { oddInBox, oddWarning, overfillWarning, removedReasonWords, tableCbm, tableKg, type BoxUtilization } from "../_lib/boxUtilization";
+import { cutoffWarning, oddInBox, oddWarning, overfillWarning, removedReasonWords, tableCbm, tableKg, type BoxUtilization } from "../_lib/boxUtilization";
 import { sailingTitle } from "../_lib/sailings";
+import { MoveShipmentModal } from "./MoveShipmentModal";
 
 // The picker's head stays put while its rows scroll, as the master job's picker does.
 const PICK_TH = `${TH} sticky top-0 z-10 bg-white`;
@@ -57,7 +59,8 @@ export function SailingShipmentsTab({
   closed: boolean;
 }) {
   const { shipments, isLoading, isError } = useShipments({ sailing: sailing.id });
-  const { link, unlink } = useSailingShipmentLinks(sailing.id);
+  const { link, unlink, move } = useSailingShipmentLinks(sailing.id);
+  const [toMove, setToMove] = useState<ShipmentItem | null>(null);
   // The figures are the box's own (Box utilization): each shipment's cargo lines, else its typed
   // totals, in kg. While they are read, the shipment's typed totals stand in.
   const { box } = useSailingUtilization(sailing.id);
@@ -134,6 +137,12 @@ export function SailingShipmentsTab({
                     menu={{
                       items: [
                         {
+                          key: "move",
+                          disabled: closed,
+                          icon: <SwapOutlined />,
+                          label: closed ? <span title={closedHint}>Move to another sailing</span> : "Move to another sailing",
+                        },
+                        {
                           key: "remove",
                           danger: !closed,
                           disabled: closed,
@@ -145,7 +154,7 @@ export function SailingShipmentsTab({
                           ),
                         },
                       ],
-                      onClick: () => setToRemove(s),
+                      onClick: ({ key }) => (key === "move" ? setToMove(s) : setToRemove(s)),
                     }}
                   >
                     <Button
@@ -209,7 +218,7 @@ export function SailingShipmentsTab({
                     <td className={TD}>{cell(r.customer)}</td>
                     <td className={`${TD} whitespace-nowrap tabular-nums`}>{formatDateTime(r.removedAt)}</td>
                     <td className={TD}>{cell(r.removedByName)}</td>
-                    <td className={TD}>{removedReasonWords(r.reason)}</td>
+                    <td className={TD}>{removedReasonWords(r)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -238,8 +247,21 @@ export function SailingShipmentsTab({
           }
         }}
       />
+      <MoveShipmentModal
+        open={!!toMove}
+        onClose={() => setToMove(null)}
+        sailing={sailing}
+        shipment={toMove}
+        moving={move.isPending}
+        onMove={async (toSailingId, reason) => {
+          if (!toMove) return;
+          await move.mutateAsync({ shipmentId: toMove.id, toSailingId, reason });
+          message.success(`${toMove.jobNumber} moved from ${name}`);
+        }}
+      />
       <LinkSailingShipmentsModal
         open={picking}
+        cutoff={cutoffWarning(sailing.cutoffDate, businessToday(), formatDate(sailing.cutoffDate))}
         sailingName={name}
         serviceName={serviceName}
         serviceMode={serviceMode}
@@ -264,10 +286,13 @@ function LinkSailingShipmentsModal({
   serviceName,
   serviceMode,
   box,
+  cutoff,
   onClose,
   onLink,
 }: {
   open: boolean;
+  /** The remark when the sailing's cut-off has passed; null otherwise. */
+  cutoff: string | null;
   sailingName: string;
   serviceName: string;
   serviceMode: string;
@@ -367,7 +392,7 @@ function LinkSailingShipmentsModal({
           onChange={(e) => setQuery(e.target.value)}
           aria-label="Search shipments"
         />
-        {[warning, odd].map(
+        {[cutoff, warning, odd].map(
           (text) =>
             text && (
               <p key={text} className="m-0 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[13px] text-amber-800" role="status">

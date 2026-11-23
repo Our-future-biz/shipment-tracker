@@ -72,6 +72,40 @@ export function checkSailingInput(input: SailingInput): { values: SailingValues 
   return { values: { vessel: week ?? typed, voyage, pol, pod, hub, containerType } };
 }
 
+// ─── What may be changed on a sailing later: its number of containers and its cut-off ───
+
+export const CONTAINER_COUNT_MAX = 20;
+export const MOVE_REASON_MAX = 300;
+
+/** What "Edit sailing" changes. */
+export interface SailingDetails {
+  containerCount: number;
+  /** YYYY-MM-DD, or null for none. */
+  cutoffDate: string | null;
+}
+
+const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
+
+/** Why these details cannot be saved, in words for the form; null when they can. */
+export function sailingDetailsProblem(d: SailingDetails): string | null {
+  if (!Number.isInteger(d.containerCount) || d.containerCount < 1 || d.containerCount > CONTAINER_COUNT_MAX) return `Give the number of containers, from 1 to ${CONTAINER_COUNT_MAX}.`;
+  if (d.cutoffDate !== null && (!ISO_DAY.test(d.cutoffDate) || Number.isNaN(Date.parse(`${d.cutoffDate}T00:00:00Z`)))) return "The cut-off is not a date.";
+  return null;
+}
+
+/**
+ * Why a shipment cannot be moved to this sailing, or null when it can: only to another sailing of
+ * the same service, with the reason it is left behind typed.
+ */
+export function moveRefusal(from: { id: string; serviceId: string }, to: { id: string; serviceId: string } | null, reason: string): string | null {
+  if (!to) return "The sailing to move it to was not found.";
+  if (to.id === from.id) return "Pick another sailing to move it to.";
+  if (to.serviceId !== from.serviceId) return "A shipment moves only to another sailing of the same service.";
+  if (!reason.trim()) return "Say why the shipment is moved.";
+  if (reason.trim().length > MOVE_REASON_MAX) return `The reason can be at most ${MOVE_REASON_MAX} characters.`;
+  return null;
+}
+
 // ─── What kind of shipment a box is for ───
 
 /**
