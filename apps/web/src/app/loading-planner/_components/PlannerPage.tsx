@@ -22,6 +22,7 @@ import type { DimUnit } from "../_lib/units";
 import { CargoCard } from "./CargoCard";
 import { EquipmentCard } from "./EquipmentCard";
 import { LinkJobModal } from "./LinkJobModal";
+import { ReadCargoModal } from "./ReadCargoModal";
 import { ResultPanel } from "./ResultPanel";
 
 const newId = () => crypto.randomUUID();
@@ -74,6 +75,7 @@ function PlanEditor({ saved }: { saved: interfaces.LoadingPlanItem | null }) {
   // What the server holds: the plan as opened, then as last saved.
   const [stored, setStored] = useState(saved);
   const [linking, setLinking] = useState(false);
+  const [reading, setReading] = useState(false);
   const { readJob, isReading } = useLoadingPlanJob();
   const { modal } = App.useApp();
 
@@ -219,11 +221,13 @@ function PlanEditor({ saved }: { saved: interfaces.LoadingPlanItem | null }) {
           )}
         </div>
 
-        <CargoCard lines={lines} unit={unit} onUnitChange={setUnit} onChange={setLines} onAdd={() => setLines([...lines, newDraftLine(newId())])} />
+        <CargoCard lines={lines} unit={unit} onUnitChange={setUnit} onChange={setLines} onAdd={() => setLines([...lines, newDraftLine(newId())])} onRead={() => setReading(true)} />
         <EquipmentCard nominated={nominated} unit={unit} onChange={setNominated} />
         <ResultPanel plan={loadPlan} unit={unit} colourOf={colourOf} />
       </div>
 
+      {/* Lines read from a document join the cargo list after the lines typed so far; blank lines give way. */}
+      <ReadCargoModal open={reading} onClose={() => setReading(false)} unit={unit} onAdd={(read) => setLines([...lines.filter((line) => !isBlank(line)), ...read])} />
       <LinkJobModal open={linking} onClose={() => setLinking(false)} readJob={readJob} onLinked={takeJob} hasCargo={hasCargo} />
     </div>
   );

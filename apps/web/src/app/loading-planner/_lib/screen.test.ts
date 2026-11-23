@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
-import type { interfaces } from "@/lib/api/client";
+import type { interfaces, lib } from "@/lib/api/client";
 import { cargoLinesOf, completeLine, isBlank, lineLabel, newDraftLine, saveProblem, type DraftLine } from "./cargoForm";
 import { jobHref, linesFromQuote, linesFromShipment, quotePackages } from "./jobCargo";
 import { lineColour, loadStats, planTotals } from "./loadStats";
 import { planLoad } from "./plan";
+import { draftsFromReading, isReadLineComplete, readFileProblem } from "./readCargo";
 import { cameraFor, sceneBalance, sceneBounds, sceneBoxes, sceneFloor } from "./scene";
 import { formatDim, formatKg, formatSize, fromMm, toMm } from "./units";
 
@@ -158,5 +159,30 @@ describe("cargo of a job", () => {
   it("knows where a job opens", () => {
     expect(jobHref("shipment", "abc", "CZ00000053")).toBe("/shipments/abc");
     expect(jobHref("quote", "abc", "QCZ 12/3")).toBe("/sales/quote/QCZ%2012%2F3");
+  });
+});
+
+describe("cargo read from a document", () => {
+  const read = (more: Partial<lib.CargoLineRead> = {}): lib.CargoLineRead => ({ name: "Case", lengthMm: 2500, widthMm: 1200, heightMm: 1800, weightKg: 950, colli: 2, stackable: null, note: "", ...more });
+
+  it("adds a line as read, with what was missing left empty", () => {
+    let n = 0;
+    const drafts = draftsFromReading([read(), read({ name: "Machine", weightKg: null, colli: null, stackable: true })], () => `r${++n}`);
+    expect(drafts[0]).toEqual({ id: "r1", name: "Case", lengthMm: 2500, widthMm: 1200, heightMm: 1800, weightKg: 950, colli: 2, canTurn: true, stackable: false });
+    expect(drafts[1]).toMatchObject({ weightKg: null, colli: null, stackable: true });
+    expect(completeLine(drafts[0]!)).not.toBeNull();
+    // No weight was read, so none is planned with: the line waits for the user.
+    expect(completeLine(drafts[1]!)).toBeNull();
+    expect(isReadLineComplete(read())).toBe(true);
+    expect(isReadLineComplete(read({ heightMm: null }))).toBe(false);
+  });
+
+  it("refuses the files the reader cannot take", () => {
+    expect(readFileProblem({ name: "Packing list.PDF", size: 1000 })).toBeNull();
+    expect(readFileProblem({ name: "cargo.xlsx", size: 1000 })).toBeNull();
+    expect(readFileProblem({ name: "old.xls", size: 1000 })).toContain(".xlsx");
+    expect(readFileProblem({ name: "archive.zip", size: 1000 })).toContain("cannot be read");
+    expect(readFileProblem({ name: "scan.pdf", size: 21 * 1024 * 1024 })).toBe("The file is larger than 20 MB.");
+    expect(readFileProblem({ name: "empty.txt", size: 0 })).toBe("The file is empty.");
   });
 });

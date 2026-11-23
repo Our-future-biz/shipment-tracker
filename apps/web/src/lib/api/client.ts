@@ -114,6 +114,26 @@ export interface ClientOptions {
 }
 
 export namespace lib {
+    /**
+     * One cargo line as read from a document. Sizes in whole mm, weight in kg per piece; null where the document gives none.
+     */
+    export interface CargoLineRead {
+        name: string
+        lengthMm: number | null
+        widthMm: number | null
+        heightMm: number | null
+        weightKg: number | null
+        colli: number | null
+        /**
+         * true / false when the document says so; null when it does not.
+         */
+        stackable: boolean | null
+        /**
+         * What the reader assumed or could not tell, for the person checking the line.
+         */
+        note: string
+    }
+
     export interface AuthParams {
         authorization: string
         /**
@@ -1233,6 +1253,7 @@ export namespace extraction {
             this.baseClient = baseClient
             this.extractBooking = this.extractBooking.bind(this)
             this.extractCustoms = this.extractCustoms.bind(this)
+            this.extractCargoList = this.extractCargoList.bind(this)
             this.extractDocument = this.extractDocument.bind(this)
             this.extractInvoice = this.extractInvoice.bind(this)
             this.extractQuote = this.extractQuote.bind(this)
@@ -1266,6 +1287,16 @@ export namespace extraction {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("POST", `/extraction/invoice`, JSON.stringify(params))
             return await resp.json() as interfaces.ExtractionResult
+        }
+
+        /**
+         * The Loading Planner's reader: the cargo lines of a packing list, a quote request or a pasted
+         * e-mail. It only reads - the planner shows the lines for checking before any is added to a plan.
+         */
+        public async extractCargoList(params: controllers.ExtractCargoListRequest): Promise<controllers.ExtractCargoListResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/extraction/cargo-list`, JSON.stringify(params))
+            return await resp.json() as controllers.ExtractCargoListResponse
         }
 
         public async extractQuote(params: controllers.ExtractQuoteRequest): Promise<interfaces.ExtractionResult> {
@@ -10646,6 +10677,23 @@ export namespace controllers {
          * Last month, YYYY-MM
          */
         to: string
+    }
+
+    export interface ExtractCargoListRequest {
+        /**
+         * A pasted cargo list. Give this or a file, not both.
+         */
+        text?: string
+        fileBase64?: string
+        fileName?: string
+    }
+
+    export interface ExtractCargoListResponse {
+        lines: lib.CargoLineRead[]
+        /**
+         * The document was longer than one reading takes, or the reply was cut off: lines may be missing.
+         */
+        partial: boolean
     }
 
     export interface LoadingPlanCreateRequest {

@@ -1,7 +1,7 @@
 "use client";
 
 import { Checkbox, Input, InputNumber } from "antd";
-import { DeleteOutlined, PlusOutlined } from "@ant-design/icons";
+import { DeleteOutlined, FileSearchOutlined, PlusOutlined } from "@ant-design/icons";
 import { DecimalInput } from "@/components/DecimalInput";
 import { Pill } from "@/components/Pill";
 import { PillTabs, SectionCard } from "@/components/SectionCard";
@@ -17,6 +17,8 @@ interface CargoCardProps {
   onUnitChange: (unit: DimUnit) => void;
   onChange: (lines: DraftLine[]) => void;
   onAdd: () => void;
+  /** Opens the reader: cargo lines out of a file or a pasted text. */
+  onRead: () => void;
 }
 
 const UNIT_TABS = DIM_UNITS.map((unit) => ({ key: unit, label: unit, title: `Type and show sizes in ${unit}` }));
@@ -24,7 +26,7 @@ const UNIT_TABS = DIM_UNITS.map((unit) => ({ key: unit, label: unit, title: `Typ
 // The cargo list of a plan: one line per kind of piece, typed in place. Sizes are typed in the
 // chosen unit and kept in millimetres. A line is planned as soon as all its figures are in; its
 // pill says where it is out of gauge.
-export function CargoCard({ lines, unit, onUnitChange, onChange, onAdd }: CargoCardProps) {
+export function CargoCard({ lines, unit, onUnitChange, onChange, onAdd, onRead }: CargoCardProps) {
   const patch = (id: string, change: Partial<DraftLine>) => onChange(lines.map((line) => (line.id === id ? { ...line, ...change } : line)));
 
   const sizeCell = (line: DraftLine, field: "lengthMm" | "widthMm" | "heightMm", label: string) => {
@@ -52,6 +54,10 @@ export function CargoCard({ lines, unit, onUnitChange, onChange, onAdd }: CargoC
       extra={
         <>
           <PillTabs tabs={UNIT_TABS} active={unit} onChange={onUnitChange} />
+          <button type="button" className={BTN_BAR} onClick={onRead}>
+            <FileSearchOutlined />
+            Read from file or text
+          </button>
           <button type="button" className={BTN_BAR} onClick={onAdd}>
             <PlusOutlined />
             Add line
