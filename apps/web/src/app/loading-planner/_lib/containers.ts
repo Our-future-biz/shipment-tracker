@@ -44,6 +44,12 @@ export const CONTAINERS: ContainerSpec[] = [
   { id: "40hfr", name: "40' HFR", group: "flat-rack", feet: 40, internalL: 11652, internalW: 2347, internalH: 2265, doorW: null, doorH: null, payloadKg: 33500, maxTonnesPerMetre: 8.0 },
 ];
 
+/**
+ * The length of floor, in mm, a weight must rest on to stay within the container's floor strength.
+ * (kg ÷ tonnes per metre gives mm.)
+ */
+export const beddingMm = (weightKg: number, container: ContainerSpec): number => weightKg / container.maxTonnesPerMetre;
+
 /** Standard first, open tops for over-height, flat racks last. */
 export const GROUP_ORDER: ContainerGroup[] = ["standard", "open-top", "flat-rack"];
 

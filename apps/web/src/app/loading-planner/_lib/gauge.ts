@@ -1,4 +1,4 @@
-import { CONTAINERS, type ContainerSpec } from "./containers";
+import { beddingMm, CONTAINERS, type ContainerSpec } from "./containers";
 
 /** One line of the cargo list. Sizes in mm, weight in kg per piece. */
 export interface CargoLine {
@@ -41,9 +41,11 @@ export function footprints(line: CargoLine): Footprint[] {
  * - An open top is loaded from above: the height is free, the piece must fit the floor.
  * - A flat rack takes any piece lengthwise, overhanging its sides or ends; crosswise only when the
  *   piece stays on the platform.
+ * - No container takes a piece so heavy that bedding as long as its whole floor would not carry it.
  */
 export function fitIn(container: ContainerSpec, line: CargoLine): Footprint[] {
   if (line.weightKg > container.payloadKg) return [];
+  if (beddingMm(line.weightKg, container) > container.internalL) return [];
   const onFloor = (fp: Footprint, maxWidth: number) => fp.length <= container.internalL && fp.width <= maxWidth;
 
   if (container.group === "flat-rack") {

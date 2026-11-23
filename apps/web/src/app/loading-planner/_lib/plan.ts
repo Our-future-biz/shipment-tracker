@@ -1,4 +1,5 @@
-import { CONTAINERS, GROUP_LABEL, GROUP_ORDER, type ContainerGroup, type ContainerSpec } from "./containers";
+import { centreLoad } from "./balance";
+import { beddingMm, CONTAINERS, GROUP_LABEL, GROUP_ORDER, type ContainerGroup, type ContainerSpec } from "./containers";
 import { findSpot, newFloor, occupy, type Floor } from "./floor";
 import { fitIn, type CargoLine } from "./gauge";
 
@@ -67,7 +68,35 @@ const newBin = (container: ContainerSpec): Bin => ({
   weightKg: 0,
 });
 
-/** Puts one piece on the bin's floor, in the way it fits most snugly. False when it does not go in. */
+const sum = (values: number[]) => values.reduce((total, value) => total + value, 0);
+
+/**
+ * Stacks one piece on pieces of its own line. A piece carries no more than its own weight, the
+ * stack stays under the roof (or the top of the walls), and the floor must carry it.
+ */
+function stack(bin: Bin, line: CargoLine): boolean {
+  if (!line.stackable) return false;
+  const { container } = bin;
+  for (const base of bin.pieces) {
+    if (base.lineId !== line.id || base.y !== 0) continue;
+    const above = bin.pieces.filter((p) => p.y > 0 && p.x === base.x && p.z === base.z);
+    const top = base.height + sum(above.map((p) => p.height));
+    const carried = sum(above.map((p) => p.weightKg)) + line.weightKg;
+    if (carried > base.weightKg || top + line.heightMm > container.internalH) continue;
+    if (beddingMm(base.weightKg + carried, container) > container.internalL) continue;
+
+    bin.lines.push(line);
+    bin.pieces.push({ ...base, y: top });
+    bin.weightKg += line.weightKg;
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Loads one piece into the bin: on the floor, in the way it fits most snugly, or else stacked.
+ * False when it does not go in.
+ */
 function place(bin: Bin, line: CargoLine): boolean {
   if (bin.weightKg + line.weightKg > bin.container.payloadKg) return false;
   const ways = fitIn(bin.container, line)
@@ -75,7 +104,7 @@ function place(bin: Bin, line: CargoLine): boolean {
     .filter((way) => way.spot !== null)
     .sort((a, b) => a.spot!.score - b.spot!.score);
   const best = ways[0];
-  if (!best?.spot) return false;
+  if (!best?.spot) return stack(bin, line);
 
   occupy(bin.floor, best.spot, best.fp.length, best.fp.width);
   bin.lines.push(line);
@@ -112,8 +141,6 @@ function packInto(container: ContainerSpec, lines: CargoLine[]): { bins: Bin[]; 
   }
   return { bins, left };
 }
-
-const sum = (values: number[]) => values.reduce((total, value) => total + value, 0);
 
 /** Total overhang of the loads in mm: beyond the ends, and beyond the sides and top. */
 function overhangOf(bins: { container: ContainerSpec; pieces: PlacedPiece[] }[]): { ends: number; sidesAndTop: number } {
@@ -183,12 +210,15 @@ function refusal(line: CargoLine, allowed: ContainerSpec[]): string {
   if (allowed.length === 0) return "No equipment is nominated.";
   const maxPayload = Math.max(...allowed.map((c) => c.payloadKg));
   if (line.weightKg > maxPayload) return `Weighs ${kg(line.weightKg)}; the heaviest payload of the equipment is ${kg(maxPayload)}.`;
-  const needed = GROUP_ORDER.find((group) => CONTAINERS.some((c) => c.group === group && fitIn(c, line).length > 0));
-  return needed ? `Does not fit the nominated equipment; it needs ${GROUP_LABEL[needed]}.` : "Does not fit any container.";
+  const taker = GROUP_ORDER.flatMap((group) => CONTAINERS.filter((c) => c.group === group)).find((c) => fitIn(c, line).length > 0);
+  if (!taker) return "Does not fit any container.";
+  // When that kind of equipment is nominated, only its size or strength is wrong: name the type.
+  const kindNominated = allowed.some((c) => c.group === taker.group);
+  return `Does not fit the nominated equipment; ${kindNominated ? `a ${taker.name} would take it` : `it needs ${GROUP_LABEL[taker.group]}`}.`;
 }
 
 /**
- * One plan. Each piece goes to the first kind of equipment that takes it: standard, then open top,
+ * One plan, with each load centred. Each piece goes to the first kind of equipment that takes it: standard, then open top,
  * then flat rack. Flat racks are loaded first and filled up with other cargo before any other
  * container is opened; open tops likewise before standard containers.
  *
@@ -230,7 +260,9 @@ function buildPlan(lines: CargoLine[], allowed: ContainerSpec[], flatRacks: Cont
   for (const line of refused) note(line, refusal(line, allowed));
   for (const line of [...flat.left, ...open.left, ...standard.left]) note(line, "No room was found for it in the equipment.");
 
-  const loads = [...standard.bins, ...open.bins, ...flat.bins].map((bin) => ({
+  const bins = [...standard.bins, ...open.bins, ...flat.bins];
+  for (const bin of bins) centreLoad(bin.pieces, bin.container);
+  const loads = bins.map((bin) => ({
     container: bin.container,
     pieces: bin.pieces,
     totalWeightKg: bin.weightKg,
