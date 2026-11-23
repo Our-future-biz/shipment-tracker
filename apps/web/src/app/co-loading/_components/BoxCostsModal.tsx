@@ -67,8 +67,8 @@ export function BoxCostsModal({ open, onClose, sailingId, container, containerTy
     <AppModal
       open={open}
       onClose={save.isPending ? () => undefined : onClose}
-      title={several ? `Costs of container ${container.containerNo}` : "Costs of the container"}
-      subtitle={`The estimated costs of ${several ? "this" : "the"} ${containerType}. They are shared over the sailing's shipments by W/M.`}
+      title={several ? `Box costs - container ${container.containerNo} (${containerType})` : `Box costs - ${containerType}`}
+      subtitle="Estimates. They are shared over the sailing's loaded shipments by W/M."
       footer={
         <div className="flex justify-end gap-2">
           <Button onClick={onClose} disabled={save.isPending}>
@@ -81,6 +81,12 @@ export function BoxCostsModal({ open, onClose, sailingId, container, containerTy
       }
     >
       <div className="flex flex-col gap-4">
+        {/* What the three boxes of each row are: said once, above them. */}
+        <div className={`${LABEL_TEXT} grid grid-cols-[minmax(0,1fr)_96px] gap-x-2 max-sm:hidden sm:grid-cols-[150px_96px_minmax(0,1fr)]`} aria-hidden>
+          <span>Amount</span>
+          <span>Currency</span>
+          <span>Note</span>
+        </div>
         {lines.map((line) => (
           <fieldset key={line.kind} className="m-0 grid grid-cols-[minmax(0,1fr)_96px] gap-x-2 gap-y-1.5 border-0 p-0 sm:grid-cols-[150px_96px_minmax(0,1fr)]">
             <legend className={`${LABEL_TEXT} mb-1.5 p-0`}>{BOX_COST_LABEL[line.kind]}</legend>
@@ -91,7 +97,7 @@ export function BoxCostsModal({ open, onClose, sailingId, container, containerTy
               max={99999999.99}
               precision={2}
               controls={false}
-              placeholder="Not set"
+              placeholder="e.g. 2,100.00"
               value={line.amount}
               onChange={(amount) => set(line.kind, { amount })}
               className="!w-full"
@@ -106,15 +112,15 @@ export function BoxCostsModal({ open, onClose, sailingId, container, containerTy
               aria-label={`${BOX_COST_LABEL[line.kind]}: note`}
               className="max-sm:col-span-full"
               maxLength={200}
-              placeholder="Note, e.g. the supplier"
+              placeholder="e.g. supplier, quote no."
               value={line.note}
               onChange={(e) => set(line.kind, { note: e.target.value })}
             />
           </fieldset>
         ))}
         <p className={`${HINT} m-0`}>
-          Leave an amount empty while it is not known: the tab then says it is not set. Type 0 for a cost that is nothing. Every change is kept, with who made it. The trunk haul to
-          the hub belongs under Origin Costs, not on the shipments.
+          Leave empty what you do not know yet. Type 0 if there is no cost. Every change is recorded with your name. The trunk haul to the hub belongs under Origin Costs, not on
+          the shipments.
         </p>
       </div>
     </AppModal>

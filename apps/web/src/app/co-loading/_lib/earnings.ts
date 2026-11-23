@@ -27,27 +27,50 @@ export function amountWords(a: EarningsAmount): { main: string; under: string | 
 const shipments = (n: number) => `${n} ${n === 1 ? "shipment" : "shipments"}`;
 const has = (n: number) => (n === 1 ? "has" : "have");
 
-/** What the reader must know before trusting the totals, the gravest first; empty when nothing is off. */
-export function earningsWarnings(e: SailingEarnings): string[] {
-  if (!e.moneyKnown) return ["The shipments' selling and costs could not be read just now, so no earnings are shown. Try again in a moment."];
+/** One thing to know about the figures: `wrong` when it makes a total wrong, else a note on how something was counted. */
+export interface EarningsCheck {
+  text: string;
+  wrong: boolean;
+}
+
+/**
+ * What the reader must know about the figures, the gravest first, in two kinds (Council Review 7,
+ * K17): what makes a total wrong until it is fixed, and how something was counted.
+ */
+export function earningsChecks(e: SailingEarnings): EarningsCheck[] {
+  const wrong = (text: string): EarningsCheck => ({ text, wrong: true });
+  const note = (text: string): EarningsCheck => ({ text, wrong: false });
+  if (!e.moneyKnown) return [wrong("The shipments' selling and costs could not be read just now, so no earnings are shown. Try again in a moment.")];
   const { notes } = e;
-  const out: string[] = [];
+  const out: EarningsCheck[] = [];
   const unread = e.rows.filter((r) => r.counted && !r.moneyKnown).length;
-  if (unread > 0) out.push(`The money of ${shipments(unread)} could not be read: the totals are incomplete.`);
+  if (unread > 0) out.push(wrong(`The money of ${shipments(unread)} could not be read: the totals are incomplete.`));
   if (notes.missingCurrencies.length > 0)
-    out.push(`No exchange rate for ${notes.missingCurrencies.join(", ")}: amounts in ${notes.missingCurrencies.length === 1 ? "that currency" : "those currencies"} are left out, so the totals are incomplete.`);
-  if (notes.noSelling > 0) out.push(`${shipments(notes.noSelling)} ${has(notes.noSelling)} no selling lines yet: the revenue is not complete.`);
-  if (notes.unticked > 0) out.push(`${shipments(notes.unticked)} ${has(notes.unticked)} selling lines not ticked "Invoice": those lines are not counted.`);
+    out.push(wrong(`No exchange rate for ${notes.missingCurrencies.join(", ")}: amounts in ${notes.missingCurrencies.length === 1 ? "that currency" : "those currencies"} are left out, so the totals are incomplete.`));
+  if (notes.noSelling > 0) out.push(wrong(`${shipments(notes.noSelling)} ${has(notes.noSelling)} no selling lines yet: the revenue is not complete.`));
+  if (notes.unticked > 0) out.push(note(`${shipments(notes.unticked)} ${has(notes.unticked)} selling lines not ticked "Invoice": those lines are not counted.`));
   if (notes.ownBox > 0)
-    out.push(`${shipments(notes.ownBox)} ${has(notes.ownBox)} freight, fuel or terminal handling as buying costs of ${notes.ownBox === 1 ? "its" : "their"} own. They are not counted here: the box costs cover them.`);
-  if (notes.odd > 0) out.push(`${shipments(notes.odd)} ${notes.odd === 1 ? "is" : "are"} not what this box is for. Take ${notes.odd === 1 ? "it" : "them"} off the sailing: ${notes.odd === 1 ? "it takes" : "they take"} a share of the box costs meanwhile.`);
-  if (notes.cargoImplausible > 0) out.push(`${shipments(notes.cargoImplausible)} ${has(notes.cargoImplausible)} cargo figures that cannot be right, so the shares of the box costs are not to be trusted until they are corrected.`);
-  if (notes.cargoGap > 0) out.push(`${shipments(notes.cargoGap)} ${has(notes.cargoGap)} a weight or a volume missing: ${notes.cargoGap === 1 ? "its share" : "their shares"} of the box costs may be too low, and the others' too high.`);
-  if (notes.handRoad > 0) out.push(`${shipments(notes.handRoad)} ${has(notes.handRoad)} road freight typed by hand. If it is the trunk haul to the hub, it belongs under Origin Costs of the box: check it is not counted twice.`);
-  if (notes.inMasterJob > 0) out.push(`${shipments(notes.inMasterJob)} ${notes.inMasterJob === 1 ? "is" : "are"} in a master job as well. Costs shared from a master job are not counted here.`);
-  if (notes.unrecognised > 0) out.push(`${shipments(notes.unrecognised)} ${has(notes.unrecognised)} buying lines with no charge code the app knows: they are counted as other shipment costs.`);
-  out.push(...boxWarnings(e));
+    out.push(note(`${shipments(notes.ownBox)} ${has(notes.ownBox)} freight, fuel or terminal handling as buying costs of ${notes.ownBox === 1 ? "its" : "their"} own. They are not counted here: the box costs cover them.`));
+  if (notes.odd > 0) out.push(wrong(`${shipments(notes.odd)} ${notes.odd === 1 ? "is" : "are"} not what this box is for. Take ${notes.odd === 1 ? "it" : "them"} off the sailing: ${notes.odd === 1 ? "it takes" : "they take"} a share of the box costs meanwhile.`));
+  if (notes.cargoImplausible > 0) out.push(wrong(`${shipments(notes.cargoImplausible)} ${has(notes.cargoImplausible)} cargo figures that cannot be right, so the shares of the box costs are not to be trusted until they are corrected.`));
+  if (notes.cargoGap > 0) out.push(wrong(`${shipments(notes.cargoGap)} ${has(notes.cargoGap)} a weight or a volume missing: ${notes.cargoGap === 1 ? "its share" : "their shares"} of the box costs may be too low, and the others' too high.`));
+  if (notes.handRoad > 0) out.push(note(`${shipments(notes.handRoad)} ${has(notes.handRoad)} road freight typed by hand. If it is the trunk haul to the hub, it belongs under Origin Costs of the box: check it is not counted twice.`));
+  if (notes.inMasterJob > 0) out.push(note(`${shipments(notes.inMasterJob)} ${notes.inMasterJob === 1 ? "is" : "are"} in a master job as well. Costs shared from a master job are not counted here.`));
+  if (notes.unrecognised > 0) out.push(note(`${shipments(notes.unrecognised)} ${has(notes.unrecognised)} buying lines with no charge code the app knows: they are counted as other shipment costs.`));
+  // Everything about the box costs moves the profit.
+  out.push(...boxWarnings(e).map(wrong));
   return out;
+}
+
+/** The same as sentences, in their order. */
+export const earningsWarnings = (e: SailingEarnings): string[] => earningsChecks(e).map((c) => c.text);
+
+/** The one line over the folded list: what there is to fix and what there is to read. */
+export function checksSummary(checks: readonly EarningsCheck[]): string | null {
+  const wrong = checks.filter((c) => c.wrong).length;
+  const notes = checks.length - wrong;
+  const parts = [wrong > 0 ? `${wrong} ${wrong === 1 ? "thing" : "things"} to fix before trusting these figures` : null, notes > 0 ? `${notes} ${notes === 1 ? "note" : "notes"} on how they were counted` : null].filter(Boolean);
+  return parts.length ? parts.join(" · ") : null;
 }
 
 const containerOf = (e: SailingEarnings, containerNo: number) => (e.boxCosts.containers.length > 1 ? ` of container ${containerNo}` : "");
@@ -94,8 +117,8 @@ export const unpricedShipments = (e: SailingEarnings): { shipmentId: string; job
 export function unsoldWords(e: SailingEarnings): string | null {
   const u = e.unsold;
   if (!u) return null;
-  if (u.pct <= 0) return "No unsold space: the box is full.";
-  return `Unsold space: ${u.pct}% of the box, which is ${amountWords(u.cost).main} of the box costs. The loaded shipments carry it.`;
+  if (u.pct <= 0) return "No unused space: the box is full.";
+  return `Unused space: ${u.pct}% of the box against its planning limit, which is ${amountWords(u.cost).main} of the box costs. It is already inside the profit: the loaded shipments carry it.`;
 }
 
 /** A sailing's earnings as its profit at a glance (the server gives the same for the list of sailings). */
@@ -157,30 +180,38 @@ export function changeWords(c: BoxCostChange, severalContainers: boolean, format
   const amountChanged = c.oldAmount !== c.newAmount || (c.newAmount !== null && c.oldCurrency !== c.newCurrency);
   if (amountChanged) parts.push(`${boxCostWords(c.oldAmount, c.oldCurrency)} → ${boxCostWords(c.newAmount, c.newCurrency)}`);
   if (c.oldNote !== c.newNote) parts.push(c.newNote ? `note "${c.newNote}"` : "note removed");
-  return `${what}: ${parts.join(", ") || "saved again"}`;
+  return `${what}: ${parts.join(", ") || "saved with no change"}`;
 }
 
-/** The marks on a shipment's row. */
-export function earningsNotes(row: EarningsRow): { text: string; tone: "amber" | "red" | "slate" }[] {
-  const notes: { text: string; tone: "amber" | "red" | "slate" }[] = [];
-  if (!row.counted) notes.push({ text: "Cancelled: not counted", tone: "slate" });
+/** A mark on a shipment's row: a few words, with the whole sentence to hover. */
+export interface EarningsNote {
+  text: string;
+  tone: "amber" | "red" | "slate";
+  title: string;
+}
+
+/** The marks on a shipment's row: short, so the table stays narrow; each with its sentence in full. */
+export function earningsNotes(row: EarningsRow): EarningsNote[] {
+  const notes: EarningsNote[] = [];
+  const add = (text: string, tone: EarningsNote["tone"], title: string) => notes.push({ text, tone, title });
+  if (!row.counted) add("Cancelled", "slate", "Cancelled: listed, not counted in the totals, and it carries no share of the box costs.");
   if (!row.moneyKnown) {
-    notes.push({ text: "Money not known", tone: "red" });
+    add("Money not known", "red", "Its selling and costs could not be read just now.");
     return notes;
   }
-  if (row.counted && row.noSelling) notes.push({ text: "No selling lines", tone: "amber" });
-  if (row.untickedLines > 0) notes.push({ text: `${row.untickedLines} selling ${row.untickedLines === 1 ? "line" : "lines"} not ticked`, tone: "amber" });
-  if (row.missingCurrencies.length > 0) notes.push({ text: `No rate: ${row.missingCurrencies.join(", ")}`, tone: "red" });
-  if (row.odd) notes.push({ text: `${row.odd}: not what this box is for`, tone: "amber" });
-  if (row.noShare) notes.push({ text: "No weight or volume: no share of the box", tone: "amber" });
-  if (row.cargoImplausible) notes.push({ text: "Cargo figures look wrong: check its share", tone: "red" });
-  else if (row.cargoGap) notes.push({ text: `${row.cargoGap === "weight" ? "Weight" : "Volume"} missing: share may be too low`, tone: "amber" });
-  if (row.handRoadLines > 0) notes.push({ text: "Road freight typed by hand", tone: "slate" });
-  if (row.counted && lead(row.beforeBox) < 0) notes.push({ text: "Costs more than it sells for", tone: "red" });
-  else if (row.profit && lead(row.profit) < 0) notes.push({ text: "Loss after its share of the box", tone: "red" });
-  if (row.ownBox.czk !== 0) notes.push({ text: `Own freight costs ${amountWords(row.ownBox).main}: not counted`, tone: "amber" });
-  if (row.inMasterJob) notes.push({ text: "In a master job", tone: "slate" });
-  if (row.unrecognisedLines > 0) notes.push({ text: `${row.unrecognisedLines} cost ${row.unrecognisedLines === 1 ? "line" : "lines"} without a code`, tone: "slate" });
+  if (row.counted && row.noSelling) add("No selling lines", "amber", "No selling lines yet: it carries its share of the box costs with no revenue against it.");
+  if (row.untickedLines > 0) add(`${row.untickedLines} ${row.untickedLines === 1 ? "line" : "lines"} not ticked`, "amber", `${row.untickedLines} selling ${row.untickedLines === 1 ? "line is" : "lines are"} not ticked "Invoice": not counted as revenue.`);
+  if (row.missingCurrencies.length > 0) add(`No rate: ${row.missingCurrencies.join(", ")}`, "red", "Amounts in a currency with no exchange rate are left out.");
+  if (row.odd) add(row.odd, "amber", `${row.odd}: not what this box is for. Take it off the sailing.`);
+  if (row.noShare) add("No W/M", "amber", "No weight and no volume: it carries no share of the box costs.");
+  if (row.cargoImplausible) add("Check cargo figures", "red", "Its cargo figures cannot be right, so its share of the box costs is not to be trusted.");
+  else if (row.cargoGap) add(`${row.cargoGap === "weight" ? "Weight" : "Volume"} missing`, "amber", `Its ${row.cargoGap} is missing: its share of the box costs may be too low.`);
+  if (row.handRoadLines > 0) add("Road freight by hand", "slate", "Road freight typed by hand: if it is the trunk haul to the hub, it belongs under Origin Costs of the box.");
+  if (row.counted && lead(row.beforeBox) < 0) add("Sells below cost", "red", "Its own costs are more than it sells for, before any box costs.");
+  else if (row.profit && lead(row.profit) < 0) add("Loss after box share", "red", "It earns less than its share of the box costs.");
+  if (row.ownBox.czk !== 0) add(`Own freight ${amountWords(row.ownBox).main}`, "amber", "Freight, fuel or terminal handling as its own buying cost: not counted here, the box costs cover it.");
+  if (row.inMasterJob) add("Master job", "slate", "In a master job as well: costs shared from the master job are not counted here.");
+  if (row.unrecognisedLines > 0) add(`${row.unrecognisedLines} ${row.unrecognisedLines === 1 ? "line" : "lines"}, no code`, "slate", "Buying lines with no charge code the app knows: counted as other costs.");
   return notes;
 }
 
@@ -189,6 +220,6 @@ export function invoicedHint(e: SailingEarnings): string {
   const { selling, invoiced } = e.totals;
   if (selling.czk <= 0) return "nothing to invoice yet";
   // "All" only when all of it is: 99.6% is not all of the revenue.
-  if (invoiced.czk >= selling.czk) return "all of the revenue";
-  return `${Math.min(99, Math.floor((invoiced.czk / selling.czk) * 100))}% of the revenue`;
+  if (invoiced.czk >= selling.czk) return "fully invoiced";
+  return `${Math.min(99, Math.floor((invoiced.czk / selling.czk) * 100))}% invoiced`;
 }

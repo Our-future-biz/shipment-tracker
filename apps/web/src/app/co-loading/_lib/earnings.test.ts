@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { unpricedShipments, lead, breakEvenWords, profitGlance, unsoldWords, profitProvisional, amountWords, boxCostWords, boxRateWords, changeWords, earningsNotes, earningsWarnings, invoicedHint, marginWords, type BoxCostChange, type EarningsAmount, type EarningsRow, type SailingBoxCosts, type SailingEarnings } from "./earnings";
+import { checksSummary, earningsChecks, unpricedShipments, lead, breakEvenWords, profitGlance, unsoldWords, profitProvisional, amountWords, boxCostWords, boxRateWords, changeWords, earningsNotes, earningsWarnings, invoicedHint, marginWords, type BoxCostChange, type EarningsAmount, type EarningsRow, type SailingBoxCosts, type SailingEarnings } from "./earnings";
 
 const amt = (czk: number, eur: number | null = czk / 25): EarningsAmount => ({ czk, eur });
 const row = (more: Partial<EarningsRow> = {}): EarningsRow => ({
@@ -99,29 +99,29 @@ describe("the marks on a shipment's row", () => {
     expect(earningsNotes(row())).toEqual([]);
   });
   it("say a cancelled shipment is not counted", () => {
-    expect(earningsNotes(row({ counted: false }))[0]).toEqual({ text: "Cancelled: not counted", tone: "slate" });
+    expect(earningsNotes(row({ counted: false }))[0]).toMatchObject({ text: "Cancelled", tone: "slate" });
   });
   it("say only that the money is not known when it is not", () => {
-    expect(earningsNotes(row({ moneyKnown: false, noSelling: true }))).toEqual([{ text: "Money not known", tone: "red" }]);
+    expect(earningsNotes(row({ moneyKnown: false, noSelling: true }))).toEqual([{ text: "Money not known", tone: "red", title: "Its selling and costs could not be read just now." }]);
   });
   it("name each thing to look at", () => {
     const notes = earningsNotes(row({ noSelling: true, untickedLines: 1, missingCurrencies: ["USD"], beforeBox: amt(-500), ownBox: amt(12500), inMasterJob: true, unrecognisedLines: 2 }));
     expect(notes.map((n) => n.text)).toEqual([
       "No selling lines",
-      "1 selling line not ticked",
+      "1 line not ticked",
       "No rate: USD",
-      "Costs more than it sells for",
-      "Own freight costs 500.00 EUR: not counted",
-      "In a master job",
-      "2 cost lines without a code",
+      "Sells below cost",
+      "Own freight 500.00 EUR",
+      "Master job",
+      "2 lines, no code",
     ]);
   });
 });
 
 describe("how much is invoiced", () => {
   it("is a share of the revenue", () => {
-    expect(invoicedHint(earnings())).toBe("40% of the revenue");
-    expect(invoicedHint(earnings({ totals: { ...earnings().totals, invoiced: amt(25000) } }))).toBe("all of the revenue");
+    expect(invoicedHint(earnings())).toBe("40% invoiced");
+    expect(invoicedHint(earnings({ totals: { ...earnings().totals, invoiced: amt(25000) } }))).toBe("fully invoiced");
     expect(invoicedHint(earnings({ totals: { ...earnings().totals, selling: amt(0) } }))).toBe("nothing to invoice yet");
   });
 });
@@ -201,8 +201,10 @@ describe("box costs in words", () => {
 
 describe("the marks about the box on a shipment's row", () => {
   it("say it has no share, or that it loses after its share", () => {
-    expect(earningsNotes(row({ noShare: true })).map((n) => n.text)).toEqual(["No weight or volume: no share of the box"]);
-    expect(earningsNotes(row({ profit: amt(-100) })).map((n) => n.text)).toEqual(["Loss after its share of the box"]);
+    expect(earningsNotes(row({ noShare: true })).map((n) => n.text)).toEqual(["No W/M"]);
+    expect(earningsNotes(row({ profit: amt(-100) })).map((n) => n.text)).toEqual(["Loss after box share"]);
+    // The short mark carries its whole sentence, to hover.
+    expect(earningsNotes(row({ noShare: true }))[0]!.title).toBe("No weight and no volume: it carries no share of the box costs.");
   });
 });
 
@@ -232,8 +234,10 @@ describe("break-even and unsold space in words", () => {
     expect(breakEvenWords(earnings({ breakEven: { wm: null, loadedWm: 5, ofLoaded: null, reached: false, boxPct: null } }))).toBe("No break-even: the 5 W/M loaded earn nothing before the box costs.");
   });
   it("say what the unsold space costs", () => {
-    expect(unsoldWords(earnings({ unsold: { pct: 26, cost: amt(6500) } }))).toBe("Unsold space: 26% of the box, which is 260.00 EUR of the box costs. The loaded shipments carry it.");
-    expect(unsoldWords(earnings({ unsold: { pct: 0, cost: amt(0) } }))).toBe("No unsold space: the box is full.");
+    expect(unsoldWords(earnings({ unsold: { pct: 26, cost: amt(6500) } }))).toBe(
+      "Unused space: 26% of the box against its planning limit, which is 260.00 EUR of the box costs. It is already inside the profit: the loaded shipments carry it.",
+    );
+    expect(unsoldWords(earnings({ unsold: { pct: 0, cost: amt(0) } }))).toBe("No unused space: the box is full.");
   });
 });
 
@@ -278,15 +282,15 @@ describe("the figure that decides", () => {
     expect(lead({ czk: 351, eur: null })).toBe(351);
   });
   it("marks a row a loss by it", () => {
-    expect(earningsNotes(row({ profit: { czk: 351, eur: -10 } })).map((n) => n.text)).toEqual(["Loss after its share of the box"]);
+    expect(earningsNotes(row({ profit: { czk: 351, eur: -10 } })).map((n) => n.text)).toEqual(["Loss after box share"]);
     expect(earningsNotes(row({ profit: { czk: -351, eur: 10 } }))).toEqual([]);
   });
 });
 
 describe("how much is invoiced, nearly all", () => {
   it("is not all until all of it is", () => {
-    expect(invoicedHint(earnings({ totals: { ...earnings().totals, selling: amt(100000), invoiced: amt(99600) } }))).toBe("99% of the revenue");
-    expect(invoicedHint(earnings({ totals: { ...earnings().totals, selling: amt(100000), invoiced: amt(100000) } }))).toBe("all of the revenue");
+    expect(invoicedHint(earnings({ totals: { ...earnings().totals, selling: amt(100000), invoiced: amt(99600) } }))).toBe("99% invoiced");
+    expect(invoicedHint(earnings({ totals: { ...earnings().totals, selling: amt(100000), invoiced: amt(100000) } }))).toBe("fully invoiced");
   });
 });
 
@@ -317,11 +321,11 @@ describe("fix step 2 of Council Review 7", () => {
   });
   it("marks such a shipment's row", () => {
     expect(earningsNotes(row({ odd: "Air Freight", cargoGap: "volume", handRoadLines: 1 })).map((n) => n.text)).toEqual([
-      "Air Freight: not what this box is for",
-      "Volume missing: share may be too low",
-      "Road freight typed by hand",
+      "Air Freight",
+      "Volume missing",
+      "Road freight by hand",
     ]);
-    expect(earningsNotes(row({ cargoGap: "weight", cargoImplausible: true })).map((n) => n.text)).toEqual(["Cargo figures look wrong: check its share"]);
+    expect(earningsNotes(row({ cargoGap: "weight", cargoImplausible: true })).map((n) => n.text)).toEqual(["Check cargo figures"]);
   });
 });
 
@@ -337,5 +341,20 @@ describe("fix step 3 of Council Review 7", () => {
     expect(boxRateWords(box({ set: true, rateDate: "2026-11-23", eurRate: 24.455 }), day, true)).toBe(
       "Provisional: valued at the ČNB rates of 23.11.2026 (1 EUR = 24.455 CZK), the latest ones, because the sailing has no departure date yet. The service is closed: reopen it to set the date in Edit sailing.",
     );
+  });
+});
+
+describe("fix step 5 of Council Review 7", () => {
+  it("tells what makes a total wrong from how something was counted", () => {
+    const checks = earningsChecks(earnings({ boxCosts: box({ set: true, notSet: [{ containerNo: 1, kind: "ocean" }] }) }, { noSelling: 1, unticked: 1, inMasterJob: 2, cargoGap: 1 }));
+    expect(checks.filter((c) => c.wrong).map((c) => c.text.slice(0, 28))).toEqual(["1 shipment has no selling li", "1 shipment has a weight or a", "Not set yet: Ocean Freight. "]);
+    expect(checks.filter((c) => !c.wrong)).toHaveLength(2);
+    expect(checksSummary(checks)).toBe("3 things to fix before trusting these figures · 2 notes on how they were counted");
+  });
+  it("sums up one kind alone, and nothing when nothing is off", () => {
+    expect(checksSummary(earningsChecks(earnings({}, { unticked: 1 })))).toBe("1 note on how they were counted");
+    expect(checksSummary(earningsChecks(earnings({}, { noSelling: 1 })))).toBe("1 thing to fix before trusting these figures");
+    expect(checksSummary(earningsChecks(earnings()))).toBeNull();
+    expect(earningsChecks(earnings({ moneyKnown: false }))).toEqual([{ text: "The shipments' selling and costs could not be read just now, so no earnings are shown. Try again in a moment.", wrong: true }]);
   });
 });
