@@ -66,8 +66,9 @@ export function CoLoadingSailingPage() {
   const isManager = canManageServices(user?.role);
   const tab = sailingTabOf(searchParams.get("tab"), isManager);
   // Managers see the sailing's profit in the header on every tab (D19).
-  const { earnings } = useSailingEarnings(sailing?.id ?? "", isManager);
-  const profit = earnings ? profitGlance(sailingProfitOf(sailing?.id ?? "", earnings)) : null;
+  const { earnings, isError: earningsFailed } = useSailingEarnings(sailing?.id ?? "", isManager);
+  // A failed read says so (profitGlance of nothing); while it is still being read, a dash.
+  const profit = earnings ? profitGlance(sailingProfitOf(sailing?.id ?? "", earnings)) : earningsFailed ? profitGlance(null) : null;
   const [editing, setEditing] = useState(false);
   const openTab = (key: string) => {
     const params = new URLSearchParams(searchParams.toString());
@@ -125,7 +126,10 @@ export function CoLoadingSailingPage() {
                 {isManager && (
                   <Fact label="Profit">
                     {profit ? (
-                      <span className={`truncate tabular-nums ${profit.tone === "red" ? "text-red-600" : profit.tone === "slate" ? "font-normal text-slate-500" : ""}`}>
+                      <span
+                        className={`truncate tabular-nums ${profit.tone === "red" ? "text-red-600" : profit.tone === "amber" ? "text-amber-700" : profit.tone === "slate" ? "font-normal text-slate-500" : ""}`}
+                        title={[profit.main, profit.note].filter(Boolean).join(" · ")}
+                      >
                         {profit.main}
                         {profit.note && <span className="font-normal text-slate-500"> · {profit.note}</span>}
                       </span>

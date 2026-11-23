@@ -16072,9 +16072,25 @@ export namespace interfaces {
      */
     export interface SailingProfit {
         sailingId: string
+        /**
+         * False when the shipments' money could not be read: no profit is known then.
+         */
+        moneyKnown: boolean
+        /**
+         * False while no box cost has an amount: no profit is shown then.
+         */
+        boxCostsSet: boolean
         profit: EarningsAmount | null
         marginPct: number | null
         complete: boolean
+        /**
+         * False when a box cost is still not set, or costs are kept for a container the sailing no longer has.
+         */
+        boxCostsComplete: boolean
+        /**
+         * False when a loaded shipment has no selling lines yet.
+         */
+        revenueComplete: boolean
         provisional: boolean
     }
 

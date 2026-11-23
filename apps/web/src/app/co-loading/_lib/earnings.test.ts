@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { breakEvenWords, profitGlance, unsoldWords, profitProvisional, amountWords, boxCostWords, boxRateWords, changeWords, earningsNotes, earningsWarnings, invoicedHint, marginWords, type BoxCostChange, type EarningsAmount, type EarningsRow, type SailingBoxCosts, type SailingEarnings } from "./earnings";
+import { lead, breakEvenWords, profitGlance, unsoldWords, profitProvisional, amountWords, boxCostWords, boxRateWords, changeWords, earningsNotes, earningsWarnings, invoicedHint, marginWords, type BoxCostChange, type EarningsAmount, type EarningsRow, type SailingBoxCosts, type SailingEarnings } from "./earnings";
 
 const amt = (czk: number, eur: number | null = czk / 25): EarningsAmount => ({ czk, eur });
 const row = (more: Partial<EarningsRow> = {}): EarningsRow => ({
@@ -233,15 +233,54 @@ describe("break-even and unsold space in words", () => {
 });
 
 describe("a sailing's profit at a glance", () => {
-  const p = (more: object) => ({ sailingId: "s", profit: amt(25000), marginPct: 10.1, complete: true, provisional: false, ...more });
-  it("is a dash while not known, and says when no box cost is set", () => {
-    expect(profitGlance(undefined)).toEqual({ main: "—", note: null, tone: null });
-    expect(profitGlance(p({ profit: null }))).toEqual({ main: "Box costs not set", note: null, tone: "slate" });
+  const p = (more: object) => ({
+    sailingId: "s",
+    moneyKnown: true,
+    boxCostsSet: true,
+    profit: amt(25000),
+    marginPct: 10.1,
+    complete: true,
+    boxCostsComplete: true,
+    revenueComplete: true,
+    provisional: false,
+    ...more,
   });
-  it("is the profit with its margin, marked when incomplete or provisional, red when a loss", () => {
+  it("says when it could not be read, when the money is not known and when no box cost is set: never a dash", () => {
+    expect(profitGlance(undefined)).toEqual({ main: "Could not be read", note: null, tone: "amber" });
+    expect(profitGlance(p({ moneyKnown: false, profit: null }))).toEqual({ main: "Not known", note: "the shipments' money could not be read", tone: "amber" });
+    expect(profitGlance(p({ boxCostsSet: false, profit: null }))).toEqual({ main: "No box costs yet", note: null, tone: "slate" });
+  });
+  it("is the profit with its margin, and everything that makes it less than final", () => {
     expect(profitGlance(p({}))).toEqual({ main: "1,000.00 EUR", note: "10.1%", tone: null });
-    expect(profitGlance(p({ provisional: true }))).toEqual({ main: "1,000.00 EUR", note: "10.1% · provisional", tone: null });
-    expect(profitGlance(p({ complete: false, provisional: true })).note).toBe("10.1% · incomplete");
+    expect(profitGlance(p({ provisional: true })).note).toBe("10.1% · provisional");
+    expect(profitGlance(p({ boxCostsComplete: false })).note).toBe("10.1% · box costs not complete");
+    expect(profitGlance(p({ revenueComplete: false })).note).toBe("10.1% · revenue not complete");
+    expect(profitGlance(p({ complete: false, boxCostsComplete: false, revenueComplete: false, provisional: true })).note).toBe(
+      "10.1% · incomplete · box costs not complete · revenue not complete · provisional",
+    );
+  });
+  it("is red by the figure that is printed: a loss in EUR is a loss, whatever the CZK says", () => {
     expect(profitGlance(p({ profit: amt(-2500), marginPct: -1 }))).toEqual({ main: "-100.00 EUR", note: "-1.0%", tone: "red" });
+    expect(profitGlance(p({ profit: { czk: 351, eur: -10 }, marginPct: -0.5 })).tone).toBe("red");
+    expect(profitGlance(p({ profit: { czk: -351, eur: 10 } })).tone).toBeNull();
+    expect(profitGlance(p({ profit: { czk: -351, eur: null } })).tone).toBe("red");
+  });
+});
+
+describe("the figure that decides", () => {
+  it("is the EUR one, CZK only where no EUR rate is known", () => {
+    expect(lead({ czk: 351, eur: -10 })).toBe(-10);
+    expect(lead({ czk: 351, eur: null })).toBe(351);
+  });
+  it("marks a row a loss by it", () => {
+    expect(earningsNotes(row({ profit: { czk: 351, eur: -10 } })).map((n) => n.text)).toEqual(["Loss after its share of the box"]);
+    expect(earningsNotes(row({ profit: { czk: -351, eur: 10 } }))).toEqual([]);
+  });
+});
+
+describe("how much is invoiced, nearly all", () => {
+  it("is not all until all of it is", () => {
+    expect(invoicedHint(earnings({ totals: { ...earnings().totals, selling: amt(100000), invoiced: amt(99600) } }))).toBe("99% of the revenue");
+    expect(invoicedHint(earnings({ totals: { ...earnings().totals, selling: amt(100000), invoiced: amt(100000) } }))).toBe("all of the revenue");
   });
 });

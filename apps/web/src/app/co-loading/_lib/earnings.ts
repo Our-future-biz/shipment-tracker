@@ -15,6 +15,9 @@ export const BOX_COST_LABEL: Record<BoxCostKind, string> = { origin: "Origin Cos
 /** The currencies a box cost is typed in: EUR first, as most are. */
 export const BOX_COST_CURRENCIES = ["EUR", "USD", "CZK", "GBP", "CHF", "CNY", "JPY"] as const;
 
+/** An amount as one figure: the one shown as the main one - EUR, or CZK where no EUR rate is known. It decides profit or loss and the colour. */
+export const lead = (a: EarningsAmount): number => a.eur ?? a.czk;
+
 /** An amount as the tab shows it: EUR first with CZK underneath; CZK alone where no EUR rate is known. */
 export function amountWords(a: EarningsAmount): { main: string; under: string | null } {
   if (a.eur === null) return { main: fmtMoney(a.czk, "CZK", true), under: null };
@@ -88,18 +91,34 @@ export function unsoldWords(e: SailingEarnings): string | null {
 /** A sailing's earnings as its profit at a glance (the server gives the same for the list of sailings). */
 export const sailingProfitOf = (sailingId: string, e: SailingEarnings): interfaces.SailingProfit => ({
   sailingId,
+  moneyKnown: e.moneyKnown,
+  boxCostsSet: e.boxCosts.set,
   profit: e.moneyKnown ? e.totals.profit : null,
   marginPct: e.moneyKnown ? e.totals.marginPct : null,
   complete: e.complete,
+  boxCostsComplete: e.boxCosts.notSet.length === 0 && e.boxCosts.ignoredContainers.length === 0,
+  revenueComplete: e.notes.noSelling === 0,
   provisional: profitProvisional(e),
 });
 
+/** What makes a profit less than final, the gravest first, in a few words each; empty for a firm profit. */
+export function profitRemarks(p: Pick<interfaces.SailingProfit, "complete" | "boxCostsComplete" | "revenueComplete" | "provisional">): string[] {
+  const out: string[] = [];
+  if (!p.complete) out.push("incomplete");
+  if (!p.boxCostsComplete) out.push("box costs not complete");
+  if (!p.revenueComplete) out.push("revenue not complete");
+  if (p.provisional) out.push("provisional");
+  return out;
+}
+
 /** A sailing's profit for its header and the list of sailings: the figure, a remark and a tone. */
-export function profitGlance(p: interfaces.SailingProfit | null | undefined): { main: string; note: string | null; tone: "red" | "slate" | null } {
-  if (!p) return { main: "—", note: null, tone: null };
-  if (!p.profit) return { main: "Box costs not set", note: null, tone: "slate" };
-  const notes = [p.marginPct === null ? null : marginWords(p.marginPct), !p.complete ? "incomplete" : p.provisional ? "provisional" : null].filter(Boolean);
-  return { main: amountWords(p.profit).main, note: notes.join(" · ") || null, tone: p.profit.czk < 0 ? "red" : null };
+export function profitGlance(p: interfaces.SailingProfit | null | undefined): { main: string; note: string | null; tone: "red" | "amber" | "slate" | null } {
+  // No answer for the sailing: the read failed. Never a dash, which would read as "nothing to show".
+  if (!p) return { main: "Could not be read", note: null, tone: "amber" };
+  if (!p.moneyKnown) return { main: "Not known", note: "the shipments' money could not be read", tone: "amber" };
+  if (!p.boxCostsSet || !p.profit) return { main: "No box costs yet", note: null, tone: "slate" };
+  const notes = [p.marginPct === null ? null : marginWords(p.marginPct), ...profitRemarks(p)].filter(Boolean);
+  return { main: amountWords(p.profit).main, note: notes.join(" · ") || null, tone: lead(p.profit) < 0 ? "red" : null };
 }
 
 /** A box cost as typed: "2,100.00 USD", or "Not set". */
@@ -140,8 +159,8 @@ export function earningsNotes(row: EarningsRow): { text: string; tone: "amber" |
   if (row.untickedLines > 0) notes.push({ text: `${row.untickedLines} selling ${row.untickedLines === 1 ? "line" : "lines"} not ticked`, tone: "amber" });
   if (row.missingCurrencies.length > 0) notes.push({ text: `No rate: ${row.missingCurrencies.join(", ")}`, tone: "red" });
   if (row.noShare) notes.push({ text: "No weight or volume: no share of the box", tone: "amber" });
-  if (row.counted && row.beforeBox.czk < 0) notes.push({ text: "Costs more than it sells for", tone: "red" });
-  else if (row.profit && row.profit.czk < 0) notes.push({ text: "Loss after its share of the box", tone: "red" });
+  if (row.counted && lead(row.beforeBox) < 0) notes.push({ text: "Costs more than it sells for", tone: "red" });
+  else if (row.profit && lead(row.profit) < 0) notes.push({ text: "Loss after its share of the box", tone: "red" });
   if (row.ownBox.czk !== 0) notes.push({ text: `Own freight costs ${amountWords(row.ownBox).main}: not counted`, tone: "amber" });
   if (row.inMasterJob) notes.push({ text: "In a master job", tone: "slate" });
   if (row.unrecognisedLines > 0) notes.push({ text: `${row.unrecognisedLines} cost ${row.unrecognisedLines === 1 ? "line" : "lines"} without a code`, tone: "slate" });
@@ -152,6 +171,7 @@ export function earningsNotes(row: EarningsRow): { text: string; tone: "amber" |
 export function invoicedHint(e: SailingEarnings): string {
   const { selling, invoiced } = e.totals;
   if (selling.czk <= 0) return "nothing to invoice yet";
-  const pct = Math.round((invoiced.czk / selling.czk) * 100);
-  return pct >= 100 ? "all of the revenue" : `${pct}% of the revenue`;
+  // "All" only when all of it is: 99.6% is not all of the revenue.
+  if (invoiced.czk >= selling.czk) return "all of the revenue";
+  return `${Math.min(99, Math.floor((invoiced.czk / selling.czk) * 100))}% of the revenue`;
 }

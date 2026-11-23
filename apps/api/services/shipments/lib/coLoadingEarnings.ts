@@ -31,6 +31,22 @@ const round2 = (v: number) => Math.round(v * 100) / 100;
 /** An amount in CZK and, at this rate, in EUR; no EUR figure without a rate. */
 const amount = (czk: number, eurRate: number | null): EarningsAmount => ({ czk: round2(czk), eur: eurRate ? round2(czk / eurRate) : null });
 
+/**
+ * An amount as one figure: the one shown as the main one - EUR, or CZK where no EUR rate is known.
+ * It decides profit or loss, the colour, the order of the rows (Council Review 7, K6): shipments are
+ * valued at their own rates and the box at the departure day's, so EUR and CZK can disagree.
+ */
+export const lead = (a: EarningsAmount): number => a.eur ?? a.czk;
+
+/** Two amounts in one currency to compare: both in EUR when both have one, else both in CZK. */
+const inOne = (a: EarningsAmount, b: EarningsAmount): [number, number] => (a.eur !== null && b.eur !== null ? [a.eur, b.eur] : [a.czk, b.czk]);
+
+/** Profit as a share of the revenue, in %, one decimal, in the figures shown; null without revenue. */
+function marginOf(profit: EarningsAmount, selling: EarningsAmount): number | null {
+  const [p, s] = inOne(profit, selling);
+  return s > 0 ? Math.round((p / s) * 1000) / 10 : null;
+}
+
 /** Amounts added up; the EUR total is not known as soon as one of them has no EUR figure. */
 function total(amounts: readonly EarningsAmount[]): EarningsAmount {
   return {
@@ -102,7 +118,7 @@ export function sailingEarnings(
     });
   }
   // The rows that earn least stand first: the ones to look at.
-  const earns = (r: EarningsRow) => (r.profit ?? r.beforeBox).czk;
+  const earns = (r: EarningsRow) => lead(r.profit ?? r.beforeBox);
   rows.sort((a, b) => Number(b.counted) - Number(a.counted) || earns(a) - earns(b) || a.jobNumber.localeCompare(b.jobNumber));
   const beforeBox = sum((r) => r.beforeBox);
   const selling = sum((r) => r.selling);
@@ -113,14 +129,16 @@ export function sailingEarnings(
   const missingCurrencies = [...new Set(counted.flatMap((r) => r.missingCurrencies))].sort();
   const loadedWm = round2(counted.reduce((t, r) => t + r.freightTons, 0) * 10) / 10;
   // Break-even: at what the loaded shipments earn per W/M before the box, the W/M that covers it.
-  const covers = beforeBox.czk > 0 && loadedWm > 0;
+  // In the figures shown as the main ones (EUR where both are known), so "reached" agrees with the profit's sign.
+  const [earned, boxCost] = inOne(beforeBox, box.total);
+  const covers = earned > 0 && loadedWm > 0;
   const breakEven: SailingEarnings["breakEven"] =
     box.set && loadedWm > 0
       ? {
-          wm: covers ? Math.round((box.total.czk / (beforeBox.czk / loadedWm)) * 10) / 10 : null,
+          wm: covers ? Math.round((boxCost / (earned / loadedWm)) * 10) / 10 : null,
           loadedWm,
-          ofLoaded: covers ? Math.round((box.total.czk / beforeBox.czk) * 1000) / 1000 : null,
-          reached: beforeBox.czk >= box.total.czk,
+          ofLoaded: covers ? Math.round((boxCost / earned) * 1000) / 1000 : null,
+          reached: earned >= boxCost,
         }
       : null;
   const unsoldPct = fullPct === null ? null : Math.max(0, 100 - fullPct);
@@ -143,7 +161,7 @@ export function sailingEarnings(
       masterJob: sum((r) => r.masterJob),
       boxCosts: box.set ? box.total : null,
       profit,
-      marginPct: profit && selling.czk > 0 ? Math.round((profit.czk / selling.czk) * 1000) / 10 : null,
+      marginPct: profit ? marginOf(profit, selling) : null,
     },
     boxCosts: box,
     boxUnshared: box.set && czkParts === null,
@@ -168,11 +186,15 @@ export function sailingEarnings(
 export const profitProvisional = (e: SailingEarnings): boolean =>
   e.boxCosts.set && e.boxCosts.rateProvisional && e.boxCosts.containers.some((c) => c.lines.some((l) => l.amount !== null && l.currency !== "CZK"));
 
-/** A sailing's profit at a glance, for the list of sailings. */
+/** A sailing's profit at a glance, for the list of sailings: the figure, and everything that makes it less than final. */
 export const sailingProfit = (sailingId: string, e: SailingEarnings): SailingProfit => ({
   sailingId,
+  moneyKnown: e.moneyKnown,
+  boxCostsSet: e.boxCosts.set,
   profit: e.moneyKnown ? e.totals.profit : null,
   marginPct: e.moneyKnown ? e.totals.marginPct : null,
   complete: e.complete,
+  boxCostsComplete: e.boxCosts.notSet.length === 0 && e.boxCosts.ignoredContainers.length === 0,
+  revenueComplete: e.notes.noSelling === 0,
   provisional: profitProvisional(e),
 });

@@ -23,8 +23,10 @@ import {
   earningsNotes,
   earningsWarnings,
   invoicedHint,
+  lead,
   marginWords,
-  profitProvisional,
+  profitRemarks,
+  sailingProfitOf,
   type EarningsAmount,
   type SailingBoxCosts,
 } from "../_lib/earnings";
@@ -36,7 +38,7 @@ function Amount({ amount, known = true, negativeRed = false }: { amount: Earning
   const words = amountWords(amount);
   return (
     <span className="flex flex-col items-end leading-tight whitespace-nowrap">
-      <span className={negativeRed && amount.czk < 0 ? "text-red-600" : undefined}>{words.main}</span>
+      <span className={negativeRed && lead(amount) < 0 ? "text-red-600" : undefined}>{words.main}</span>
       {words.under && <span className="text-[11px] font-normal text-slate-500">{words.under}</span>}
     </span>
   );
@@ -161,7 +163,7 @@ interface EarningsTabProps {
 // set, the tab shows what the sailing earns before them. A total with gaps says so; the shipment
 // that earns least stands first.
 export function EarningsTab({ sailingId, containerType, onOpenShipments }: EarningsTabProps) {
-  const { earnings, isLoading, isError, refetch } = useSailingEarnings(sailingId);
+  const { earnings, isLoading, isError, isFetching, refetch } = useSailingEarnings(sailingId);
 
   if (!earnings) {
     if (isLoading) {
@@ -190,9 +192,20 @@ export function EarningsTab({ sailingId, containerType, onOpenShipments }: Earni
   const boxSet = earnings.boxCosts.set;
   // What the sailing earns: its profit once a box cost is set, what it earns before them until then.
   const earned = totals.profit ?? totals.beforeBox;
+  // What makes the figure less than final, said on the tile itself (Council Review 7, K7 and K8).
+  const remarks = known ? profitRemarks(sailingProfitOf(sailingId, earnings)).filter((r) => boxSet || r === "incomplete" || r === "revenue not complete") : [];
 
   return (
     <div className="flex flex-col gap-4">
+      {/* A refresh that failed: the figures below are the last ones read, and that is said. */}
+      {isError && !isFetching && (
+        <p className="m-0 flex flex-wrap items-center gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-[13px] text-red-700" role="alert">
+          <span>The earnings could not be refreshed: the figures below may be out of date.</span>
+          <button type="button" className={BTN} onClick={() => void refetch()}>
+            Try again
+          </button>
+        </p>
+      )}
       {warnings.length > 0 && (
         <div className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-[13px] text-amber-800" role="status">
           <WarningOutlined className="mt-0.5" aria-hidden />
@@ -222,9 +235,9 @@ export function EarningsTab({ sailingId, containerType, onOpenShipments }: Earni
           label={boxSet ? "Profit" : "Before box costs"}
           value={tile(earned)}
           size="text"
-          tone={known && earned.czk < 0 ? "red" : undefined}
-          hint={!earnings.complete ? "incomplete" : profitProvisional(earnings) ? "provisional: the rate may move" : (under(earned) ?? undefined)}
-          hintTone={!earnings.complete || profitProvisional(earnings) ? "amber" : undefined}
+          tone={known && lead(earned) < 0 ? "red" : undefined}
+          hint={remarks.length > 0 ? remarks.join(" · ") : (under(earned) ?? undefined)}
+          hintTone={remarks.length > 0 ? "amber" : undefined}
         />
         <KpiTile label="Margin" value={known ? marginWords(totals.marginPct) : "Not known"} size="text" tone={known && (totals.marginPct ?? 0) < 0 ? "red" : undefined} hint={boxSet ? "profit of the revenue" : "once box costs are set"} />
       </div>

@@ -297,7 +297,17 @@ describe("a sailing's profit at a glance", () => {
   it("is its profit and margin, marked provisional while a foreign-currency box cost has no fixed rate", () => {
     const a = row(2);
     const e = sailingEarnings([a], byId(money(a.shipmentId, 50000)), NONE, boxCostsOf(1, [cost(1, "ocean", 1000)], RATES, "2026-11-20"));
-    expect(sailingProfit("s1", e)).toEqual({ sailingId: "s1", profit: { czk: 25000, eur: 1000 }, marginPct: 50, complete: true, provisional: false });
+    expect(sailingProfit("s1", e)).toEqual({
+      sailingId: "s1",
+      moneyKnown: true,
+      boxCostsSet: true,
+      profit: { czk: 25000, eur: 1000 },
+      marginPct: 50,
+      complete: true,
+      boxCostsComplete: false,
+      revenueComplete: true,
+      provisional: false,
+    });
     expect(profitProvisional(sailingEarnings([a], byId(money(a.shipmentId, 50000)), NONE, box(1000)))).toBe(true);
     expect(profitProvisional(sailingEarnings([a], byId(money(a.shipmentId, 50000)), NONE, boxCostsOf(1, [cost(1, "ocean", 1000, "CZK")], RATES)))).toBe(false);
   });
@@ -305,5 +315,45 @@ describe("a sailing's profit at a glance", () => {
     const a = row(2);
     expect(sailingProfit("s1", sailingEarnings([a], byId(money(a.shipmentId, 50000)), NONE)).profit).toBeNull();
     expect(sailingProfit("s1", sailingEarnings([a], null, NONE, box(1000))).profit).toBeNull();
+  });
+});
+
+describe("the figure that decides profit or loss", () => {
+  // The shipment at its own rate 25.20, the box at the departure day's 24.90: EUR and CZK disagree.
+  const a = row(2);
+  const m = new Map([[a.shipmentId, { ...money(a.shipmentId, 50400), eurRate: 25.2 }]]);
+  const e = sailingEarnings([a], m, NONE, boxCostsOf(1, [cost(1, "ocean", 2010)], { rates: new Map([["EUR", 24.9]]), fixingDate: "2026-11-20", provisional: false }, "2026-11-20"));
+  it("is the EUR one: a loss in EUR is a negative margin and a break-even not reached, though the CZK is above zero", () => {
+    expect(e.totals.profit).toEqual({ czk: 351, eur: -10 });
+    expect(e.totals.marginPct).toBe(-0.5);
+    expect(e.breakEven!.reached).toBe(false);
+    expect(e.breakEven!.ofLoaded).toBe(1.005);
+  });
+  it("is the CZK one where no EUR rate is known", () => {
+    const noEur = new Map([[a.shipmentId, { ...money(a.shipmentId, 50400), eurRate: null }]]);
+    const f = sailingEarnings([a], noEur, NONE, boxCostsOf(1, [cost(1, "ocean", 50049, "CZK")], null));
+    expect(f.totals.profit).toEqual({ czk: 351, eur: null });
+    expect(f.totals.marginPct).toBe(0.7);
+    expect(f.breakEven!.reached).toBe(true);
+  });
+});
+
+describe("what makes a profit at a glance less than final", () => {
+  const a = row(2);
+  const all = [cost(1, "origin", 0), cost(1, "ocean", 1000), cost(1, "destination", 0)];
+  it("is complete when every cost of every container is set and every shipment is priced", () => {
+    expect(sailingProfit("s", sailingEarnings([a], byId(money(a.shipmentId, 50000)), NONE, boxCostsOf(1, all, RATES, "2026-11-20")))).toMatchObject({ boxCostsComplete: true, revenueComplete: true });
+  });
+  it("says the box costs are not complete while one is not set, or costs are kept for a container that is gone", () => {
+    expect(sailingProfit("s", sailingEarnings([a], byId(money(a.shipmentId, 50000)), NONE, box(1000))).boxCostsComplete).toBe(false);
+    const gone = boxCostsOf(1, [...all, cost(2, "ocean", 900)], RATES, "2026-11-20");
+    expect(sailingProfit("s", sailingEarnings([a], byId(money(a.shipmentId, 50000)), NONE, gone)).boxCostsComplete).toBe(false);
+  });
+  it("says the revenue is not complete while a loaded shipment has no selling lines", () => {
+    expect(sailingProfit("s", sailingEarnings([a], byId(money(a.shipmentId, 0)), NONE, boxCostsOf(1, all, RATES, "2026-11-20"))).revenueComplete).toBe(false);
+  });
+  it("says the money is not known when it could not be read, and that no box cost is set", () => {
+    expect(sailingProfit("s", sailingEarnings([a], null, NONE, box(1000)))).toMatchObject({ moneyKnown: false, profit: null });
+    expect(sailingProfit("s", sailingEarnings([a], byId(money(a.shipmentId, 50000)), NONE))).toMatchObject({ boxCostsSet: false, profit: null });
   });
 });

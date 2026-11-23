@@ -22,7 +22,7 @@ function ProfitCell({ profit }: { profit: Parameters<typeof profitGlance>[0] }) 
   const glance = profitGlance(profit);
   return (
     <span className="inline-flex flex-col items-end leading-tight">
-      <span className={glance.tone === "red" ? "font-semibold text-red-600" : glance.tone === "slate" ? "text-slate-500" : "font-semibold"}>{glance.main}</span>
+      <span className={glance.tone === "red" ? "font-semibold text-red-600" : glance.tone === "amber" ? "text-amber-700" : glance.tone === "slate" ? "text-slate-500" : "font-semibold"}>{glance.main}</span>
       {glance.note && <span className="text-[11px] text-slate-500">{glance.note}</span>}
     </span>
   );

@@ -115,7 +115,7 @@ export function useSailingEarnings(id: string, enabled = true) {
     staleTime: 0,
     refetchOnMount: "always",
   });
-  return { earnings: query.data ?? null, isLoading: query.isLoading, isError: query.isError, refetch: query.refetch };
+  return { earnings: query.data ?? null, isLoading: query.isLoading, isError: query.isError, isFetching: query.isFetching, refetch: query.refetch };
 }
 
 /** The profit of each of a service's sailings, by sailing id. Managers only: `enabled` keeps others from asking. */
@@ -126,7 +126,7 @@ export function useSailingProfits(serviceId: string, enabled: boolean) {
     enabled: enabled && isUuid(serviceId),
     staleTime: 0,
   });
-  return { profits: new Map((query.data?.data ?? []).map((p) => [p.sailingId, p])), isLoading: query.isLoading };
+  return { profits: new Map((query.data?.data ?? []).map((p) => [p.sailingId, p])), isLoading: query.isLoading, isError: query.isError };
 }
 
 /** Setting one container's box costs. The earnings and the record of changes are read again. */

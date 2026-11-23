@@ -2582,11 +2582,19 @@ export interface BoxCostChange {
 /** A sailing's profit at a glance, for the list of sailings. Managers only. */
 export interface SailingProfit {
   sailingId: string;
-  /** Profit after the box costs; null while no box cost is set. */
+  /** False when the shipments' money could not be read: no profit is known then. */
+  moneyKnown: boolean;
+  /** False while no box cost has an amount: no profit is shown then. */
+  boxCostsSet: boolean;
+  /** Profit after the box costs; null while no box cost is set or the money is not known. */
   profit: EarningsAmount | null;
   marginPct: number | null;
   /** False when an amount is left out or a shipment's money is not known. */
   complete: boolean;
+  /** False when a box cost is still not set, or costs are kept for a container the sailing no longer has. */
+  boxCostsComplete: boolean;
+  /** False when a loaded shipment has no selling lines yet. */
+  revenueComplete: boolean;
   /** The box costs' rate may still move. */
   provisional: boolean;
 }

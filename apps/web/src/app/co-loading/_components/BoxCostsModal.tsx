@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Button, Input, InputNumber, Select } from "antd";
+import { Button, Input, Select } from "antd";
 import { AppModal } from "@/components/AppModal";
+import { DecimalInput } from "@/components/DecimalInput";
 import { useSailingBoxCosts } from "@/hooks/useCoLoadingServices";
 import { apiErrorMessage } from "@/lib/api";
 import type { interfaces } from "@/lib/api/client";
@@ -78,7 +79,8 @@ export function BoxCostsModal({ open, onClose, sailingId, container, containerTy
         {lines.map((line) => (
           <fieldset key={line.kind} className="m-0 grid grid-cols-[minmax(0,1fr)_96px] gap-x-2 gap-y-1.5 border-0 p-0 sm:grid-cols-[150px_96px_minmax(0,1fr)]">
             <legend className={`${LABEL_TEXT} mb-1.5 p-0`}>{BOX_COST_LABEL[line.kind]}</legend>
-            <InputNumber
+            {/* The app's own number field: it reads an amount typed the Czech way ("2100,50") as 2,100.50, not 210,050. */}
+            <DecimalInput
               aria-label={`${BOX_COST_LABEL[line.kind]}: amount`}
               min={0}
               max={99999999.99}
