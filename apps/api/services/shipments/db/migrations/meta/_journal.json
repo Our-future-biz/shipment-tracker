@@ -687,6 +687,13 @@
       "when": 1795412877420,
       "tag": "0097_co_loading_sailing",
       "breakpoints": true
+    },
+    {
+      "idx": 98,
+      "version": "7",
+      "when": 1795417511249,
+      "tag": "0098_co_loading_sailing_shipment",
+      "breakpoints": true
     }
   ]
 }

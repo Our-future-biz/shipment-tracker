@@ -15,6 +15,7 @@ import { shipmentRefCounterRepository, type Tx as CounterTx } from "./shipmentRe
 import { jobNumberFor } from "../lib/jobNumber";
 import { masterJobNumberForms } from "../lib/masterJobNumber";
 import { masterJobTable } from "../schemas/masterJob.schema";
+import { coLoadingSailingShipmentTable } from "../schemas/coLoadingSailingShipment.schema";
 import { containerTable } from "../schemas/container.schema";
 import { shipmentClaimTable } from "../schemas/shipmentClaim.schema";
 import { shipmentEventOutboxTable } from "../schemas/shipmentEventOutbox.schema";
@@ -387,6 +388,20 @@ export function serviceNameMatch(serviceName: string | undefined): SQL | undefin
 }
 
 /**
+ * The list's Co-Loading Concept sailing filter: the jobs linked to this sailing (its id), or with
+ * "none" the jobs on no sailing - those a sailing's Link shipments offers. Undefined for anything else.
+ */
+export function sailingMatch(sailing: string | undefined): SQL | undefined {
+  const asked = (sailing ?? "").trim();
+  if (!asked) return undefined;
+  const link = coLoadingSailingShipmentTable;
+  const onA = (sailingClause: SQL) => sql`EXISTS (SELECT 1 FROM ${link} WHERE ${link.shipmentId} = ${shipmentTable.id} AND ${link.companyId} = ${shipmentTable.companyId} AND ${link.deletedAt} IS NULL${sailingClause})`;
+  if (asked === "none") return sql`NOT ${onA(sql``)}`;
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(asked)) return undefined;
+  return onA(sql` AND ${link.sailingId} = ${asked}`);
+}
+
+/**
  * The shipments list's warehouse filter, by the two dates a shipment carries (written back
  * by the warehouse Gate Log): in → (received) → stock → (released) → out. "in" holds the
  * ones not yet received whose ETA Warehouse/HUB is less than 7 days away (or passed).
@@ -433,6 +448,8 @@ export interface ShipmentListFilters {
   direction?: string;
   /** Service Name, trimmed and in any case (serviceNameMatch): a Co-Loading Concept service's shipments. */
   serviceName?: string;
+  /** A Co-Loading Concept sailing's id: the jobs linked to it; "none": the jobs on no sailing (sailingMatch). */
+  sailing?: string;
   customerId?: string;
   /** The houses of the master job with this MCZ number. */
   masterJobMcz?: string;
@@ -1068,6 +1085,8 @@ class ShipmentRepository extends TenantRepository<typeof shipmentTable> {
     if (tradeDirection) clauses.push(tradeDirection);
     const serviceName = serviceNameMatch(f.serviceName);
     if (serviceName) clauses.push(serviceName);
+    const onSailing = sailingMatch(f.sailing);
+    if (onSailing) clauses.push(onSailing);
     if (f.warehouse) {
       const predicate = WAREHOUSE_PREDICATES[f.warehouse as WarehouseSectionId];
       if (predicate) clauses.push(predicate);

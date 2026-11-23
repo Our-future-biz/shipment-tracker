@@ -71,3 +71,27 @@ export function checkSailingInput(input: SailingInput): { values: SailingValues 
   if (!(SAILING_CONTAINER_TYPES as readonly string[]).includes(containerType)) return { error: "Pick the container type." };
   return { values: { vessel: week ?? typed, voyage, pol, pod, hub, containerType } };
 }
+
+// ─── Linking shipments to a sailing (its box) ───
+
+/** A shipment as linking it is judged: its reference, its Service Name and the sailing it is on, if any. */
+export interface ShipmentToLink {
+  jobNumber: string;
+  serviceName: string;
+  /** The sailing it is linked to now (its vessel and voyage), or null. */
+  onSailing: { id: string; name: string } | null;
+}
+
+/**
+ * Why a shipment cannot be linked to the sailing, or null when it can: only the service's own
+ * shipments (its Service Name, trimmed and in any case), and a shipment is on one sailing at a time.
+ */
+export function linkRefusal(shipment: ShipmentToLink, serviceName: string, sailingId: string): string | null {
+  const own = serviceName.trim().toLowerCase();
+  if (!own || shipment.serviceName.trim().toLowerCase() !== own) {
+    return `${shipment.jobNumber} has the Service Name "${shipment.serviceName.trim() || "none"}": only ${serviceName.trim() || "the service's"} shipments go on this sailing.`;
+  }
+  if (shipment.onSailing?.id === sailingId) return `${shipment.jobNumber} is on this sailing already.`;
+  if (shipment.onSailing) return `${shipment.jobNumber} is on ${shipment.onSailing.name}: remove it from there first.`;
+  return null;
+}

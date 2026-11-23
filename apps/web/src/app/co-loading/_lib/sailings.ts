@@ -33,3 +33,23 @@ export function sailingFormError(f: {
   if (!f.containerType) return "Pick the container type.";
   return null;
 }
+
+/** A sailing's own page, under its service's: /co-loading/<service>/sailings/<sailing>. */
+export const sailingHref = (s: { id: string; serviceId: string }) =>
+  `/co-loading/${s.serviceId}/sailings/${s.id}`;
+
+/** A sailing as its page names it: "MSC Anna 445W", or "WEEK 44" while the vessel is not known. */
+export const sailingTitle = (s: { vessel: string; voyage: string }) =>
+  [s.vessel, s.voyage].filter(Boolean).join(" ");
+
+/** The tabs of a sailing's page, in order: the first is the one it opens on. */
+export const SAILING_TABS = [
+  { key: "box", label: "Box utilization" },
+  { key: "shipments", label: "Linked shipments" },
+  { key: "earnings", label: "Earnings" },
+] as const;
+export type SailingTab = (typeof SAILING_TABS)[number]["key"];
+
+/** The tab an address asks for (?tab=), the first one for anything else. */
+export const sailingTabOf = (asked: string | null): SailingTab =>
+  SAILING_TABS.find((t) => t.key === asked)?.key ?? "box";

@@ -1,6 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { CONTAINER_TYPES } from "@/lib/cargo";
-import { sailingFormError, sailingWeek, voyageNeeded } from "./sailings";
+import {
+  SAILING_TABS,
+  sailingFormError,
+  sailingHref,
+  sailingTabOf,
+  sailingTitle,
+  sailingWeek,
+  voyageNeeded,
+} from "./sailings";
 
 const FILLED = {
   vessel: "MSC Anna",
@@ -55,5 +63,24 @@ describe("a Co-Loading Concept sailing", () => {
       "40' HFR",
       "45' HQ",
     ]);
+  });
+});
+
+describe("a sailing's page", () => {
+  it("is under its service's, named by its vessel and voyage", () => {
+    expect(sailingHref({ id: "s1", serviceId: "svc" })).toBe("/co-loading/svc/sailings/s1");
+    expect(sailingTitle({ vessel: "MSC Anna", voyage: "445W" })).toBe("MSC Anna 445W");
+    expect(sailingTitle({ vessel: "WEEK 44", voyage: "" })).toBe("WEEK 44");
+  });
+
+  it("has Box utilization, Linked shipments and Earnings, opening on the first", () => {
+    expect(SAILING_TABS.map((t) => t.label)).toEqual([
+      "Box utilization",
+      "Linked shipments",
+      "Earnings",
+    ]);
+    expect(sailingTabOf(null)).toBe("box");
+    expect(sailingTabOf("earnings")).toBe("earnings");
+    expect(sailingTabOf("nonsense")).toBe("box");
   });
 });

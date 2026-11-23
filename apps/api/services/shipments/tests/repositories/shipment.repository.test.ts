@@ -123,6 +123,7 @@ import {
   jobsOfMatch,
   modeMatch,
   personNameMatch,
+  sailingMatch,
   serviceNameMatch,
   searchMatch,
   searchedColumns,
@@ -620,6 +621,24 @@ describe("the list's Service Name filter", () => {
 
   it("asks nothing when no Service Name is given", () => {
     for (const name of [undefined, "", "   "]) expect(serviceNameMatch(name), name).toBeUndefined();
+  });
+});
+
+describe("the list's Co-Loading Concept sailing filter", () => {
+  const SAILING = "0b7c2e1a-1111-4111-8111-111111111111";
+  const ON_A_SAILING =
+    'EXISTS (SELECT 1 FROM "co_loading_sailing_shipment" WHERE "co_loading_sailing_shipment"."shipment_id" = "shipment"."id" AND "co_loading_sailing_shipment"."company_id" = "shipment"."company_id" AND "co_loading_sailing_shipment"."deleted_at" IS NULL';
+
+  it("finds the jobs linked to the sailing", () => {
+    expect(sent(sailingMatch(SAILING))).toEqual({ sql: `${ON_A_SAILING} AND "co_loading_sailing_shipment"."sailing_id" = $1)`, params: [SAILING] });
+  });
+
+  it("finds the jobs on no sailing with none: what Link shipments offers", () => {
+    expect(sent(sailingMatch("none"))).toEqual({ sql: `NOT ${ON_A_SAILING})`, params: [] });
+  });
+
+  it("asks nothing for no sailing or a word that is no sailing's id", () => {
+    for (const sailing of [undefined, "", "  ", "all", "WEEK 51", "'; drop table shipment; --"]) expect(sailingMatch(sailing), sailing).toBeUndefined();
   });
 });
 

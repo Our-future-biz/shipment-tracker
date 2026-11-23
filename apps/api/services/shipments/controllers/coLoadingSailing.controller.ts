@@ -14,6 +14,36 @@ export const coLoadingSailingList = api(
   },
 );
 
+// One sailing, opened from the service's Sailings list.
+export const coLoadingSailingGet = api(
+  { expose: true, auth: true, method: "GET", path: "/co-loading/sailings/:id" },
+  async ({ id }: { id: string }): Promise<CoLoadingSailingItem> => {
+    return service.get(id, getAuthData()!.companyID);
+  },
+);
+
+interface CoLoadingSailingLinkRequest {
+  id: string;
+  shipmentIds: string[];
+}
+
+// Links shipments to the sailing (its box), all or none: the service's own (its Service Name), each on
+// no sailing yet. Refused while the service is closed.
+export const coLoadingSailingLinkShipments = api(
+  { expose: true, auth: true, method: "POST", path: "/co-loading/sailings/:id/shipments" },
+  async ({ id, shipmentIds }: CoLoadingSailingLinkRequest): Promise<{ linked: number }> => {
+    return service.linkShipments(id, shipmentIds.slice(0, 200), getAuthData()!);
+  },
+);
+
+// Takes a shipment off the sailing. Refused while the service is closed.
+export const coLoadingSailingUnlinkShipment = api(
+  { expose: true, auth: true, method: "DELETE", path: "/co-loading/sailings/:id/shipments/:shipmentId" },
+  async ({ id, shipmentId }: { id: string; shipmentId: string }): Promise<void> => {
+    await service.unlinkShipment(id, shipmentId, getAuthData()!.companyID);
+  },
+);
+
 interface CoLoadingSailingCreateRequest {
   id: string;
   /** The vessel's name, or the week it sails ("WEEK 44") while the vessel is not known */

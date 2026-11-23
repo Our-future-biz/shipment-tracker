@@ -56,3 +56,33 @@ export function useCoLoadingSailings(serviceId: string) {
   });
   return { sailings: query.data?.data ?? [], isLoading: query.isLoading, isError: query.isError, create };
 }
+
+/** One sailing, for its own page. */
+export function useCoLoadingSailing(id: string) {
+  const isId = isUuid(id);
+  const query = useQuery({
+    queryKey: [...LIST_KEY, "sailing", id],
+    queryFn: () => api.shipments.coLoadingSailingGet(id),
+    enabled: isId,
+    retry: (failures, err) => !isNotFound(err) && failures < 1,
+  });
+  return { sailing: query.data ?? null, isLoading: isId && query.isLoading, notFound: !isId || isNotFound(query.error) };
+}
+
+/**
+ * Linking shipments to a sailing (its box) and taking them off. The shipments lists are read again
+ * after either: the sailing's Linked shipments and what Link shipments offers are both lists of them.
+ */
+export function useSailingShipmentLinks(sailingId: string) {
+  const qc = useQueryClient();
+  const settle = () => qc.invalidateQueries({ queryKey: ["shipments"] });
+  const link = useMutation({
+    mutationFn: (shipmentIds: string[]) => api.shipments.coLoadingSailingLinkShipments(sailingId, { shipmentIds }),
+    onSuccess: settle,
+  });
+  const unlink = useMutation({
+    mutationFn: (shipmentId: string) => api.shipments.coLoadingSailingUnlinkShipment(sailingId, shipmentId),
+    onSuccess: settle,
+  });
+  return { link, unlink };
+}

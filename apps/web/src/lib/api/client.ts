@@ -3288,7 +3288,10 @@ export namespace shipments {
             this.claimTimeLimitsSave = this.claimTimeLimitsSave.bind(this)
             this.claimUpdate = this.claimUpdate.bind(this)
             this.coLoadingSailingCreate = this.coLoadingSailingCreate.bind(this)
+            this.coLoadingSailingGet = this.coLoadingSailingGet.bind(this)
+            this.coLoadingSailingLinkShipments = this.coLoadingSailingLinkShipments.bind(this)
             this.coLoadingSailingList = this.coLoadingSailingList.bind(this)
+            this.coLoadingSailingUnlinkShipment = this.coLoadingSailingUnlinkShipment.bind(this)
             this.coLoadingServiceClose = this.coLoadingServiceClose.bind(this)
             this.coLoadingServiceCreate = this.coLoadingServiceCreate.bind(this)
             this.coLoadingServiceGet = this.coLoadingServiceGet.bind(this)
@@ -3547,6 +3550,29 @@ export namespace shipments {
         }
 
         /**
+         * One sailing, opened from the service's Sailings list.
+         */
+        public async coLoadingSailingGet(id: string): Promise<interfaces.CoLoadingSailingItem> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/co-loading/sailings/${encodeURIComponent(id)}`)
+            return await resp.json() as interfaces.CoLoadingSailingItem
+        }
+
+        /**
+         * Links shipments to the sailing (its box), all or none: the service's own (its Service Name), each on
+         * no sailing yet. Refused while the service is closed.
+         */
+        public async coLoadingSailingLinkShipments(id: string, params: controllers.CoLoadingSailingLinkRequest): Promise<{
+    linked: number
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/co-loading/sailings/${encodeURIComponent(id)}/shipments`, JSON.stringify(params))
+            return await resp.json() as {
+    linked: number
+}
+        }
+
+        /**
          * The service's sailings, the newest first: the Sailings list on its page.
          */
         public async coLoadingSailingList(id: string): Promise<{
@@ -3557,6 +3583,13 @@ export namespace shipments {
             return await resp.json() as {
     data: interfaces.CoLoadingSailingItem[]
 }
+        }
+
+        /**
+         * Takes a shipment off the sailing. Refused while the service is closed.
+         */
+        public async coLoadingSailingUnlinkShipment(id: string, shipmentId: string): Promise<void> {
+            await this.baseClient.callTypedAPI("DELETE", `/co-loading/sailings/${encodeURIComponent(id)}/shipments/${encodeURIComponent(shipmentId)}`)
         }
 
         /**
@@ -4464,6 +4497,7 @@ export namespace shipments {
                 masterJobMcz:  params.masterJobMcz,
                 mode:          params.mode,
                 offset:        params.offset === undefined ? undefined : String(params.offset),
+                sailing:       params.sailing,
                 search:        params.search,
                 searchColumns: params.searchColumns?.map((v) => v),
                 serviceName:   params.serviceName,
@@ -8543,6 +8577,10 @@ export namespace controllers {
         containerType: string
     }
 
+    export interface CoLoadingSailingLinkRequest {
+        shipmentIds: string[]
+    }
+
     export interface CoLoadingServiceCreateRequest {
         name: string
         /**
@@ -12517,6 +12555,11 @@ export namespace controllers {
          * Service Name (ISHA, Domestic), trimmed and in any case: a Co-Loading Concept service's shipments
          */
         serviceName?: string
+
+        /**
+         * A Co-Loading Concept sailing's id: the shipments linked to it; "none": the shipments on no sailing
+         */
+        sailing?: string
 
         /**
          * Warehouse page filter: in | stock | out

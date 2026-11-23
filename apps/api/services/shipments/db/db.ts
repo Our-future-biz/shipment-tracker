@@ -27,6 +27,7 @@ import * as shipmentReleaseRequestSchema from "../schemas/shipmentReleaseRequest
 import * as shipmentCutoffDismissalSchema from "../schemas/shipmentCutoffDismissal.schema";
 import * as coLoadingServiceSchema from "../schemas/coLoadingService.schema";
 import * as coLoadingSailingSchema from "../schemas/coLoadingSailing.schema";
+import * as coLoadingSailingShipmentSchema from "../schemas/coLoadingSailingShipment.schema";
 
 export const DB = new SQLDatabase("shipments", {
   migrations: { path: "migrations", source: "drizzle" },
@@ -62,6 +63,7 @@ export const db = drizzle(pool, {
     ...shipmentCutoffDismissalSchema,
     ...coLoadingServiceSchema,
     ...coLoadingSailingSchema,
+    ...coLoadingSailingShipmentSchema,
   },
 });
 

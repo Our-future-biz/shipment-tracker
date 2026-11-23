@@ -1,12 +1,15 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { Tooltip } from "antd";
 import { PlusOutlined } from "@ant-design/icons";
 import { useCoLoadingSailings } from "@/hooks/useCoLoadingServices";
 import { formatDate } from "@/lib/date";
 import { useMessages } from "@/lib/toast";
-import { BTN_PRIMARY, CARD, EMPTY_STATE, HEADING, TD, TH } from "@/styles/ui";
+import { BTN_PRIMARY, CARD, EMPTY_STATE, HEADING, LINK, REF, TD, TH } from "@/styles/ui";
+import { sailingHref } from "../_lib/sailings";
 import { CreateSailingModal } from "./CreateSailingModal";
 
 // A Co-Loading Concept service's sailings, the newest first, over its shipments: "Create new sailing"
@@ -14,6 +17,7 @@ import { CreateSailingModal } from "./CreateSailingModal";
 export function CoLoadingSailings({ serviceId, closed }: { serviceId: string; closed: boolean }) {
   const { sailings, isLoading, isError, create } = useCoLoadingSailings(serviceId);
   const message = useMessages();
+  const router = useRouter();
   const [creating, setCreating] = useState(false);
 
   const button = (
@@ -67,8 +71,21 @@ export function CoLoadingSailings({ serviceId, closed }: { serviceId: string; cl
             </thead>
             <tbody>
               {sailings.map((s) => (
-                <tr key={s.id}>
-                  <td className={`${TD} font-medium text-slate-900`}>{s.vessel}</td>
+                // A sailing opens its own page: by its vessel (a link, so it also opens in a new tab) or anywhere on its row.
+                <tr
+                  key={s.id}
+                  onClick={() => router.push(sailingHref(s))}
+                  className="cursor-pointer hover:bg-slate-50"
+                >
+                  <td className={TD}>
+                    <Link
+                      href={sailingHref(s)}
+                      onClick={(e) => e.stopPropagation()}
+                      className={`${LINK} ${REF} font-semibold`}
+                    >
+                      {s.vessel}
+                    </Link>
+                  </td>
                   <td className={TD}>{s.voyage || "—"}</td>
                   <td className={TD}>{s.pol}</td>
                   <td className={TD}>{s.pod}</td>

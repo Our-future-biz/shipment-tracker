@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { checkSailingInput, SAILING_CONTAINER_TYPES, sailingWeek, VESSEL_MAX } from "../lib/coLoadingSailing";
+import { checkSailingInput, linkRefusal, SAILING_CONTAINER_TYPES, sailingWeek, VESSEL_MAX } from "../lib/coLoadingSailing";
 
 const PORTS = { pol: "Shanghai (CNSHA)", pod: "Hamburg (DEHAM)", hub: "Praha (CZPRG)", containerType: "40' HC" };
 
@@ -38,5 +38,28 @@ describe("a Co-Loading Concept sailing", () => {
 
   it("takes the container types quotes and shipments use", () => {
     expect(SAILING_CONTAINER_TYPES).toEqual(["20' DC", "20' RF", "20' OT", "20' HOT", "20' FR", "40' DC", "40' HC", "40' HRF", "40' OT", "40' HOT", "40' FR", "40' HFR", "45' HQ"]);
+  });
+});
+
+describe("linking a shipment to a sailing", () => {
+  const SAILING = "sailing-1";
+  const free = { jobNumber: "CZLCL00000299", serviceName: "ISHA", onSailing: null };
+
+  it("takes the service's own shipments, by Service Name trimmed and in any case", () => {
+    expect(linkRefusal(free, "ISHA", SAILING)).toBeNull();
+    expect(linkRefusal({ ...free, serviceName: " isha " }, "ISHA", SAILING)).toBeNull();
+    expect(linkRefusal({ ...free, serviceName: "Domestic" }, "ISHA", SAILING)).toBe(
+      'CZLCL00000299 has the Service Name "Domestic": only ISHA shipments go on this sailing.',
+    );
+    expect(linkRefusal({ ...free, serviceName: "" }, "ISHA", SAILING)).toBe('CZLCL00000299 has the Service Name "none": only ISHA shipments go on this sailing.');
+    // A service without a Service Name takes none.
+    expect(linkRefusal(free, "", SAILING)).not.toBeNull();
+  });
+
+  it("puts a shipment on one sailing at a time", () => {
+    expect(linkRefusal({ ...free, onSailing: { id: SAILING, name: "WEEK 51" } }, "ISHA", SAILING)).toBe("CZLCL00000299 is on this sailing already.");
+    expect(linkRefusal({ ...free, onSailing: { id: "other", name: "MSC Anna 445W" } }, "ISHA", SAILING)).toBe(
+      "CZLCL00000299 is on MSC Anna 445W: remove it from there first.",
+    );
   });
 });
