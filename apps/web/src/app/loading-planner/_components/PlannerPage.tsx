@@ -4,17 +4,18 @@ import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { App, Input } from "antd";
-import { DisconnectOutlined, LinkOutlined, ReloadOutlined, SaveOutlined } from "@ant-design/icons";
+import { DisconnectOutlined, FilePdfOutlined, LinkOutlined, ReloadOutlined, SaveOutlined } from "@ant-design/icons";
 import { BackLink } from "@/components/BackLink";
 import { Pill } from "@/components/Pill";
 import { JobNotFound, useLoadingPlanJob, type PlanJob } from "@/hooks/useLoadingPlanJob";
 import { useLoadingPlan, useLoadingPlans } from "@/hooks/useLoadingPlans";
 import { apiErrorMessage, isNotFound } from "@/lib/api";
 import type { interfaces } from "@/lib/api/client";
-import { formatDateTime } from "@/lib/date";
+import { businessToday, formatDate, formatDateTime } from "@/lib/date";
 import { useMessages } from "@/lib/toast";
 import { BTN, BTN_PRIMARY, HINT, PAGE_SUBTITLE, REF } from "@/styles/ui";
 import { cargoLinesOf, draftsOf, isBlank, newDraftLine, saveProblem, type DraftLine } from "../_lib/cargoForm";
+import { CONTAINERS } from "../_lib/containers";
 import { JOB_KIND_LABEL, jobHref } from "../_lib/jobCargo";
 import { lineColour } from "../_lib/loadStats";
 import { planLoad } from "../_lib/plan";
@@ -137,6 +138,29 @@ function PlanEditor({ saved }: { saved: interfaces.LoadingPlanItem | null }) {
   const colourOf = (lineId: string) => lineColour(lines.findIndex((line) => line.id === lineId));
   const dirty = stored ? savedForm(name, lines, nominated, link) !== savedForm(stored.name, draftsOf(stored.lines), stored.nominated, linkOf(stored)) : true;
 
+  // The PDF shows the plan as it is on screen now, saved or not. Its library is fetched on the first use.
+  const [printing, setPrinting] = useState(false);
+  const handlePdf = async () => {
+    setPrinting(true);
+    try {
+      const { buildPlanPdf, planPdfFileName } = await import("../_lib/planPdf");
+      const title = name.trim() || "Loading plan";
+      buildPlanPdf({
+        name: title,
+        job: link ? `${JOB_KIND_LABEL[link.kind]} ${link.ref}` : "",
+        lines: cargo,
+        plan: planLoad(cargo, nominated ?? undefined),
+        nominated: nominated ? CONTAINERS.filter((c) => nominated.includes(c.id)).map((c) => c.name) : null,
+        unit,
+        printedOn: formatDate(businessToday()),
+      }).save(planPdfFileName(title));
+    } catch {
+      message.error("The PDF could not be made.");
+    } finally {
+      setPrinting(false);
+    }
+  };
+
   const handleSave = async () => {
     const problem = saveProblem(name, lines);
     if (problem) {
@@ -180,7 +204,11 @@ function PlanEditor({ saved }: { saved: interfaces.LoadingPlanItem | null }) {
             className="!w-[420px] max-w-full !text-[16px] !font-semibold"
           />
           {dirty ? <Pill tone="amber">{stored ? "Unsaved changes" : "Not saved yet"}</Pill> : <Pill tone="green">Saved</Pill>}
-          <button type="button" className={`${BTN_PRIMARY} ml-auto`} onClick={handleSave} disabled={isSaving || !dirty}>
+          <button type="button" className={`${BTN} ml-auto`} onClick={handlePdf} disabled={printing || cargo.length === 0} title="Download the plan as a PDF: a summary and a page per container">
+            <FilePdfOutlined />
+            {printing ? "Making the PDF…" : "PDF"}
+          </button>
+          <button type="button" className={BTN_PRIMARY} onClick={handleSave} disabled={isSaving || !dirty}>
             <SaveOutlined />
             {isSaving ? "Saving…" : "Save plan"}
           </button>

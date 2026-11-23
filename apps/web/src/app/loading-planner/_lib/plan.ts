@@ -1,4 +1,4 @@
-import { centreLoad } from "./balance";
+import { balanceOf, centreLoad } from "./balance";
 import { beddingMm, CONTAINERS, GROUP_LABEL, GROUP_ORDER, type ContainerGroup, type ContainerSpec } from "./containers";
 import { findSpot, newFloor, occupy, type Floor } from "./floor";
 import { fitIn, type CargoLine } from "./gauge";
@@ -95,9 +95,9 @@ function stack(bin: Bin, line: CargoLine): boolean {
 
 /**
  * Loads one piece into the bin: on the floor, in the way it fits most snugly, or else stacked.
- * False when it does not go in.
+ * False when it does not go in. `inMiddle` puts the first piece of a load in the middle of the floor.
  */
-function place(bin: Bin, line: CargoLine): boolean {
+function place(bin: Bin, line: CargoLine, inMiddle = false): boolean {
   if (bin.weightKg + line.weightKg > bin.container.payloadKg) return false;
   const ways = fitIn(bin.container, line)
     .map((fp) => ({ fp, spot: findSpot(bin.floor, fp.length, fp.width) }))
@@ -107,9 +107,11 @@ function place(bin: Bin, line: CargoLine): boolean {
   if (!best?.spot) return stack(bin, line);
 
   // The first piece of a load, when it takes the floor's whole width, goes to the middle of the
-  // length: the rest of the cargo then fills both ends and the load stays in balance.
-  if (bin.pieces.length === 0 && best.fp.width >= bin.floor.width && best.fp.length < bin.floor.length) {
-    best.spot.z = Math.round((bin.floor.length - best.fp.length) / 2);
+  // length: the rest of the cargo then fills both ends and the load stays in balance. So does a
+  // piece asked into the middle, which is centred across the floor too.
+  if (bin.pieces.length === 0) {
+    if ((inMiddle || best.fp.width >= bin.floor.width) && best.fp.length < bin.floor.length) best.spot.z = Math.round((bin.floor.length - best.fp.length) / 2);
+    if (inMiddle && best.fp.width < bin.floor.width) best.spot.x = Math.round((bin.floor.width - best.fp.width) / 2);
   }
   occupy(bin.floor, best.spot, best.fp.length, best.fp.width);
   bin.lines.push(line);
@@ -206,6 +208,30 @@ function loadGroup(candidates: ContainerSpec[], lines: CargoLine[]): { bins: Bin
   return { bins, left };
 }
 
+const offCentre = (bin: Bin): number => {
+  const balance = balanceOf(bin.pieces, bin.container);
+  return Math.abs(balance.alongPct) + Math.abs(balance.acrossPct);
+};
+
+/**
+ * A load centred as well as its packing allows. One that is still out of balance is packed once
+ * more around its heaviest piece, set in the middle of the floor, and that packing is kept when it
+ * takes every piece and balances better: a heavy piece no longer sits in a corner with the light
+ * cargo beside it.
+ */
+function balanced(bin: Bin): Bin {
+  centreLoad(bin.pieces, bin.container);
+  if (balanceOf(bin.pieces, bin.container).ok) return bin;
+
+  const heaviest = bin.lines.reduce((a, b) => (b.weightKg > a.weightKg ? b : a), bin.lines[0]!);
+  const rest = [...bin.lines];
+  rest.splice(rest.indexOf(heaviest), 1);
+  const again = newBin(bin.container);
+  if (!place(again, heaviest, true) || !rest.every((line) => place(again, line))) return bin;
+  centreLoad(again.pieces, again.container);
+  return offCentre(again) < offCentre(bin) ? again : bin;
+}
+
 // ── The plan ──
 
 const kg = (value: number) => `${value.toLocaleString("en-US")} kg`;
@@ -265,9 +291,7 @@ function buildPlan(lines: CargoLine[], allowed: ContainerSpec[], flatRacks: Cont
   for (const line of refused) note(line, refusal(line, allowed));
   for (const line of [...flat.left, ...open.left, ...standard.left]) note(line, "No room was found for it in the equipment.");
 
-  const bins = [...standard.bins, ...open.bins, ...flat.bins];
-  for (const bin of bins) centreLoad(bin.pieces, bin.container);
-  const loads = bins.map((bin) => ({
+  const loads = [...standard.bins, ...open.bins, ...flat.bins].map(balanced).map((bin) => ({
     container: bin.container,
     pieces: bin.pieces,
     totalWeightKg: bin.weightKg,

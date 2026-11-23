@@ -302,6 +302,18 @@ describe("planLoad", () => {
       expect(balanceOf(pieces, container).ok).toBe(true);
     });
 
+    it("packs a load again around its heavy piece when it would stand in a corner", () => {
+      // A 25 t coil with pallets beside it: left where it was first put, the load is far out of balance.
+      const plan = planLoad([line("coil", 1000, 1000, 1000, 25000), line("pallet", 1200, 800, 1000, 400, { colli: 8 })]);
+      expect(names(plan)).toEqual(["20' DC"]);
+      expect(loadedCount(plan)).toBe(9);
+      expectSoundFloors(plan);
+      expect(balanceOf(load(plan).pieces, load(plan).container).ok).toBe(true);
+      const coil = load(plan).pieces.find((p) => p.name === "coil")!;
+      expect(coil.z).toBeGreaterThan(1500);
+      expect(coil.z + coil.length).toBeLessThan(5898 - 1500);
+    });
+
     it("reports a load it cannot balance", () => {
       const container = spec("20dc");
       const pieces = [
