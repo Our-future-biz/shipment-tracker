@@ -10,12 +10,13 @@ import { loadStats, planTotals, type PieceGroup } from "../_lib/loadStats";
 import type { ContainerLoad, LoadPlan } from "../_lib/plan";
 import { formatDim, formatKg, formatSize, type DimUnit } from "../_lib/units";
 import { FloorPlan } from "./FloorPlan";
+import { LoadView3D } from "./LoadView3D";
 
 interface ResultPanelProps {
   plan: LoadPlan;
   unit: DimUnit;
   /** The Tailwind classes of a cargo line's colour. */
-  colourOf: (lineId: string) => { fill: string; dot: string };
+  colourOf: (lineId: string) => { fill: string; dot: string; hex: string };
 }
 
 const pctText = (value: number) => `${Math.round(value)}%`;
@@ -118,8 +119,8 @@ function LoadCard({ load, number, unit, colourOf }: { load: ContainerLoad; numbe
   );
 }
 
-// What the planner made of the cargo: the totals, the pieces it could not load with the reason, and
-// every container with its floor drawn from above, its figures and its pieces.
+// What the planner made of the cargo: the totals, the pieces it could not load with the reason, the
+// containers in 3D, and every container with its floor drawn from above, its figures and its pieces.
 export function ResultPanel({ plan, unit, colourOf }: ResultPanelProps) {
   if (plan.loads.length === 0 && plan.notLoaded.length === 0) {
     return <div className={`${CARD} ${EMPTY_STATE}`}>Fill in a cargo line to see its loading plan.</div>;
@@ -163,6 +164,8 @@ export function ResultPanel({ plan, unit, colourOf }: ResultPanelProps) {
           </ul>
         </div>
       )}
+
+      <LoadView3D plan={plan} unit={unit} hexOf={(lineId) => colourOf(lineId).hex} />
 
       <div className="grid grid-cols-1 items-start gap-4 2xl:grid-cols-2">
         {plan.loads.map((load, index) => (

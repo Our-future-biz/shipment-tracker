@@ -103,20 +103,21 @@ export function planTotals(plan: LoadPlan): PlanTotals {
   };
 }
 
-// The colours cargo lines are drawn in, as Tailwind classes: `fill` for the floor plan, `dot` for the legend.
+// The colours cargo lines are drawn in: Tailwind classes (`fill` for the floor plan, `dot` for the legend)
+// and the same colour as `hex` for the 3D view, which cannot read a class.
 const LINE_COLOURS = [
-  { fill: "fill-indigo-400", dot: "bg-indigo-400" },
-  { fill: "fill-emerald-400", dot: "bg-emerald-400" },
-  { fill: "fill-amber-400", dot: "bg-amber-400" },
-  { fill: "fill-sky-400", dot: "bg-sky-400" },
-  { fill: "fill-red-400", dot: "bg-red-400" },
-  { fill: "fill-slate-400", dot: "bg-slate-400" },
-  { fill: "fill-indigo-200", dot: "bg-indigo-200" },
-  { fill: "fill-emerald-200", dot: "bg-emerald-200" },
-  { fill: "fill-amber-200", dot: "bg-amber-200" },
-  { fill: "fill-sky-200", dot: "bg-sky-200" },
-  { fill: "fill-red-200", dot: "bg-red-200" },
-  { fill: "fill-slate-300", dot: "bg-slate-300" },
+  { fill: "fill-indigo-400", dot: "bg-indigo-400", hex: "#818cf8" },
+  { fill: "fill-emerald-400", dot: "bg-emerald-400", hex: "#34d399" },
+  { fill: "fill-amber-400", dot: "bg-amber-400", hex: "#fbbf24" },
+  { fill: "fill-sky-400", dot: "bg-sky-400", hex: "#38bdf8" },
+  { fill: "fill-red-400", dot: "bg-red-400", hex: "#f87171" },
+  { fill: "fill-slate-400", dot: "bg-slate-400", hex: "#94a3b8" },
+  { fill: "fill-indigo-200", dot: "bg-indigo-200", hex: "#c7d2fe" },
+  { fill: "fill-emerald-200", dot: "bg-emerald-200", hex: "#a7f3d0" },
+  { fill: "fill-amber-200", dot: "bg-amber-200", hex: "#fde68a" },
+  { fill: "fill-sky-200", dot: "bg-sky-200", hex: "#bae6fd" },
+  { fill: "fill-red-200", dot: "bg-red-200", hex: "#fecaca" },
+  { fill: "fill-slate-300", dot: "bg-slate-300", hex: "#cbd5e1" },
 ] as const;
 
 /** The colour of the cargo line at `index` of the cargo list; the colours repeat after twelve lines. */

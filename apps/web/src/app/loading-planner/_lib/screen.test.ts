@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { cargoLinesOf, completeLine, isBlank, lineLabel, newDraftLine, saveProblem, type DraftLine } from "./cargoForm";
 import { lineColour, loadStats, planTotals } from "./loadStats";
 import { planLoad } from "./plan";
+import { cameraFor, sceneBalance, sceneBounds, sceneBoxes, sceneFloor } from "./scene";
 import { formatDim, formatKg, formatSize, fromMm, toMm } from "./units";
 
 const draft = (more: Partial<DraftLine> = {}): DraftLine => ({ ...newDraftLine("a"), name: "Pallet", lengthMm: 1200, widthMm: 800, heightMm: 1000, weightKg: 400, colli: 4, ...more });
@@ -75,5 +76,36 @@ describe("load figures", () => {
   it("gives every line a colour, repeating", () => {
     expect(lineColour(0).fill).toBe("fill-indigo-400");
     expect(lineColour(12)).toBe(lineColour(0));
+  });
+});
+
+describe("3D scene", () => {
+  const plan = planLoad(cargoLinesOf([draft({ lengthMm: 5000, widthMm: 3000, heightMm: 2000, weightKg: 15000, colli: 1 }), draft({ id: "p", colli: 4, stackable: true })]));
+  const rack = plan.loads.find((l) => l.container.group === "flat-rack")!;
+
+  it("draws every piece in metres, length along X and height up", () => {
+    const boxes = sceneBoxes(rack);
+    expect(boxes).toHaveLength(rack.pieces.length);
+    const machine = boxes.find((b) => b.piece.weightKg === 15000)!;
+    expect(machine.size).toEqual([5, 2, 3]);
+    expect(machine.centre[1]).toBe(1);
+    expect(machine.centre[2]).toBeCloseTo(sceneFloor(rack).width / 2, 3);
+  });
+
+  it("covers the overhang and puts the cameras around it", () => {
+    const { min, max } = sceneBounds(rack);
+    expect(min[2]).toBeLessThan(0);
+    expect(max[2]).toBeGreaterThan(sceneFloor(rack).width);
+    const top = cameraFor("top", rack);
+    expect(top.position[1]).toBeGreaterThan(max[1]);
+    expect(cameraFor("side", rack).position[2]).toBeGreaterThan(max[2]);
+    expect(cameraFor("front", rack).position[0]).toBeLessThan(min[0]);
+  });
+
+  it("marks the centre of gravity and its tolerance", () => {
+    const balance = sceneBalance(rack, 10);
+    expect(balance.ok).toBe(true);
+    expect(balance.tolerance[0]).toBeCloseTo(sceneFloor(rack).length / 20, 6);
+    expect(Math.abs(balance.cog[0] - sceneFloor(rack).length / 2)).toBeLessThanOrEqual(balance.tolerance[0]);
   });
 });
