@@ -23,6 +23,8 @@ export function sailingFormError(f: {
   pod: string;
   hub: string;
   containerType: string;
+  cutoffDate?: string | null;
+  departureDate?: string | null;
 }): string | null {
   if (!f.vessel.trim()) return "Give the vessel, or the week it sails (WEEK 44).";
   if (voyageNeeded(f.vessel) && !(f.voyage ?? "").trim())
@@ -31,6 +33,8 @@ export function sailingFormError(f: {
   if (!f.pod) return "Give the Port of Discharge.";
   if (!f.hub) return "Give the HUB.";
   if (!f.containerType) return "Pick the container type.";
+  // Said before sending, as the server would (both YYYY-MM-DD, so they compare as text).
+  if (f.cutoffDate && f.departureDate && f.cutoffDate > f.departureDate) return "The cut-off cannot be after the departure date.";
   return null;
 }
 

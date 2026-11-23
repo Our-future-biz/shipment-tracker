@@ -121,8 +121,8 @@ export function CoLoadingSailingPage() {
                 <Fact label="Port of Discharge">{text(sailing.pod)}</Fact>
                 <Fact label="HUB">{text(sailing.hub)}</Fact>
                 <Fact label="Box utilization">{box ? <BoxFillChip fill={fillOfBox(box)} /> : text(null)}</Fact>
-                <Fact label="Cut-off">{text(formatDate(sailing.cutoffDate))}</Fact>
-                <Fact label="Departure">{text(formatDate(sailing.departureDate))}</Fact>
+                {/* One fact for the two dates, so a manager's Profit closes the second row instead of standing alone on a third. */}
+                <Fact label="Cut-off · Departure">{text(`${formatDate(sailing.cutoffDate) || "—"} · ${formatDate(sailing.departureDate) || "—"}`)}</Fact>
                 {isManager && (
                   <Fact label="Profit">
                     {profit ? (

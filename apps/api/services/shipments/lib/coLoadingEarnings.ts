@@ -195,6 +195,7 @@ export function sailingEarnings(
     },
     notCounted: rows.length - counted.length,
     notCountedSelling: total(rows.filter((r) => !r.counted).map((r) => r.selling)),
+    notCountedCosts: total(rows.filter((r) => !r.counted).flatMap((r) => [r.inland, r.other])),
     rows,
   };
 }

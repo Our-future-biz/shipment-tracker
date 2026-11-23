@@ -16286,6 +16286,10 @@ export namespace interfaces {
         notes: { noSelling: number; unticked: number; ownBox: number; inMasterJob: number; unrecognised: number; noShare: number; cargoGap: number; cargoImplausible: number; odd: number; handRoad: number; missingCurrencies: string[] }
         notCounted: number
         notCountedSelling: EarningsAmount
+        /**
+         * What the cancelled shipments cost of their own (a failed collection, storage).
+         */
+        notCountedCosts: EarningsAmount
         rows: EarningsRow[]
     }
 

@@ -2547,9 +2547,10 @@ export interface SailingEarnings {
     handRoad: number;
     missingCurrencies: string[];
   };
-  /** Linked shipments not in the totals (cancelled), and what they sell for. */
+  /** Linked shipments not in the totals (cancelled), what they sell for, and what they cost of their own (a failed collection, storage). */
   notCounted: number;
   notCountedSelling: EarningsAmount;
+  notCountedCosts: EarningsAmount;
   rows: EarningsRow[];
 }
 

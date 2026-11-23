@@ -32,6 +32,10 @@ describe("a Co-Loading Concept sailing", () => {
     expect(voyageNeeded("MSC Anna")).toBe(true);
     expect(voyageNeeded("week 44")).toBe(false);
     expect(sailingFormError(FILLED)).toBeNull();
+    // The cut-off may not be after the departure date; either alone, or the same day, is fine.
+    expect(sailingFormError({ ...FILLED, cutoffDate: "2026-12-19", departureDate: "2026-12-18" })).toBe("The cut-off cannot be after the departure date.");
+    expect(sailingFormError({ ...FILLED, cutoffDate: "2026-12-18", departureDate: "2026-12-18" })).toBeNull();
+    expect(sailingFormError({ ...FILLED, cutoffDate: "2026-12-19", departureDate: null })).toBeNull();
     expect(sailingFormError({ ...FILLED, voyage: " " })).toBe(
       "Give the voyage, or write the week in Vessel (WEEK 44) while the vessel is not known.",
     );

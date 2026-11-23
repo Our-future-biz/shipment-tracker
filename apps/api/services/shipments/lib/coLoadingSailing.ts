@@ -96,13 +96,17 @@ export interface SailingDetails {
 }
 
 const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
+/** More than two years before or after today (both YYYY-MM-DD). */
+const farFrom = (day: string, today: string) => Math.abs(Date.parse(`${day}T00:00:00Z`) - Date.parse(`${today}T00:00:00Z`)) > 2 * 366 * 86_400_000;
 const notADay = (day: string) => !ISO_DAY.test(day) || Number.isNaN(Date.parse(`${day}T00:00:00Z`));
 
 /** Why these details cannot be saved, in words for the form; null when they can. */
-export function sailingDetailsProblem(d: SailingDetails): string | null {
+export function sailingDetailsProblem(d: SailingDetails, today: string = new Date().toISOString().slice(0, 10)): string | null {
   if (!Number.isInteger(d.containerCount) || d.containerCount < 1 || d.containerCount > CONTAINER_COUNT_MAX) return `Give the number of containers, from 1 to ${CONTAINER_COUNT_MAX}.`;
   if (d.cutoffDate !== null && notADay(d.cutoffDate)) return "The cut-off is not a date.";
   if (d.departureDate != null && notADay(d.departureDate)) return "The departure date is not a date.";
+  // A slip of the year (2025 for 2026) would value the box costs at an old rate, as if final.
+  if (d.departureDate != null && farFrom(d.departureDate, today)) return "The departure date is more than two years from today: check the year.";
   if (d.cutoffDate !== null && d.departureDate != null && d.cutoffDate > d.departureDate) return "The cut-off cannot be after the departure date.";
   return null;
 }

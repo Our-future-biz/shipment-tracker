@@ -117,6 +117,12 @@ describe("what Edit sailing changes", () => {
     expect(sailingDetailsProblem({ containerCount: 1, cutoffDate: null, departureDate: null })).toBeNull();
     expect(sailingDetailsProblem({ containerCount: 1, cutoffDate: null, departureDate: "18.12.2026" })).toBe("The departure date is not a date.");
     expect(sailingDetailsProblem({ containerCount: 1, cutoffDate: "2026-12-19", departureDate: "2026-12-18" })).toBe("The cut-off cannot be after the departure date.");
+    // A slip of the year is caught: more than two years from today either way.
+    const far = "The departure date is more than two years from today: check the year.";
+    expect(sailingDetailsProblem({ containerCount: 1, cutoffDate: null, departureDate: "2206-12-18" }, "2026-11-23")).toBe(far);
+    expect(sailingDetailsProblem({ containerCount: 1, cutoffDate: null, departureDate: "0202-12-18" }, "2026-11-23")).toBe(far);
+    expect(sailingDetailsProblem({ containerCount: 1, cutoffDate: null, departureDate: "2025-12-18" }, "2026-11-23")).toBeNull();
+    expect(sailingDetailsProblem({ containerCount: 1, cutoffDate: null, departureDate: "2028-11-01" }, "2026-11-23")).toBeNull();
     for (const count of [0, 21, 1.5, Number.NaN]) expect(sailingDetailsProblem({ containerCount: count, cutoffDate: null }), String(count)).toContain("from 1 to 20");
     for (const day of ["14.12.2026", "2026-13-40", "soon", ""]) expect(sailingDetailsProblem({ containerCount: 1, cutoffDate: day }), day).toBe("The cut-off is not a date.");
   });

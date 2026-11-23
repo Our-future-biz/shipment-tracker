@@ -149,7 +149,9 @@ function BoxCosts({ sailingId, containerType, box, closed }: { sailingId: string
               <td className={`${TD_TOTAL} !pl-4`} colSpan={several ? 2 : 1}>
                 Total box costs
               </td>
-              <td className={`${TD_TOTAL} text-right tabular-nums`} colSpan={2}>
+              {/* On a phone the Value column is hidden: the total stands under Amount, so the footer is as wide as the body. */}
+              <td className={`${TD_TOTAL} text-right tabular-nums sm:hidden`}>{box.set ? <Amount amount={box.total} /> : <span className="font-normal text-slate-500">Not set</span>}</td>
+              <td className={`${TD_TOTAL} text-right tabular-nums max-sm:hidden`} colSpan={2}>
                 {box.set ? <Amount amount={box.total} /> : <span className="font-normal text-slate-500">Not set</span>}
               </td>
               <td className={`${TD_TOTAL} max-md:hidden`} />
@@ -440,7 +442,8 @@ export function EarningsTab({ sailingId, containerType, closed, onOpenShipments 
         )}
         {earnings.notCounted > 0 && known && (
           <p className={`${HINT} m-0 border-t border-slate-100 px-4 py-3`}>
-            {earnings.notCounted} cancelled {earnings.notCounted === 1 ? "shipment is" : "shipments are"} listed in grey and not counted (revenue {amountWords(earnings.notCountedSelling).main}).
+            {earnings.notCounted} cancelled {earnings.notCounted === 1 ? "shipment is" : "shipments are"} listed in grey and not counted (revenue {amountWords(earnings.notCountedSelling).main}
+            {earnings.notCountedCosts.czk !== 0 ? `, own costs ${amountWords(earnings.notCountedCosts).main}` : ""}).
           </p>
         )}
       </SectionCard>

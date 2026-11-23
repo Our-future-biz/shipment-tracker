@@ -95,7 +95,8 @@ function boxWarnings(e: SailingEarnings): string[] {
   return out;
 }
 
-const wm = (v: number) => v.toLocaleString("en-US", { maximumFractionDigits: 1 });
+// As the table shows a W/M: up to two decimals, so the sentence and the table say the same figure.
+const wm = (v: number) => v.toLocaleString("en-US", { maximumFractionDigits: 2 });
 
 /** The break-even in a sentence, or null while there is none to show. */
 export function breakEvenWords(e: SailingEarnings): string | null {

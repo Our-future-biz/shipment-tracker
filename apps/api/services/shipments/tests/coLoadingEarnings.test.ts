@@ -84,6 +84,7 @@ describe("a sailing's earnings", () => {
     expect(e.totals.selling.czk).toBe(25000);
     expect(e.notCounted).toBe(1);
     expect(e.notCountedSelling.czk).toBe(50000);
+    expect(e.notCountedCosts.czk).toBe(0);
     expect(e.rows.at(-1)!.shipmentId).toBe(gone.shipmentId);
   });
 
@@ -132,5 +133,14 @@ describe("a sailing's earnings", () => {
     expect(e.rows).toEqual([]);
     expect(e.totals.selling).toEqual({ czk: 0, eur: 0 });
     expect(e.complete).toBe(true);
+  });
+});
+
+describe("a cancelled shipment's own costs", () => {
+  it("are shown apart, like its selling: a failed collection does not vanish from the sailing", () => {
+    const gone = row({ counted: false, status: "cancelled" });
+    const e = sailingEarnings([gone], byId(money(gone.shipmentId, { sellingCzk: 2500, inlandCzk: 4500, otherCzk: 500 })), NONE);
+    expect(e.notCountedCosts).toEqual({ czk: 5000, eur: 200 });
+    expect(e.totals.inland.czk).toBe(0);
   });
 });

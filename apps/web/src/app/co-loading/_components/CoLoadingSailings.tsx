@@ -20,6 +20,13 @@ import { CreateSailingModal } from "./CreateSailingModal";
 /** A sailing's profit in the list: the figure, with its margin and any remark underneath. */
 function ProfitCell({ profit }: { profit: Parameters<typeof profitGlance>[0] }) {
   const glance = profitGlance(profit);
+  // No box costs yet: a quiet dash with the words to hover, so a new service's list is not a column of the same sentence.
+  if (profit && profit.moneyKnown && !profit.boxCostsSet)
+    return (
+      <span className="text-slate-400" title="No box costs yet: the profit shows once they are set on the sailing's Earnings tab.">
+        —
+      </span>
+    );
   return (
     <span className="inline-flex flex-col items-end leading-tight">
       <span className={glance.tone === "red" ? "font-semibold text-red-600" : glance.tone === "amber" ? "text-amber-700" : glance.tone === "slate" ? "text-slate-500" : "font-semibold"}>{glance.main}</span>

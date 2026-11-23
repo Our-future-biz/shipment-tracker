@@ -49,7 +49,19 @@ export function BoxCostsModal({ open, onClose, sailingId, container, containerTy
     // Only opening sets this off.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, container.containerNo]);
-  const set = (kind: BoxCostKind, more: Partial<Line>) => setLines((all) => all.map((l) => (l.kind === kind ? { ...l, ...more } : l)));
+  const set = (kind: BoxCostKind, more: Partial<Line>) => {
+    setLeaving(false);
+    setLines((all) => all.map((l) => (l.kind === kind ? { ...l, ...more } : l)));
+  };
+  // Closing with figures typed and not saved asks once: the second try closes.
+  const [leaving, setLeaving] = useState(false);
+  const dirty = !same(lines, opened);
+  const close = () => {
+    if (save.isPending) return;
+    if (dirty && !leaving) return setLeaving(true);
+    setLeaving(false);
+    onClose();
+  };
   const name = several ? `container ${container.containerNo}` : "the container";
 
   const handleSave = async () => {
@@ -66,15 +78,20 @@ export function BoxCostsModal({ open, onClose, sailingId, container, containerTy
   return (
     <AppModal
       open={open}
-      onClose={save.isPending ? () => undefined : onClose}
+      onClose={close}
       title={several ? `Box costs - container ${container.containerNo} (${containerType})` : `Box costs - ${containerType}`}
       subtitle="Estimates. They are shared over the sailing's loaded shipments by W/M."
       footer={
         <div className="flex justify-end gap-2">
-          <Button onClick={onClose} disabled={save.isPending}>
-            Cancel
+          {leaving && (
+            <span className="mr-auto self-center text-[13px] text-amber-700" role="alert">
+              The figures are not saved. Close again to discard them.
+            </span>
+          )}
+          <Button onClick={close} disabled={save.isPending}>
+            {leaving ? "Discard" : "Cancel"}
           </Button>
-          <Button type="primary" loading={save.isPending} disabled={same(lines, opened)} onClick={handleSave}>
+          <Button type="primary" loading={save.isPending} disabled={!dirty} onClick={handleSave}>
             Save
           </Button>
         </div>
@@ -100,6 +117,7 @@ export function BoxCostsModal({ open, onClose, sailingId, container, containerTy
               placeholder="e.g. 2,100.00"
               value={line.amount}
               onChange={(amount) => set(line.kind, { amount })}
+              onPressEnter={() => dirty && !save.isPending && void handleSave()}
               className="!w-full"
             />
             <Select
@@ -115,6 +133,7 @@ export function BoxCostsModal({ open, onClose, sailingId, container, containerTy
               placeholder="e.g. supplier, quote no."
               value={line.note}
               onChange={(e) => set(line.kind, { note: e.target.value })}
+              onPressEnter={() => dirty && !save.isPending && void handleSave()}
             />
           </fieldset>
         ))}

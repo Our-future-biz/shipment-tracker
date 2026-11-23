@@ -56,6 +56,7 @@ const earnings = (more: Partial<SailingEarnings> = {}, notes: Partial<SailingEar
   notes: { noSelling: 0, unticked: 0, ownBox: 0, inMasterJob: 0, unrecognised: 0, noShare: 0, cargoGap: 0, cargoImplausible: 0, odd: 0, handRoad: 0, missingCurrencies: [], ...notes },
   notCounted: 0,
   notCountedSelling: amt(0),
+  notCountedCosts: amt(0),
   rows: [row()],
   ...more,
 });
@@ -227,7 +228,7 @@ describe("break-even and unsold space in words", () => {
     expect(unsoldWords(earnings())).toBeNull();
   });
   it("say a break-even that is reached, one that is not, and one that cannot be", () => {
-    expect(breakEvenWords(earnings({ breakEven: { wm: 38.4, loadedWm: 50.1, ofLoaded: 0.766, reached: true, boxPct: 57 } }))).toBe("Break-even at 38.4 W/M: reached, 50.1 W/M are loaded.");
+    expect(breakEvenWords(earnings({ breakEven: { wm: 38.4, loadedWm: 50.14, ofLoaded: 0.766, reached: true, boxPct: 57 } }))).toBe("Break-even at 38.4 W/M: reached, 50.14 W/M are loaded.");
     expect(breakEvenWords(earnings({ breakEven: { wm: 60, loadedWm: 50.1, ofLoaded: 1.2, reached: false, boxPct: 89 } }))).toBe(
       "Break-even at 60 W/M: not reached, 50.1 W/M are loaded. 9.9 W/M more at today's average earning would cover the box.",
     );
