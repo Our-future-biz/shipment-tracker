@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
+import type { interfaces } from "@/lib/api/client";
 import { cargoLinesOf, completeLine, isBlank, lineLabel, newDraftLine, saveProblem, type DraftLine } from "./cargoForm";
+import { jobHref, linesFromQuote, linesFromShipment, quotePackages } from "./jobCargo";
 import { lineColour, loadStats, planTotals } from "./loadStats";
 import { planLoad } from "./plan";
 import { cameraFor, sceneBalance, sceneBounds, sceneBoxes, sceneFloor } from "./scene";
@@ -107,5 +109,54 @@ describe("3D scene", () => {
     expect(balance.ok).toBe(true);
     expect(balance.tolerance[0]).toBeCloseTo(sceneFloor(rack).length / 20, 6);
     expect(Math.abs(balance.cog[0] - sceneFloor(rack).length / 2)).toBeLessThanOrEqual(balance.tolerance[0]);
+  });
+});
+
+describe("cargo of a job", () => {
+  let n = 0;
+  const newId = () => `id-${++n}`;
+  const row = (more: Partial<interfaces.CargoDimensionLine> = {}): interfaces.CargoDimensionLine => ({
+    pieces: "4",
+    lengthCm: "120",
+    widthCm: "80",
+    heightCm: "100.5",
+    weightPerPcKg: "400",
+    packageType: "Pallet",
+    stackable: "Stackable / Overstowable",
+    ...more,
+  });
+
+  it("reads a shipment's Dimensions rows: cm to mm, weight per piece, the stackable wording", () => {
+    const lines = linesFromShipment([row(), row({ packageType: "Crate", stackable: "Not stackable / Not overstowable", pieces: "1", weightPerPcKg: "1,5" })], newId);
+    expect(lines).toHaveLength(2);
+    expect(lines[0]).toMatchObject({ name: "Pallet", lengthMm: 1200, widthMm: 800, heightMm: 1005, weightKg: 400, colli: 4, stackable: true, canTurn: true });
+    expect(lines[1]).toMatchObject({ name: "Crate", stackable: false, colli: 1, weightKg: 1.5 });
+    expect(completeLine(lines[0]!)).not.toBeNull();
+  });
+
+  it("keeps a half-filled row for the user to finish and drops an empty one", () => {
+    const lines = linesFromShipment([row({ heightCm: "", pieces: "" }), row({ lengthCm: "", widthCm: "", heightCm: "", weightPerPcKg: "" })], newId);
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatchObject({ heightMm: null, colli: null });
+    expect(completeLine(lines[0]!)).toBeNull();
+    expect(linesFromShipment(null, newId)).toEqual([]);
+  });
+
+  it("numbers the lines that share a package type", () => {
+    expect(linesFromShipment([row(), row(), row({ packageType: "" })], newId).map((l) => l.name)).toEqual(["Pallet 1", "Pallet 2", "Cargo"]);
+  });
+
+  it("reads a quote's package lines out of its document", () => {
+    const data = { customerName: "ACME", packages: [{ qty: 2, type: "Case", length: 250, width: 120, height: 180, weight: 950, stackable: false }, { qty: 0, type: "" }] };
+    const lines = linesFromQuote(quotePackages(data), newId);
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatchObject({ name: "Case", lengthMm: 2500, widthMm: 1200, heightMm: 1800, weightKg: 950, colli: 2, stackable: false });
+    expect(quotePackages({})).toEqual([]);
+    expect(quotePackages(null)).toEqual([]);
+  });
+
+  it("knows where a job opens", () => {
+    expect(jobHref("shipment", "abc", "CZ00000053")).toBe("/shipments/abc");
+    expect(jobHref("quote", "abc", "QCZ 12/3")).toBe("/sales/quote/QCZ%2012%2F3");
   });
 });

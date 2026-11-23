@@ -11,6 +11,7 @@ import { ContainerTabs } from "@/app/shipments/_components/ContainerTabs";
 import { PlusOutlined } from "@ant-design/icons";
 import { RowActionsMenu } from "@/app/shipments/_components/RowActionsMenu";
 import { ConfirmModal } from "@/components/ConfirmModal";
+import { LoadingPlansCard } from "@/components/LoadingPlansCard";
 import { SectionCard } from "@/components/SectionCard";
 import { RemeasuredCard } from "./RemeasuredCard";
 import { isAirFreight } from "@/lib/chargeBasis";
@@ -929,6 +930,9 @@ export function CargoDetailsTab({
 
       {/* The warehouse's remeasurement against the lines above, and accepting it. */}
       <RemeasuredCard shipment={shipment} readOnly={readOnly} />
+
+      {/* The loading plans made from these lines (Loading Planner). */}
+      <LoadingPlansCard kind="shipment" id={shipment.id} newPlanKey={shipment.id} />
 
       <SectionCard title="Description">
         <div className="relative">

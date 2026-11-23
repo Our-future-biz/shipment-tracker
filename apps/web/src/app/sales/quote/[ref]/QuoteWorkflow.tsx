@@ -26,6 +26,7 @@ import { ConfirmModal } from "@/components/ConfirmModal";
 import { EMPTY_CELL } from "@/components/EmptyCell";
 import { InfoRow } from "@/components/InfoRow";
 import { KPI_TONE_CLASS, KpiTile, type KpiTone } from "@/components/KpiTile";
+import { LoadingPlansCard } from "@/components/LoadingPlansCard";
 import { Pill } from "@/components/Pill";
 import { LINK_CLASS } from "@/components/linkClass";
 import { PillTabs } from "@/components/SectionCard";
@@ -1518,6 +1519,9 @@ export function QuoteWorkflow() {
           {/* A full-container quote lists its boxes above; package lines it still has (from before
               it was one, or copied from a shipment) stay in view rather than counting unseen. */}
           {(!containerQuote || packages.length > 0) && <QuotePackageLines lines={packages} onChange={updatePackages} readOnly={quoteClosed} />}
+
+          {/* The loading plans made from the package lines (Loading Planner): for a quote that holds some. */}
+          {quote && packages.length > 0 && <LoadingPlansCard kind="quote" id={quote.id} newPlanKey={quote.quoteNumber} />}
 
           {/* Freight metrics. Weight and volume are the lines' sum - the containers' declared
               cargo, else the packages'; where the lines give none they are typed here for the
