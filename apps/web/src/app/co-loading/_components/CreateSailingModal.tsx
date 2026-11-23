@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Button, Input, Modal, Select, Space } from "antd";
+import { Button, Input, InputNumber, Modal, Select, Space } from "antd";
 import { GeoSelect } from "@/components/GeoSelect";
 import { apiErrorMessage } from "@/lib/api";
 import { containerTypeOptions } from "@/lib/cargo";
@@ -16,6 +16,8 @@ const EMPTY: CoLoadingSailingNew = {
   pod: "",
   hub: "",
   containerType: "",
+  containerCount: 1,
+  cutoffDate: null,
 };
 
 // The container types grouped by size, as Container Details offers them.
@@ -23,7 +25,8 @@ const CONTAINER_TYPE_GROUPS = containerTypeOptions("");
 
 // "Create new sailing" on a Co-Loading Concept service's page: the vessel its cargo goes on. For an
 // import whose vessel is not known yet, the Vessel is the week it sails (WEEK 44) and the Voyage may
-// be left out. Every other field is needed.
+// be left out. Every other field is needed, but the cut-off: a sailing has one container unless more
+// are given, and both can be changed later with Edit sailing.
 export function CreateSailingModal({
   open,
   onClose,
@@ -152,6 +155,26 @@ export function CreateSailingModal({
               options={CONTAINER_TYPE_GROUPS}
               onChange={(v) => set("containerType", v)}
             />,
+          )}
+        </div>
+        <div className="grid grid-cols-2 gap-4 items-start">
+          {field(
+            "Containers",
+            <InputNumber
+              aria-label="Number of containers"
+              min={1}
+              max={20}
+              precision={0}
+              value={form.containerCount}
+              onChange={(v) => set("containerCount", v ?? 1)}
+              className="!w-full"
+            />,
+            "How many of that type, 1 to 20. Box utilization adds their capacity up.",
+          )}
+          {field(
+            "Cut-off (optional)",
+            <Input type="date" aria-label="Cut-off date" value={form.cutoffDate ?? ""} onChange={(e) => set("cutoffDate", e.target.value || null)} allowClear />,
+            "The day cargo must be in by.",
           )}
         </div>
         {error && (

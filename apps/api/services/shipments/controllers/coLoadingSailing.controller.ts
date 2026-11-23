@@ -104,6 +104,10 @@ interface CoLoadingSailingCreateRequest {
   hub: string & MaxLen<200>;
   /** A container type as quotes and shipments name it: "40' HC" */
   containerType: string & MaxLen<20>;
+  /** How many containers of that type: 1 to 20; 1 when left out */
+  containerCount?: number;
+  /** The day cargo must be in by, YYYY-MM-DD; none when left out */
+  cutoffDate?: string | null;
 }
 
 // "Create new sailing" on the service's page. Refused while the service is closed.

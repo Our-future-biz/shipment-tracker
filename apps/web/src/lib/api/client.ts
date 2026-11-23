@@ -8764,6 +8764,16 @@ export namespace controllers {
          * A container type as quotes and shipments name it: "40' HC"
          */
         containerType: string
+
+        /**
+         * How many containers of that type: 1 to 20; 1 when left out
+         */
+        containerCount?: number
+
+        /**
+         * The day cargo must be in by, YYYY-MM-DD; none when left out
+         */
+        cutoffDate?: string | null
     }
 
     export interface CoLoadingSailingLinkRequest {

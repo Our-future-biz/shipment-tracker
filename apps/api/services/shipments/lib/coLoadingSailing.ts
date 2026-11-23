@@ -44,10 +44,14 @@ export interface SailingInput {
   pod: string;
   hub: string;
   containerType: string;
+  /** How many containers of that type it has; 1 when left out. */
+  containerCount?: number;
+  /** The day cargo must be in by, YYYY-MM-DD; none when left out. */
+  cutoffDate?: string | null;
 }
 
-/** A sailing as it is saved: every field trimmed, a week written "WEEK 44". */
-export type SailingValues = Required<SailingInput>;
+/** A sailing as it is saved: every field trimmed, a week written "WEEK 44", one container and no cut-off unless given. */
+export type SailingValues = Required<Omit<SailingInput, "cutoffDate">> & { cutoffDate: string | null };
 
 const tidy = (s: string | undefined) => (s ?? "").trim().replace(/\s+/g, " ");
 
@@ -69,7 +73,10 @@ export function checkSailingInput(input: SailingInput): { values: SailingValues 
   if (!hub) return { error: "Give the HUB." };
   const containerType = tidy(input.containerType);
   if (!(SAILING_CONTAINER_TYPES as readonly string[]).includes(containerType)) return { error: "Pick the container type." };
-  return { values: { vessel: week ?? typed, voyage, pol, pod, hub, containerType } };
+  const details = { containerCount: input.containerCount ?? 1, cutoffDate: input.cutoffDate || null };
+  const wrong = sailingDetailsProblem(details);
+  if (wrong) return { error: wrong };
+  return { values: { vessel: week ?? typed, voyage, pol, pod, hub, containerType, ...details } };
 }
 
 // ─── What may be changed on a sailing later: its number of containers and its cut-off ───
