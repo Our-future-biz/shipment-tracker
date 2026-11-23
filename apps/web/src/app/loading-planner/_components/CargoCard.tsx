@@ -24,6 +24,8 @@ interface CargoCardProps {
   busy?: boolean;
   /** The room left free in standard containers: "Fits" is judged with it. */
   clearance: Clearance;
+  /** A 45' is nominated: "Fits" is then judged against its length. */
+  with45: boolean;
 }
 
 const UNIT_TABS = DIM_UNITS.map((unit) => ({ key: unit, label: unit }));
@@ -32,7 +34,7 @@ const UNIT_TABS = DIM_UNITS.map((unit) => ({ key: unit, label: unit }));
 // chosen unit and kept in millimetres. A line is planned as soon as all its figures are in; until
 // then its last column says which figure is missing. Each line has a number, which every drawing
 // and table of the plan uses for it.
-export function CargoCard({ lines, unit, onUnitChange, onChange, onAdd, onRead, busy = false, clearance }: CargoCardProps) {
+export function CargoCard({ lines, unit, onUnitChange, onChange, onAdd, onRead, busy = false, clearance, with45 }: CargoCardProps) {
   const patch = (id: string, change: Partial<DraftLine>) => onChange(lines.map((line) => (line.id === id ? { ...line, ...change } : line)));
 
   const sizeCell = (line: DraftLine, field: "lengthMm" | "widthMm" | "heightMm", label: string) => {
@@ -89,7 +91,7 @@ export function CargoCard({ lines, unit, onUnitChange, onChange, onAdd, onRead, 
           <tbody>
             {lines.map((line, index) => {
               const complete = completeLine(line);
-              const gauge = complete ? gaugeOf(complete, clearance) : null;
+              const gauge = complete ? gaugeOf(complete, clearance, with45) : null;
               const fits = gauge && !gauge.overLength && !gauge.overWidth && !gauge.overHeight;
               const missing = missingFigures(line);
               return (

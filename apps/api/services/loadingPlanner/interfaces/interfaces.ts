@@ -63,6 +63,31 @@ export interface LoadingPlanSummary {
   updatedAt: string;
 }
 
+/** Out-of-gauge cargo on an open top or flat rack is warned about above these, in whole mm. */
+export interface PlannerOogWarning {
+  /** The width of a piece. */
+  widthMm: number;
+  /** How far a piece sticks out over one end of a flat rack. */
+  overEndMm: number;
+  /** How high the cargo stands above the floor. */
+  heightMm: number;
+}
+
+/** A single piece in a standard container, in whole kg. */
+export interface PlannerHeavyPiece {
+  /** Above this the plan says to check how the piece is stuffed. */
+  warnKg: number;
+  /** Above this the piece is planned onto an open top or flat rack instead. */
+  moveKg: number;
+}
+
+/** A company's Loading Planner settings. */
+export interface PlannerSettings {
+  clearance: PlannerClearance;
+  oogWarning: PlannerOogWarning;
+  heavyPiece: PlannerHeavyPiece;
+}
+
 /** The room the planner leaves free in a standard container, in whole mm. */
 export interface PlannerClearance {
   /** Beside a piece passing the door. */

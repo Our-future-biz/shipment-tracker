@@ -95,8 +95,9 @@ function PlanEditor({ saved }: { saved: interfaces.LoadingPlanItem | null }) {
   const { createPlan, updatePlan, deletePlan, isSaving, isDeleting } = useLoadingPlanWrites();
   const { readJob, isReading } = useLoadingPlanJob();
   const { modal } = App.useApp();
-  // The clearance left free in standard containers: the company's setting, the same for every plan.
-  const { clearance } = usePlannerSettings();
+  // The company's rules, the same for every plan: clearance, heavy pieces, out-of-gauge warning limits.
+  const { rules } = usePlannerSettings();
+  const { clearance } = rules;
   const [settingsOpen, setSettingsOpen] = useState(false);
 
   const [name, setName] = useState(saved?.name ?? "");
@@ -203,10 +204,12 @@ function PlanEditor({ saved }: { saved: interfaces.LoadingPlanItem | null }) {
   const plannedCargo = useDeferredValue(cargo);
   const plannedEquipment = useDeferredValue(nominated);
   const loadPlan = useMemo(
-    () => (limitProblem(plannedCargo) ? NO_PLAN : planLoad(plannedCargo, plannedEquipment ?? undefined, clearance)),
-    [plannedCargo, plannedEquipment, clearance],
+    () => (limitProblem(plannedCargo) ? NO_PLAN : planLoad(plannedCargo, plannedEquipment ?? undefined, rules)),
+    [plannedCargo, plannedEquipment, rules],
   );
   const unplanned = unplannedCount(lines);
+  // "Fits a standard container" is judged against the 45' only when one is nominated.
+  const with45 = nominated?.some((id) => CONTAINERS.some((c) => c.id === id && c.group === "standard" && c.onRequest)) ?? false;
   const numbers = useMemo(() => lineNumbers(lines), [lines]);
   const numberOf = (lineId: string) => numbers.get(lineId) ?? 0;
   const colourOf = (lineId: string) => lineColour(numberOf(lineId) - 1);
@@ -235,8 +238,9 @@ function PlanEditor({ saved }: { saved: interfaces.LoadingPlanItem | null }) {
         madeBy: user?.displayName || user?.email || "",
         lines: cargo,
         numberOf,
-        plan: planLoad(cargo, nominated ?? undefined, clearance),
+        plan: planLoad(cargo, nominated ?? undefined, rules),
         clearance,
+        with45,
         nominated: nominated ? CONTAINERS.filter((c) => nominated.includes(c.id)).map((c) => c.name) : null,
         unit,
         unplanned,
@@ -395,8 +399,9 @@ function PlanEditor({ saved }: { saved: interfaces.LoadingPlanItem | null }) {
           onRead={() => setReading(true)}
           busy={readingJob}
           clearance={clearance}
+          with45={with45}
         />
-        <EquipmentCard nominated={nominated} unit={unit} onChange={setNominated} clearance={clearance} onSettings={() => setSettingsOpen(true)} />
+        <EquipmentCard nominated={nominated} unit={unit} onChange={setNominated} rules={rules} onSettings={() => setSettingsOpen(true)} />
         <ResultPanel
           plan={loadPlan}
           unit={unit}

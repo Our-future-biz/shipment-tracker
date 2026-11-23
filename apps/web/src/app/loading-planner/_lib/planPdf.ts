@@ -1,7 +1,7 @@
 import { jsPDF } from "jspdf";
 import { NO_CLEARANCE, type Clearance } from "./containers";
 import { fitLabel, gaugeOf, type CargoLine } from "./gauge";
-import { balanceLimitText, END_WALLS_NOTE, floorOverloadText, outOfBalanceText, hasDoors, lineColour, loadStats, planTotals, type PieceGroup } from "./loadStats";
+import { balanceLimitText, END_WALLS_NOTE, floorOverloadText, outOfBalanceText, ruleWarnings, hasDoors, lineColour, loadStats, planTotals, type PieceGroup } from "./loadStats";
 import type { ContainerLoad, LoadPlan } from "./plan";
 import { formatDim, formatKg, formatSize, type DimUnit } from "./units";
 
@@ -27,6 +27,8 @@ export interface PlanPdfInput {
   unit: DimUnit;
   /** The room left free in standard containers; none when left out. */
   clearance?: Clearance;
+  /** A 45' is nominated: "fits a standard container" is then judged against its length. */
+  with45?: boolean;
   /** Typed cargo lines left out of the plan because a figure is missing. */
   unplanned?: number;
   /** False when the plan on screen has changes that are not saved. */
@@ -301,7 +303,7 @@ function summaryPage(doc: jsPDF, input: PlanPdfInput, colourOf: (lineId: string)
   };
   const equipment = input.nominated
     ? `Equipment nominated: ${input.nominated.join(", ") || "none"}.`
-    : "Equipment chosen by the planner: standard containers first, open tops for over-height, flat racks last.";
+    : "Equipment chosen by the planner: standard containers first, open tops for over-height, flat racks last; a 45' or a hard-top only when nominated.";
   const clear = input.clearance ?? NO_CLEARANCE;
   const anyClearance = clear.doorWidthMm > 0 || clear.doorHeightMm > 0 || clear.lengthMm > 0;
   const clearanceNote = anyClearance
@@ -353,7 +355,7 @@ function summaryPage(doc: jsPDF, input: PlanPdfInput, colourOf: (lineId: string)
         String(line.colli),
         formatKg(line.weightKg * line.colli),
         line.stackable ? "Yes" : "No",
-        fitLabel(gaugeOf(line, input.clearance ?? NO_CLEARANCE)),
+        fitLabel(gaugeOf(line, input.clearance ?? NO_CLEARANCE, input.with45)),
       ],
       y,
     );
@@ -429,6 +431,7 @@ function loadPage(doc: jsPDF, input: PlanPdfInput, load: ContainerLoad, number: 
   // Every warning in full, over as many lines and pages as it needs.
   y += 2;
   if (stats.endWallsFolded) y = paragraph(doc, END_WALLS_NOTE, y, "bold", AMBER, newPage);
+  for (const warning of ruleWarnings(load, unit)) y = paragraph(doc, warning, y, "bold", AMBER, newPage);
   for (const overload of stats.floorOverloads) y = paragraph(doc, floorOverloadText(overload, container, unit), y, "bold", AMBER, newPage);
   if (!balance.ok) {
     y = paragraph(doc, outOfBalanceText(container, unit), y, "bold", RED, newPage);

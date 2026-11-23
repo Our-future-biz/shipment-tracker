@@ -93,7 +93,6 @@ export function loadStats(load: ContainerLoad): LoadStats {
   };
 }
 
-/** One overloaded stretch of floor as a sentence, the same on the screen and in the PDF. */
 /** "600 mm lengthwise, 118 mm sideways": how far off the middle the centre of gravity of this container may lie. */
 export function balanceLimitText(container: ContainerSpec, unit: DimUnit): string {
   const limits = balanceLimits(container);
@@ -104,6 +103,41 @@ export function balanceLimitText(container: ContainerSpec, unit: DimUnit): strin
 export const outOfBalanceText = (container: ContainerSpec, unit: DimUnit): string =>
   `The centre of gravity is further off the middle of the floor than allowed (${balanceLimitText(container, unit)}), and the planner found no better arrangement. Spread the weight over more containers or change the equipment.`;
 
+/**
+ * What the company's rules say about a load, as sentences for the screen and the PDF: heavy single
+ * pieces in a standard container, and cargo on an open top or flat rack beyond the limits set for
+ * a warning. The plan loads them all the same.
+ */
+export function ruleWarnings(load: ContainerLoad, unit: DimUnit): string[] {
+  const { container, pieces } = load;
+  const size = (mm: number) => `${formatDim(mm, unit)} ${unit}`;
+  const kg = (value: number) => `${value.toLocaleString("en-US")} kg`;
+  const names = (found: PlacedPiece[]) => [...new Set(found.map((p) => p.name || "Cargo"))].join(", ");
+  const warnings: string[] = [];
+
+  const { heavy, oog } = container;
+  if (heavy) {
+    const heavyOnes = pieces.filter((p) => p.weightKg > heavy.warnKg);
+    if (heavyOnes.length > 0) {
+      const most = Math.max(...heavyOnes.map((p) => p.weightKg));
+      warnings.push(
+        `${names(heavyOnes)}: ${kg(most)} a piece, over the ${kg(heavy.warnKg)} set for a heavy piece in a standard container. Check how it is stuffed: the forklift, the floor under its wheels, and the lashing.`,
+      );
+    }
+  }
+  if (oog) {
+    const wide = pieces.filter((p) => p.width > oog.widthMm);
+    if (wide.length > 0) warnings.push(`${names(wide)}: ${size(Math.max(...wide.map((p) => p.width)))} wide, over the ${size(oog.widthMm)} set for a warning. Check with the carrier before booking.`);
+    const overEnd = (p: PlacedPiece) => Math.max(-p.z, p.z + p.length - container.internalL);
+    const long = pieces.filter((p) => overEnd(p) > oog.overEndMm);
+    if (long.length > 0) warnings.push(`${names(long)}: ${size(Math.max(...long.map(overEnd)))} over one end, over the ${size(oog.overEndMm)} set for a warning. Check with the carrier before booking.`);
+    const high = pieces.filter((p) => p.y + p.height > oog.heightMm);
+    if (high.length > 0) warnings.push(`${names(high)}: ${size(Math.max(...high.map((p) => p.y + p.height)))} high, over the ${size(oog.heightMm)} set for a warning. Check with the carrier before booking.`);
+  }
+  return warnings;
+}
+
+/** One overloaded stretch of floor as a sentence, the same on the screen and in the PDF. */
 export function floorOverloadText(overload: FloorOverload, container: ContainerSpec, unit: DimUnit): string {
   return (
     `${overload.names.join(", ")}: ${overload.tonnesPerMetre.toFixed(1)} t per metre on ${formatDim(overload.lengthMm, unit)} ${unit} of floor ` +

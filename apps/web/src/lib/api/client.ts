@@ -2669,7 +2669,7 @@ export namespace loadingPlanner {
         }
 
         /**
-         * The clearance every plan of the company leaves in a standard container. Open to every user.
+         * What every plan of the company is worked out with: clearance, out-of-gauge warning limits, heavy pieces. Open to every user.
          */
         public async plannerSettingsGet(): Promise<controllers.PlannerSettingsResponse> {
             // Now make the actual call to the API
@@ -2678,7 +2678,7 @@ export namespace loadingPlanner {
         }
 
         /**
-         * Sets the company's clearance. Managers and admins only.
+         * Sets the company's Loading Planner settings. Managers and admins only.
          */
         public async plannerSettingsSet(params: controllers.PlannerSettingsSetRequest): Promise<controllers.PlannerSettingsResponse> {
             // Now make the actual call to the API
@@ -10770,7 +10770,7 @@ export namespace controllers {
     }
 
     export interface PlannerSettingsResponse {
-        clearance: interfaces.PlannerClearance
+        settings: interfaces.PlannerSettings
         /**
          * A manager changed the figures; false while the company plans with the starting ones.
          */
@@ -10779,7 +10779,7 @@ export namespace controllers {
     }
 
     export interface PlannerSettingsSetRequest {
-        clearance: interfaces.PlannerClearance
+        settings: interfaces.PlannerSettings
     }
 
     export interface LoadingPlanUpdateRequest extends LoadingPlanCreateRequest {
@@ -20314,6 +20314,47 @@ export namespace interfaces {
      * What a plan can be linked to. A plan without a link is a what-if plan.
      */
     export type PlanLinkKind = "shipment" | "quote"
+
+    /**
+     * Out-of-gauge cargo on an open top or flat rack is warned about above these, in whole mm.
+     */
+    export interface PlannerOogWarning {
+        /**
+         * The width of a piece.
+         */
+        widthMm: number
+        /**
+         * How far a piece sticks out over one end of a flat rack.
+         */
+        overEndMm: number
+        /**
+         * How high the cargo stands above the floor.
+         */
+        heightMm: number
+    }
+
+    /**
+     * A single piece in a standard container, in whole kg.
+     */
+    export interface PlannerHeavyPiece {
+        /**
+         * Above this the plan says to check how the piece is stuffed.
+         */
+        warnKg: number
+        /**
+         * Above this the piece is planned onto an open top or flat rack instead.
+         */
+        moveKg: number
+    }
+
+    /**
+     * A company's Loading Planner settings.
+     */
+    export interface PlannerSettings {
+        clearance: PlannerClearance
+        oogWarning: PlannerOogWarning
+        heavyPiece: PlannerHeavyPiece
+    }
 
     /**
      * The room the planner leaves free in a standard container, in whole mm.

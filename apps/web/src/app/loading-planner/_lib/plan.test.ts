@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { balanceOf, centreLoad, floorOverloads } from "./balance";
-import { CONTAINERS, containersWith, DEFAULT_CLEARANCE } from "./containers";
+import { CONTAINERS, containersWith, DEFAULT_RULES } from "./containers";
 import { findSpot, newFloor, occupy } from "./floor";
 import { fitIn, fitLabel, footprints, gaugeOf, type CargoLine } from "./gauge";
+import { ruleWarnings } from "./loadStats";
 import { isOutOfGauge, overhang, planLoad, type LoadPlan } from "./plan";
 
 let nextId = 0;
@@ -68,8 +69,9 @@ describe("footprints and fit", () => {
     expect(fitLabel(gaugeOf(line("crate", 1200, 800, 1000, 500)))).toBe("Fits");
     expect(fitLabel(gaugeOf(line("pipe", 14000, 800, 800, 3000)))).toBe("Too long");
     expect(fitLabel(gaugeOf(line("machine", 6000, 3000, 3200, 15000)))).toBe("Too wide + too high");
-    // 13 m goes into a 45' HQ.
-    expect(fitLabel(gaugeOf(line("pipe", 13000, 800, 800, 3000)))).toBe("Fits");
+    // 13 m goes into a 45' HQ, which counts only when it is nominated.
+    expect(fitLabel(gaugeOf(line("pipe", 13000, 800, 800, 3000)))).toBe("Too long");
+    expect(fitLabel(gaugeOf(line("pipe", 13000, 800, 800, 3000), undefined, true))).toBe("Fits");
   });
 });
 
@@ -103,7 +105,7 @@ describe("planLoad", () => {
     expect(names(planLoad([line("machine", 5000, 2200, 2200, 20000, { canTurn: false })]))).toEqual(["20' DC"]);
     expect(names(planLoad([line("machine", 8000, 2200, 2200, 20000)]))).toEqual(["40' DC"]);
     expect(names(planLoad([line("machine", 8000, 2200, 2500, 20000)]))).toEqual(["40' HC"]);
-    expect(names(planLoad([line("pipe", 13000, 800, 800, 3000)]))).toEqual(["45' HQ"]);
+    expect(names(planLoad([line("pipe", 13000, 800, 800, 3000)], ["20dc", "40dc", "40hc", "45hq"]))).toEqual(["45' HQ"]);
   });
 
   it("loads every piece of a larger lot, and the last container is no bigger than it needs", () => {
@@ -431,35 +433,36 @@ describe("planLoad", () => {
   });
 });
 
-describe("clearance in standard containers", () => {
-  const cleared = (id: string) => containersWith(DEFAULT_CLEARANCE).find((c) => c.id === id)!;
+describe("the company's rules", () => {
+  const ruled = (id: string) => containersWith(DEFAULT_RULES).find((c) => c.id === id)!;
 
   it("keeps a piece the size of the door out of a standard container once a clearance is set", () => {
     const doorSized = line("Case", 3000, 2343, 2280, 1000);
     expect(fitIn(spec("20dc"), doorSized).length).toBeGreaterThan(0);
-    expect(fitIn(cleared("20dc"), doorSized)).toEqual([]);
+    expect(fitIn(ruled("20dc"), doorSized)).toEqual([]);
     // 50 mm free beside and above it: 2,293 wide and 2,230 high still pass.
-    expect(fitIn(cleared("20dc"), line("Case", 3000, 2293, 2230, 1000)).length).toBeGreaterThan(0);
-    expect(fitIn(cleared("20dc"), line("Case", 3000, 2294, 2230, 1000))).toEqual([]);
-    expect(fitIn(cleared("20dc"), line("Case", 3000, 2293, 2231, 1000))).toEqual([]);
+    expect(fitIn(ruled("20dc"), line("Case", 3000, 2293, 2230, 1000)).length).toBeGreaterThan(0);
+    expect(fitIn(ruled("20dc"), line("Case", 3000, 2294, 2230, 1000))).toEqual([]);
+    expect(fitIn(ruled("20dc"), line("Case", 3000, 2293, 2231, 1000))).toEqual([]);
   });
 
-  it("leaves open tops and flat racks as they are", () => {
-    expect(cleared("40ot")).toBe(spec("40ot"));
-    expect(cleared("40fr")).toBe(spec("40fr"));
+  it("leaves the sizes of open tops and flat racks as they are", () => {
+    const doorSized = line("Case", 3000, 2338, 2600, 1000);
+    expect(fitIn(ruled("40ot"), doorSized)).toEqual(fitIn(spec("40ot"), doorSized));
+    expect(ruled("40fr").clear).toBeUndefined();
   });
 
   it("plans the door-sized piece into an open top instead", () => {
     const doorSized = [line("Case", 3000, 2300, 2280, 1000)];
     expect(planLoad(doorSized).loads[0]!.container.group).toBe("standard");
-    expect(planLoad(doorSized, undefined, DEFAULT_CLEARANCE).loads[0]!.container.group).toBe("open-top");
+    expect(planLoad(doorSized, undefined, DEFAULT_RULES).loads[0]!.container.group).toBe("open-top");
   });
 
   it("keeps the length clearance free on the floor", () => {
     // Twelve rows of two 1,000 mm crates are 12,000 mm: they fill a 40' (12,032 mm) but not one with 100 mm left free.
     const rows = [line("Crate", 1000, 1000, 1000, 500, { colli: 24 })];
     expect(planLoad(rows, ["40dc"]).loads).toHaveLength(1);
-    const plan = planLoad(rows, ["40dc"], DEFAULT_CLEARANCE);
+    const plan = planLoad(rows, ["40dc"], DEFAULT_RULES);
     expect(plan.loads.map((load) => load.pieces.length)).toEqual([22, 2]);
     for (const load of plan.loads) expect(Math.max(...load.pieces.map((p) => p.z + p.length)) - Math.min(...load.pieces.map((p) => p.z))).toBeLessThanOrEqual(12032 - 100);
   });
@@ -467,6 +470,61 @@ describe("clearance in standard containers", () => {
   it("says what a standard container takes with the clearance", () => {
     const high = line("Case", 2000, 1000, 2550, 1000);
     expect(fitLabel(gaugeOf(high))).toBe("Fits");
-    expect(fitLabel(gaugeOf(high, DEFAULT_CLEARANCE))).toBe("Too high");
+    expect(fitLabel(gaugeOf(high, DEFAULT_RULES.clearance))).toBe("Too high");
+  });
+
+  it("takes a 45' and a hard-top only when they are nominated", () => {
+    const long = [line("Pipe bundle", 13000, 1000, 1000, 2000)];
+    expect(planLoad(long).loads.map((load) => load.container.name)).toEqual(["40' FR"]);
+    expect(planLoad(long, ["45hq"]).loads.map((load) => load.container.name)).toEqual(["45' HQ"]);
+    // "Fits a standard container" follows: against the 40' unless a 45' is nominated.
+    expect(fitLabel(gaugeOf(long[0]!))).toBe("Too long");
+    expect(fitLabel(gaugeOf(long[0]!, undefined, true))).toBe("Fits");
+    const high = [line("Machine", 3000, 2000, 2650, 20000)];
+    expect(planLoad(high).loads[0]!.container.hardTop).toBeUndefined();
+    expect(planLoad(high, ["40ht"]).loads[0]!.container.name).toBe("40' Hard-Top");
+  });
+
+  it("plans a single piece over the set weight onto an open top or flat rack, not into a standard container", () => {
+    const heavy = [line("Press", 3000, 2000, 2000, 10001)];
+    expect(planLoad(heavy).loads[0]!.container.group).toBe("standard");
+    expect(planLoad(heavy, undefined, DEFAULT_RULES).loads[0]!.container.group).not.toBe("standard");
+    expect(planLoad([line("Press", 3000, 2000, 2000, 10000)], undefined, DEFAULT_RULES).loads[0]!.container.group).toBe("standard");
+    // Nominated standard containers only: it is not loaded, and the plan says what it needs.
+    const refused = planLoad(heavy, ["40dc"], DEFAULT_RULES);
+    expect(refused.loads).toEqual([]);
+    expect(refused.notLoaded[0]!.reason).toContain("open top");
+  });
+
+  it("moves a heavy piece whose bedding would be more than twice its length", () => {
+    // 8 t on a 40' floor (3 t/m) needs 2,667 mm of bedding: more than twice a 1,000 mm coil, not twice a 1,500 mm case.
+    expect(fitIn(ruled("40dc"), line("Coil", 1000, 1000, 1000, 8000))).toEqual([]);
+    expect(fitIn(ruled("40dc"), line("Case", 1500, 1000, 1000, 8000)).length).toBeGreaterThan(0);
+    // A 20' floor (4.5 t/m) needs 1,778 mm: the coil stays.
+    expect(fitIn(ruled("20dc"), line("Coil", 1000, 1000, 1000, 8000)).length).toBeGreaterThan(0);
+    // A piece not heavy enough to be warned about is never moved for its bedding.
+    expect(fitIn(ruled("40dc"), line("Block", 500, 500, 500, 4000)).length).toBeGreaterThan(0);
+  });
+
+  it("warns about a heavy piece that stays in a standard container", () => {
+    const load = planLoad([line("Press", 3000, 2000, 2000, 6000)], undefined, DEFAULT_RULES).loads[0]!;
+    expect(load.container.group).toBe("standard");
+    expect(ruleWarnings(load, "mm")).toEqual([expect.stringContaining("Press: 6,000 kg a piece, over the 5,000 kg")]);
+    expect(ruleWarnings(planLoad([line("Press", 3000, 2000, 2000, 5000)], undefined, DEFAULT_RULES).loads[0]!, "mm")).toEqual([]);
+    // Without the company's rules nothing is warned about.
+    expect(ruleWarnings(planLoad([line("Press", 3000, 2000, 2000, 6000)]).loads[0]!, "mm")).toEqual([]);
+  });
+
+  it("warns about out-of-gauge cargo beyond the limits set, and loads it all the same", () => {
+    const texts = (cargo: CargoLine) => {
+      const plan = planLoad([cargo], undefined, DEFAULT_RULES);
+      expect(plan.notLoaded).toEqual([]);
+      return ruleWarnings(plan.loads[0]!, "mm");
+    };
+    expect(texts(line("Tank", 6000, 3600, 2000, 9000, { canTurn: false }))).toEqual([expect.stringContaining("3,600 mm wide, over the 3,500 mm")]);
+    expect(texts(line("Tank", 6000, 3500, 2000, 9000, { canTurn: false }))).toEqual([]);
+    expect(texts(line("Silo", 4000, 2200, 3300, 9000))).toEqual([expect.stringContaining("3,300 mm high, over the 3,200 mm")]);
+    // 14 m on an 11,652 mm deck, centred: 1,174 mm over each end.
+    expect(texts(line("Girder", 14000, 1000, 1000, 9000))).toEqual([expect.stringContaining("1,174 mm over one end, over the 1,000 mm")]);
   });
 });

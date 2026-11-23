@@ -2,7 +2,7 @@
 
 import { PillTabs, SectionCard } from "@/components/SectionCard";
 import { CHIP, CHIP_ON, HINT, LABEL_TEXT } from "@/styles/ui";
-import { CONTAINERS, GROUP_ORDER, type Clearance, type ContainerGroup } from "../_lib/containers";
+import { CONTAINERS, GROUP_ORDER, type Clearance, type ContainerGroup, type PlanRules } from "../_lib/containers";
 import { formatDim, formatKg, type DimUnit } from "../_lib/units";
 
 interface EquipmentCardProps {
@@ -10,8 +10,8 @@ interface EquipmentCardProps {
   nominated: string[] | null;
   unit: DimUnit;
   onChange: (nominated: string[] | null) => void;
-  /** The room left free in standard containers, and the way to the screen that sets it. */
-  clearance: Clearance;
+  /** The company's rules the plan is worked out with, and the way to the screen that sets them. */
+  rules: PlanRules;
   onSettings: () => void;
 }
 
@@ -28,7 +28,7 @@ const GROUP_TITLE: Record<ContainerGroup, string> = { standard: "Standard", "ope
 
 // Which equipment the plan may use: the planner's own choice from all types, or only the types the
 // user nominates.
-export function EquipmentCard({ nominated, unit, onChange, clearance, onSettings }: EquipmentCardProps) {
+export function EquipmentCard({ nominated, unit, onChange, rules, onSettings }: EquipmentCardProps) {
   const toggle = (id: string) => {
     const now = nominated ?? [];
     onChange(now.includes(id) ? now.filter((n) => n !== id) : [...now, id]);
@@ -42,7 +42,7 @@ export function EquipmentCard({ nominated, unit, onChange, clearance, onSettings
       {nominated === null ? (
         <p className={`${HINT} m-0`}>
           The planner loads into standard containers wherever it can, takes open tops for over-height cargo and flat racks last. A flat rack or open top in use is filled before
-          another container is opened.
+          another container is opened. A 45&apos; or a hard-top is used only when you nominate it.
         </p>
       ) : (
         <div className="flex flex-col gap-3">
@@ -78,7 +78,8 @@ export function EquipmentCard({ nominated, unit, onChange, clearance, onSettings
         </div>
       )}
       <p className={`${HINT} m-0 mt-3`}>
-        Standard containers are planned with a clearance left free: {clearanceText(clearance, unit)}.{" "}
+        Standard containers are planned with a clearance left free: {clearanceText(rules.clearance, unit)}. A single piece over {formatKg(rules.heavyPiece.moveKg)} is planned
+        onto an open top or flat rack.{" "}
         <button type="button" className="cursor-pointer border-0 bg-transparent p-0 text-[13px] font-medium text-indigo-600 hover:underline" onClick={onSettings}>
           Settings
         </button>

@@ -1,4 +1,4 @@
-import { CONTAINERS, maxCargoKg, NO_CLEARANCE, passHeight, passWidth, usableLength, type Clearance, type ContainerSpec } from "./containers";
+import { CONTAINERS, maxCargoKg, NO_CLEARANCE, passHeight, passWidth, tooHeavyToStuff, usableLength, type Clearance, type ContainerSpec } from "./containers";
 
 /** One line of the cargo list. Sizes in mm, weight in kg per piece. */
 export interface CargoLine {
@@ -40,7 +40,8 @@ export function footprints(line: CargoLine): Footprint[] {
  * The ways a piece may sit in this container; empty when the container cannot take it.
  *
  * - A standard container is loaded through its door: the piece must pass the door and fit inside,
- *   with the clearance the container carries left free.
+ *   with the clearance the container carries left free. A piece too heavy to be stuffed through a
+ *   door (the company's rule) is not taken either.
  * - An open top is loaded from above: the height is free, the piece must fit the floor.
  * - A flat rack takes any piece lengthwise, overhanging its sides or ends; crosswise only when the
  *   piece stays on the platform.
@@ -57,6 +58,7 @@ export function fitIn(container: ContainerSpec, line: CargoLine): Footprint[] {
   if (container.group === "open-top") return footprints(line).filter((fp) => onFloor(fp, maxWidth));
 
   if (line.heightMm > passHeight(container)) return [];
+  if (tooHeavyToStuff(container, line.weightKg, Math.max(line.lengthMm, line.widthMm))) return [];
   return footprints(line).filter((fp) => onFloor(fp, maxWidth));
 }
 
@@ -66,18 +68,20 @@ export interface Gauge {
   overHeight: boolean;
 }
 
-// The largest piece a standard container takes: the 45' HQ's length and the high-cube door.
+// The largest piece a standard container takes: the length of the 40' (of the 45' HQ when that is
+// nominated) and the high-cube door.
 const STANDARD = CONTAINERS.filter((c) => c.group === "standard");
-const MAX_LENGTH = Math.max(...STANDARD.map((c) => c.internalL));
+const MAX_LENGTH = Math.max(...STANDARD.filter((c) => !c.onRequest).map((c) => c.internalL));
+const MAX_LENGTH_ON_REQUEST = Math.max(...STANDARD.map((c) => c.internalL));
 const MAX_WIDTH = Math.max(...STANDARD.map((c) => c.doorW ?? 0));
 const MAX_HEIGHT = Math.max(...STANDARD.map((c) => c.doorH ?? 0));
 
 /** Where a piece is out of gauge, measured against the largest standard container less the clearance to leave free. */
-export function gaugeOf(line: CargoLine, clearance: Clearance = NO_CLEARANCE): Gauge {
+export function gaugeOf(line: CargoLine, clearance: Clearance = NO_CLEARANCE, with45 = false): Gauge {
   const long = Math.max(line.lengthMm, line.widthMm);
   const short = Math.min(line.lengthMm, line.widthMm);
   return {
-    overLength: long > MAX_LENGTH - clearance.lengthMm,
+    overLength: long > (with45 ? MAX_LENGTH_ON_REQUEST : MAX_LENGTH) - clearance.lengthMm,
     overWidth: short > MAX_WIDTH - clearance.doorWidthMm,
     overHeight: line.heightMm > MAX_HEIGHT - clearance.doorHeightMm,
   };

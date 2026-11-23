@@ -1,5 +1,5 @@
 import { balanceOf, centreLoad } from "./balance";
-import { containersWith, GROUP_LABEL, GROUP_ORDER, maxCargoKg, NO_CLEARANCE, usableLength, type Clearance, type ContainerGroup, type ContainerSpec } from "./containers";
+import { containersWith, GROUP_LABEL, GROUP_ORDER, maxCargoKg, usableLength, type ContainerGroup, type ContainerSpec, type PlanRules } from "./containers";
 import { findSpot, mirroredSlots, newFloor, occupy, PLACE_RULES, type Floor, type PlaceRule, type Slot } from "./floor";
 import { fitIn, type CargoLine } from "./gauge";
 
@@ -448,11 +448,12 @@ function buildPlan(sorted: { waiting: Waiting; refused: CargoLine[] }, allowed: 
  * equipment. Cargo that needs neither is planned once.
  *
  * @param nominated ids of the container types to use; leave out to let the planner choose from all
- * @param clearance the room to leave free in standard containers; none when left out
+ *   but the 45' and the hard-tops, which it takes only when they are nominated
+ * @param rules the company's rules: clearance, heavy pieces, out-of-gauge warning limits; none when left out
  */
-export function planLoad(lines: CargoLine[], nominated?: string[], clearance: Clearance = NO_CLEARANCE): LoadPlan {
-  const all = containersWith(clearance);
-  const allowed = nominated ? all.filter((c) => nominated.includes(c.id)) : all;
+export function planLoad(lines: CargoLine[], nominated?: string[], rules?: PlanRules): LoadPlan {
+  const all = containersWith(rules);
+  const allowed = nominated ? all.filter((c) => nominated.includes(c.id)) : all.filter((c) => !c.onRequest);
   const sorted = sortedPieces(lines, allowed);
   const choices = (group: ContainerGroup) => {
     const types = allowed.filter((c) => c.group === group);

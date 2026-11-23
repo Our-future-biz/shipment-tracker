@@ -7,7 +7,7 @@ import { Pill } from "@/components/Pill";
 import { SectionCard } from "@/components/SectionCard";
 import { BTN_BAR, CARD, EMPTY_STATE, HINT, LABEL_TEXT, TD, TH } from "@/styles/ui";
 import { BALANCE_RULE } from "../_lib/balance";
-import { balanceLimitText, END_WALLS_NOTE, floorOverloadText, outOfBalanceText, hasDoors, loadStats, planTotals, type PieceGroup } from "../_lib/loadStats";
+import { balanceLimitText, END_WALLS_NOTE, floorOverloadText, outOfBalanceText, ruleWarnings, hasDoors, loadStats, planTotals, type PieceGroup } from "../_lib/loadStats";
 import type { ContainerLoad, LoadPlan } from "../_lib/plan";
 import { formatDim, formatKg, formatSize, type DimUnit } from "../_lib/units";
 import { FloorPlan } from "./FloorPlan";
@@ -148,6 +148,12 @@ function LoadCard({ load, number, unit, colourOf, numberOf, onShow3D }: LoadCard
           <span>{END_WALLS_NOTE}</span>
         </p>
       )}
+      {ruleWarnings(load, unit).map((warning, index) => (
+        <p key={`rule-${index}`} className="m-0 flex items-start gap-2 text-[13px] text-amber-700">
+          <WarningOutlined className="mt-0.5" />
+          <span>{warning}</span>
+        </p>
+      ))}
       {stats.floorOverloads.map((overload, index) => (
         <p key={index} className="m-0 flex items-start gap-2 text-[13px] text-amber-700">
           <WarningOutlined className="mt-0.5" />

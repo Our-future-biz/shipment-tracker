@@ -15,6 +15,13 @@
       "when": 1795428833422,
       "tag": "0001_absent_triathlon",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1795429637757,
+      "tag": "0002_shallow_roulette",
+      "breakpoints": true
     }
   ]
 }
