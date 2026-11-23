@@ -1,0 +1,133 @@
+import { describe, expect, it } from "vitest";
+import { fullWords, meterBar, meterScale, meterTone, meterWords, missingNote, noVolumeWords, rowNotes, shareWords, usedOfLimit, type BoxMeter, type BoxRow, type BoxUtilization } from "./boxUtilization";
+
+const HC = { containerType: "40' HC", insideCbm: 76.4, planningCbm: 64.9, standardKg: 26200, heavyTestedKg: 28400, maxKg: 28400 };
+const OT = { containerType: "40' OT", insideCbm: 67.3, planningCbm: 57.2, standardKg: 26600, heavyTestedKg: null, maxKg: 28550 };
+const meter = (used: number, limit: number, max: number, state: BoxMeter["state"]): BoxMeter => ({ used, limit, max, pct: Math.floor((used / limit) * 100), free: Math.round((limit - used) * 1000) / 1000, state });
+const row = (more: Partial<BoxRow> = {}): BoxRow => ({
+  shipmentId: "s1",
+  jobNumber: "CZLCL00000001",
+  customer: "Alfa",
+  status: "active",
+  counted: true,
+  colli: 1,
+  weightKg: 1000,
+  volumeCbm: 2,
+  freightTons: 2,
+  weightMissing: false,
+  volumeMissing: false,
+  weightSharePct: 3.8,
+  volumeSharePct: 3.1,
+  notStackable: false,
+  dangerous: false,
+  outOfGauge: false,
+  temperatureControlled: false,
+  implausible: false,
+  ...more,
+});
+const box = (more: Partial<BoxUtilization> = {}): BoxUtilization => ({
+  containerType: "40' HC",
+  capacity: HC,
+  volume: null,
+  weight: null,
+  fullPct: 0,
+  limitedBy: null,
+  totals: { shipments: 14, colli: 0, weightKg: 0, volumeCbm: 0, freightTons: 0 },
+  missing: { weight: 0, volume: 0 },
+  notCounted: 0,
+  rows: [],
+  ...more,
+});
+
+describe("a meter in words", () => {
+  it("says the room that is left", () => {
+    const volume = meter(52.4, 64.9, 76.4, "room");
+    expect(usedOfLimit("volume", volume)).toBe("52.4 of 64.9 cbm");
+    expect(meterWords("volume", volume, HC)).toBe("Room for 12.5 cbm");
+    expect(meterWords("weight", meter(0, 26200, 28400, "room"), HC)).toBe("Empty: room for 26,200 kg");
+    expect(meterTone(volume)).toBe("indigo");
+  });
+
+  it("says nearly full, and full at the limit", () => {
+    const weight = meter(24100, 26200, 28400, "nearly_full");
+    expect(usedOfLimit("weight", weight)).toBe("24,100 of 26,200 kg");
+    expect(meterWords("weight", weight, HC)).toBe("Nearly full: room for 2,100 kg");
+    expect(meterWords("weight", meter(26200, 26200, 28400, "nearly_full"), HC)).toBe("Full");
+    expect(meterTone(weight)).toBe("amber");
+  });
+
+  it("says by how much it is over, and what the box can still take", () => {
+    expect(meterWords("volume", meter(66.1, 64.9, 76.4, "over"), HC)).toBe("Over the planning volume by 1.2 cbm. The box holds 76.4 cbm inside, so it may still load if the cargo stows well.");
+    expect(meterWords("weight", meter(27000, 26200, 28400, "over"), HC)).toBe("Over the standard limit by 800 kg. A heavy-tested box takes up to 28,400 kg.");
+    expect(meterWords("weight", meter(27000, 26600, 28550, "over"), OT)).toBe("Over the standard limit by 400 kg. Up to 28,550 kg needs the shipping line's confirmation.");
+    expect(meterWords("volume", meter(80, 64.9, 76.4, "beyond"), HC)).toBe("Over by 15.1 cbm: more than the box holds inside (76.4 cbm).");
+    expect(meterWords("weight", meter(29000, 26200, 28400, "beyond"), HC)).toBe("Over by 2,800 kg: more than a 40' HC can take (28,400 kg).");
+    expect(meterTone(meter(80, 64.9, 76.4, "beyond"))).toBe("red");
+  });
+
+  it("draws the bar to the most the box can take, with the limit as a mark", () => {
+    const bar = meterBar(meter(52.4, 64.9, 76.4, "room"));
+    expect(bar.filledPct).toBeCloseTo(68.59, 1);
+    expect(bar.limitPct).toBeCloseTo(84.95, 1);
+    expect(meterBar(meter(90, 64.9, 76.4, "beyond")).filledPct).toBe(100);
+  });
+
+  it("names the limit and the maximum under the bar", () => {
+    expect(meterScale("volume", HC)).toBe("planning 64.9 · inside 76.4 cbm");
+    expect(meterScale("weight", HC)).toBe("standard 26,200 · heavy tested 28,400 kg");
+    expect(meterScale("weight", OT)).toBe("standard 26,600 · at most 28,550 kg");
+  });
+
+  it("says why a type has no volume meter", () => {
+    expect(noVolumeWords("40' HFR")).toBe("A flat rack has no walls: its volume is not measured.");
+    expect(noVolumeWords("40' HRF")).toBe("No inside sizes are known for a 40' HRF yet: its volume is not measured.");
+  });
+});
+
+describe("missing figures", () => {
+  it("say nothing when every shipment has both", () => {
+    expect(missingNote(box())).toBeNull();
+  });
+
+  it("say how many shipments lack a figure and what that does to the total", () => {
+    expect(missingNote(box({ missing: { weight: 2, volume: 0 } }))).toBe("2 of 14 shipments have no weight: the box is heavier than shown.");
+    expect(missingNote(box({ missing: { weight: 0, volume: 1 } }))).toBe("1 of 14 shipments has no volume: the box is fuller than shown.");
+    expect(missingNote(box({ missing: { weight: 3, volume: 1 } }))).toBe("3 of 14 shipments have no weight and 1 has no volume: the box is fuller than shown.");
+    expect(missingNote(box({ totals: { shipments: 1, colli: 0, weightKg: 0, volumeCbm: 0, freightTons: 0 }, missing: { weight: 1, volume: 0 } }))).toBe("1 of 1 shipment has no weight: the box is heavier than shown.");
+  });
+});
+
+describe("a shipment's row", () => {
+  it("gives its share by the measure it takes more of", () => {
+    expect(shareWords(row({ weightSharePct: 24.4, volumeSharePct: 17.3 }))).toBe("24% of weight");
+    expect(shareWords(row({ weightSharePct: 3.8, volumeSharePct: 14.8 }))).toBe("15% of volume");
+    expect(shareWords(row({ weightSharePct: 36.2, volumeSharePct: null }))).toBe("36% of weight");
+    expect(shareWords(row({ weightSharePct: 0.4, volumeSharePct: 0.2 }))).toBe("under 1% of weight");
+    expect(shareWords(row({ weightSharePct: 0, volumeSharePct: 0 }))).toBeNull();
+    expect(shareWords(row({ weightSharePct: null, volumeSharePct: null }))).toBeNull();
+  });
+
+  it("notes what is missing, what to check and what makes the cargo awkward", () => {
+    expect(rowNotes(row())).toEqual([]);
+    expect(rowNotes(row({ weightMissing: true })).map((n) => n.text)).toEqual(["Weight missing"]);
+    expect(rowNotes(row({ weightMissing: true, volumeMissing: true })).map((n) => n.text)).toEqual(["Weight and volume missing"]);
+    expect(rowNotes(row({ counted: false, weightMissing: true })).map((n) => n.text)).toEqual(["Cancelled: not counted"]);
+    expect(rowNotes(row({ implausible: true, notStackable: true, dangerous: true, outOfGauge: true, temperatureControlled: true })).map((n) => n.text)).toEqual([
+      "Check the figures",
+      "Not stackable",
+      "Dangerous goods",
+      "Out of gauge",
+      "Temperature controlled",
+    ]);
+  });
+});
+
+describe("how full the box is", () => {
+  it("is the fuller meter's percentage, in words", () => {
+    expect(fullWords(box({ fullPct: 92 }))).toBe("92% full");
+    expect(fullWords(box({ fullPct: 100 }))).toBe("100% full");
+    expect(fullWords(box({ fullPct: 104 }))).toBe("Over: 104%");
+    expect(fullWords(box({ fullPct: null }))).toBe("—");
+    expect(fullWords(box({ fullPct: 0, totals: { shipments: 0, colli: 0, weightKg: 0, volumeCbm: 0, freightTons: 0 } }))).toBe("Empty");
+  });
+});

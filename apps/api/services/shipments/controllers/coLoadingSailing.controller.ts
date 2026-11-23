@@ -1,7 +1,7 @@
 import { api } from "encore.dev/api";
 import type { MaxLen } from "encore.dev/validate";
 import { getAuthData } from "~encore/auth";
-import type { CoLoadingSailingItem } from "../interfaces/interfaces";
+import type { BoxUtilization, CoLoadingSailingItem } from "../interfaces/interfaces";
 import { coLoadingSailingService as service } from "../services/coLoadingSailing.service";
 
 // A Co-Loading Concept service's sailings (lib/coLoadingSailing), for everyone in the company.
@@ -19,6 +19,14 @@ export const coLoadingSailingGet = api(
   { expose: true, auth: true, method: "GET", path: "/co-loading/sailings/:id" },
   async ({ id }: { id: string }): Promise<CoLoadingSailingItem> => {
     return service.get(id, getAuthData()!.companyID);
+  },
+);
+
+// Box utilization: how full the sailing's box is by volume and by weight, with each linked shipment's part.
+export const coLoadingSailingUtilization = api(
+  { expose: true, auth: true, method: "GET", path: "/co-loading/sailings/:id/utilization" },
+  async ({ id }: { id: string }): Promise<BoxUtilization> => {
+    return service.utilization(id, getAuthData()!.companyID);
   },
 );
 

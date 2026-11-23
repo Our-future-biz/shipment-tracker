@@ -3413,6 +3413,7 @@ export namespace shipments {
             this.coLoadingSailingLinkShipments = this.coLoadingSailingLinkShipments.bind(this)
             this.coLoadingSailingList = this.coLoadingSailingList.bind(this)
             this.coLoadingSailingUnlinkShipment = this.coLoadingSailingUnlinkShipment.bind(this)
+            this.coLoadingSailingUtilization = this.coLoadingSailingUtilization.bind(this)
             this.coLoadingServiceClose = this.coLoadingServiceClose.bind(this)
             this.coLoadingServiceCreate = this.coLoadingServiceCreate.bind(this)
             this.coLoadingServiceGet = this.coLoadingServiceGet.bind(this)
@@ -3711,6 +3712,15 @@ export namespace shipments {
          */
         public async coLoadingSailingUnlinkShipment(id: string, shipmentId: string): Promise<void> {
             await this.baseClient.callTypedAPI("DELETE", `/co-loading/sailings/${encodeURIComponent(id)}/shipments/${encodeURIComponent(shipmentId)}`)
+        }
+
+        /**
+         * Box utilization: how full the sailing's box is by volume and by weight, with each linked shipment's part.
+         */
+        public async coLoadingSailingUtilization(id: string): Promise<interfaces.BoxUtilization> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/co-loading/sailings/${encodeURIComponent(id)}/utilization`)
+            return await resp.json() as interfaces.BoxUtilization
         }
 
         /**
@@ -15864,6 +15874,121 @@ export namespace interfaces {
         updatedBy: string
 
         updatedAt: string | null
+    }
+
+    /**
+     * How a box's meter stands: room left, nearly full, over its limit, or beyond what the box can ever take.
+     */
+    export type BoxMeterState = "room" | "nearly_full" | "over" | "beyond"
+
+    /**
+     * One meter of a box's fill (volume in cbm, weight in kg).
+     */
+    export interface BoxMeter {
+        used: number
+        /**
+         * What the box is planned to: its planning volume, or the weight any box of the type takes.
+         */
+        limit: number
+        /**
+         * The most the box can ever take: its inside volume, or the type's greatest weight.
+         */
+        max: number
+        /**
+         * used of limit as a whole percentage; never rounded up to 100, at least 101 when over.
+         */
+        pct: number
+        /**
+         * limit less used; negative when over.
+         */
+        free: number
+        state: BoxMeterState
+    }
+
+    /**
+     * A linked shipment's part in its sailing's box.
+     */
+    export interface BoxUtilizationRow {
+        shipmentId: string
+        jobNumber: string
+        customer: string
+        status: string
+        /**
+         * False for a cancelled shipment: listed, not in the totals.
+         */
+        counted: boolean
+        colli: number
+        weightKg: number
+        volumeCbm: number
+        /**
+         * W/M: the greater of its tonnes and its cbm.
+         */
+        freightTons: number
+        weightMissing: boolean
+        volumeMissing: boolean
+        /**
+         * Its share of the box's weight and volume limits, in %, one decimal; null where the box has no such limit.
+         */
+        weightSharePct: number | null
+        volumeSharePct: number | null
+        notStackable: boolean
+        dangerous: boolean
+        outOfGauge: boolean
+        temperatureControlled: boolean
+        /**
+         * Bigger or heavier than the whole box, or a density no cargo has: a figure to check.
+         */
+        implausible: boolean
+    }
+
+    /**
+     * How full a Co-Loading Concept sailing's box is (lib/boxUtilization).
+     */
+    export interface BoxUtilization {
+        /**
+         * The sailing's container type: "40' HC".
+         */
+        containerType: string
+        /**
+         * What the type takes; null for a type with no capacity figures.
+         */
+        capacity: {
+            containerType: string
+            insideCbm: number | null
+            planningCbm: number | null
+            standardKg: number
+            heavyTestedKg: number | null
+            maxKg: number
+        } | null
+        /**
+         * null where the type has no volume (reefers, flat racks) or no capacity at all.
+         */
+        volume: BoxMeter | null
+        weight: BoxMeter | null
+        /**
+         * The fuller meter's percentage: how full the box is.
+         */
+        fullPct: number | null
+        limitedBy: "volume" | "weight" | null
+        totals: {
+            shipments: number
+            colli: number
+            weightKg: number
+            volumeCbm: number
+            freightTons: number
+        }
+        /**
+         * Counted shipments with no weight, and with no volume: the totals are too low by them.
+         */
+        missing: {
+            weight: number
+            volume: number
+        }
+        /**
+         * Linked shipments not in the totals (cancelled).
+         */
+        notCounted: number
+        rows: BoxUtilizationRow[]
     }
 
     /**

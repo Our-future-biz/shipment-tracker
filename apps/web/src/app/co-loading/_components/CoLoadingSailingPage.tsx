@@ -8,6 +8,7 @@ import { useCoLoadingSailing, useCoLoadingService } from "@/hooks/useCoLoadingSe
 import { formatDate } from "@/lib/date";
 import { CARD, EMPTY, HINT, LABEL_TEXT, PAGE_TITLE, REF } from "@/styles/ui";
 import { SAILING_TABS, sailingTabOf, sailingTitle } from "../_lib/sailings";
+import { BoxUtilizationTab } from "./BoxUtilizationTab";
 import { SailingShipmentsTab } from "./SailingShipmentsTab";
 
 // One fact of the sailing, as the master job's summary card shows its own: the label over the value.
@@ -42,8 +43,8 @@ const text = (v: string | null | undefined) =>
 /**
  * A Co-Loading Concept sailing's own page, opened from its service's Sailings list, in the master
  * job page's shape: a white header band with the way back, the sailing at a glance and the tab strip,
- * then the tab. Its tabs are Box utilization, Linked shipments (the shipments in its box:
- * SailingShipmentsTab) and Earnings; Box utilization and Earnings are not built yet. The tab is kept in the address (?tab=), so a reload or a link keeps it.
+ * then the tab. Its tabs are Box utilization (how full its box is: BoxUtilizationTab), Linked shipments (the shipments in its box:
+ * SailingShipmentsTab) and Earnings; Earnings is not built yet. The tab is kept in the address (?tab=), so a reload or a link keeps it.
  */
 export function CoLoadingSailingPage() {
   const { sailingId } = useParams<{ serviceId: string; sailingId: string }>();
@@ -141,6 +142,8 @@ export function CoLoadingSailingPage() {
               <Spin size="large" />
             </div>
           )
+        ) : sailing && tab === "box" ? (
+          <BoxUtilizationTab sailingId={sailing.id} onOpenShipments={() => openTab("shipments")} />
         ) : sailing ? (
           <section
             className={`${CARD} px-5 py-4`}

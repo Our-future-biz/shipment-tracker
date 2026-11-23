@@ -70,12 +70,28 @@ export function useCoLoadingSailing(id: string) {
 }
 
 /**
+ * How full a sailing's box is (Box utilization). Cargo is changed on the shipments' own pages, so
+ * the fill is read anew whenever its tab opens or the window comes back to the front.
+ */
+export function useSailingUtilization(id: string) {
+  const query = useQuery({
+    queryKey: [...LIST_KEY, "sailing", id, "utilization"],
+    queryFn: () => api.shipments.coLoadingSailingUtilization(id),
+    enabled: isUuid(id),
+    staleTime: 0,
+    refetchOnMount: "always",
+  });
+  return { box: query.data ?? null, isLoading: query.isLoading, isError: query.isError, refetch: query.refetch };
+}
+
+/**
  * Linking shipments to a sailing (its box) and taking them off. The shipments lists are read again
  * after either: the sailing's Linked shipments and what Link shipments offers are both lists of them.
  */
 export function useSailingShipmentLinks(sailingId: string) {
   const qc = useQueryClient();
-  const settle = () => qc.invalidateQueries({ queryKey: ["shipments"] });
+  // The shipments lists, and the fill of the box the shipment joined or left.
+  const settle = () => Promise.all([qc.invalidateQueries({ queryKey: ["shipments"] }), qc.invalidateQueries({ queryKey: [...LIST_KEY, "sailing", sailingId, "utilization"] })]);
   const link = useMutation({
     mutationFn: (shipmentIds: string[]) => api.shipments.coLoadingSailingLinkShipments(sailingId, { shipmentIds }),
     onSuccess: settle,

@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, isNull } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull } from "drizzle-orm";
 import { db } from "../db/db";
 import {
   coLoadingSailingTable as sailings,
@@ -6,7 +6,9 @@ import {
   type NewCoLoadingSailingRecord,
 } from "../schemas/coLoadingSailing.schema";
 import { coLoadingSailingShipmentTable as links } from "../schemas/coLoadingSailingShipment.schema";
+import { cargoDimensionTable as dimensions } from "../schemas/cargoDimension.schema";
 import { shipmentTable } from "../schemas/shipment.schema";
+import type { BoxShipment } from "../lib/boxUtilization";
 
 // One of the shipments to link got a live link meanwhile: the links of this call are undone.
 class LinkedMeanwhile extends Error {}
@@ -80,6 +82,51 @@ class CoLoadingSailingRepository {
       .where(and(eq(links.companyId, companyId), eq(links.sailingId, sailingId), eq(links.shipmentId, shipmentId), isNull(links.deletedAt)))
       .returning({ id: links.id });
     return rows.length > 0;
+  }
+
+  /**
+   * The shipments in the sailing's box - its live links to live shipments - with the cargo figures
+   * the box's fill is worked out from. Two reads whatever the number of shipments.
+   */
+  async boxShipments(sailingId: string, companyId: string): Promise<Omit<BoxShipment, "cancelled">[]> {
+    const rows = await db
+      .select({
+        id: shipmentTable.id,
+        jobNumber: shipmentTable.jobNumber,
+        customer: shipmentTable.customer,
+        status: shipmentTable.status,
+        dangerous: shipmentTable.dangerous,
+        outOfGauge: shipmentTable.outOfGauge,
+        temperatureControlled: shipmentTable.temperatureControlled,
+        pcs: shipmentTable.pcs,
+        totalWeightTons: shipmentTable.totalWeightTons,
+        totalVolumeCbm: shipmentTable.totalVolumeCbm,
+      })
+      .from(links)
+      .innerJoin(shipmentTable, eq(shipmentTable.id, links.shipmentId))
+      .where(and(eq(links.companyId, companyId), eq(links.sailingId, sailingId), isNull(links.deletedAt), eq(shipmentTable.companyId, companyId), isNull(shipmentTable.deletedAt)));
+    if (rows.length === 0) return [];
+    const lines = await db
+      .select({
+        shipmentId: dimensions.shipmentId,
+        pieces: dimensions.pieces,
+        lengthCm: dimensions.lengthCm,
+        widthCm: dimensions.widthCm,
+        heightCm: dimensions.heightCm,
+        weightPerPcKg: dimensions.weightPerPcKg,
+        volumePerPcM3: dimensions.volumePerPcM3,
+        stackable: dimensions.stackable,
+      })
+      .from(dimensions)
+      .where(and(eq(dimensions.companyId, companyId), inArray(dimensions.shipmentId, rows.map((r) => r.id)), isNull(dimensions.deletedAt)))
+      .orderBy(asc(dimensions.shipmentId), asc(dimensions.position));
+    const byShipment = new Map<string, BoxShipment["cargoDimensions"]>();
+    for (const { shipmentId, ...line } of lines) {
+      const list = byShipment.get(shipmentId);
+      if (list) list.push(line);
+      else byShipment.set(shipmentId, [line]);
+    }
+    return rows.map((r) => ({ ...r, cargoDimensions: byShipment.get(r.id) ?? [] }));
   }
 
   async create(values: NewCoLoadingSailingRecord): Promise<CoLoadingSailingRecord> {

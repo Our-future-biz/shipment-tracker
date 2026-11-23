@@ -1,6 +1,9 @@
 import { APIError } from "encore.dev/api";
 import { isUuid } from "../../../lib/uuid";
-import type { CoLoadingSailingItem } from "../interfaces/interfaces";
+import { containerCapacity } from "../../../lib/containerCapacity";
+import type { BoxUtilization, CoLoadingSailingItem } from "../interfaces/interfaces";
+import { boxUtilization } from "../lib/boxUtilization";
+import { CANCELLED_STATUS } from "../lib/fieldDefaults";
 import { checkSailingInput, linkRefusal, type SailingInput } from "../lib/coLoadingSailing";
 import { userNameOf } from "../lib/userName";
 import { coLoadingSailingRepository as repo } from "../repositories/coLoadingSailing.repository";
@@ -34,6 +37,16 @@ class CoLoadingSailingService {
     const row = isUuid(id) ? await repo.get(id, companyId) : null;
     if (!row) throw APIError.notFound("Sailing not found");
     return toItem(row);
+  }
+
+  /**
+   * How full the sailing's box is: the cargo of its linked shipments against what its container type
+   * takes (lib/boxUtilization). Read by everyone, a closed service's sailing too.
+   */
+  async utilization(id: string, companyId: string): Promise<BoxUtilization> {
+    const sailing = await this.get(id, companyId);
+    const shipments = (await repo.boxShipments(sailing.id, companyId)).map((s) => ({ ...s, cancelled: s.status === CANCELLED_STATUS }));
+    return boxUtilization(sailing.containerType, containerCapacity(sailing.containerType), shipments);
   }
 
   /**
