@@ -15877,6 +15877,29 @@ export namespace interfaces {
     }
 
     /**
+     * A box's fill in short, for a list of sailings: both meters' percentages and how they stand.
+     */
+    export interface BoxFill {
+        /**
+         * null where the container type has no such meter.
+         */
+        volume: { pct: number; state: BoxMeterState } | null
+        weight: { pct: number; state: BoxMeterState } | null
+        /**
+         * The fuller meter's percentage.
+         */
+        fullPct: number | null
+        /**
+         * Counted shipments in the box.
+         */
+        shipments: number
+        /**
+         * Counted shipments with no weight or no volume: the percentages are too low by them.
+         */
+        missing: number
+    }
+
+    /**
      * How a box's meter stands: room left, nearly full, over its limit, or beyond what the box can ever take.
      */
     export type BoxMeterState = "room" | "nearly_full" | "over" | "beyond"
@@ -16017,6 +16040,10 @@ export namespace interfaces {
 
         createdByName: string
         createdAt: string
+        /**
+         * How full its box is, on the service's list of sailings; left out where only the sailing itself is read.
+         */
+        fill?: BoxFill
     }
 
     /**

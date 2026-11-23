@@ -10,6 +10,7 @@ import { formatDate } from "@/lib/date";
 import { useMessages } from "@/lib/toast";
 import { BTN_PRIMARY, CARD, EMPTY_STATE, HEADING, LINK, REF, TD, TH } from "@/styles/ui";
 import { sailingHref } from "../_lib/sailings";
+import { BoxFillChip } from "./BoxFillChip";
 import { CreateSailingModal } from "./CreateSailingModal";
 
 // A Co-Loading Concept service's sailings, the newest first, over its shipments: "Create new sailing"
@@ -66,6 +67,8 @@ export function CoLoadingSailings({ serviceId, closed }: { serviceId: string; cl
                 <th className={TH}>Port of Discharge</th>
                 <th className={TH}>HUB</th>
                 <th className={TH}>Container Type</th>
+                <th className={TH}>Box utilization</th>
+                <th className={`${TH} !text-right`}>Shipments</th>
                 <th className={TH}>Created</th>
               </tr>
             </thead>
@@ -91,6 +94,8 @@ export function CoLoadingSailings({ serviceId, closed }: { serviceId: string; cl
                   <td className={TD}>{s.pod}</td>
                   <td className={TD}>{s.hub}</td>
                   <td className={TD}>{s.containerType}</td>
+                  <td className={TD}>{s.fill ? <BoxFillChip fill={s.fill} /> : "—"}</td>
+                  <td className={`${TD} text-right tabular-nums`}>{s.fill ? s.fill.shipments : "—"}</td>
                   <td className={`${TD} whitespace-nowrap text-slate-500`}>
                     {formatDate(s.createdAt)}
                     {s.createdByName ? ` · ${s.createdByName}` : ""}

@@ -106,3 +106,54 @@ export function fullWords(box: BoxUtilization): string {
   if (box.totals.shipments === 0) return "Empty";
   return box.fullPct > 100 ? `Over: ${box.fullPct}%` : `${box.fullPct}% full`;
 }
+
+export type BoxFill = interfaces.BoxFill;
+
+/** The fill in short of a box read in full: what the sailing's header shows, the same as its row on the list. */
+export function fillOfBox(box: BoxUtilization): BoxFill {
+  const short = (meter: BoxMeter | null) => (meter ? { pct: meter.pct, state: meter.state } : null);
+  return {
+    volume: short(box.volume),
+    weight: short(box.weight),
+    fullPct: box.fullPct,
+    shipments: box.totals.shipments,
+    missing: box.rows.filter((r) => r.counted && (r.weightMissing || r.volumeMissing)).length,
+  };
+}
+
+/**
+ * A box's fill as one line of words, for a tooltip and for screen readers: "Volume 80%, weight 91%
+ * (nearly full) · 5 shipments · 1 without a figure".
+ */
+export function fillWords(fill: BoxFill): string {
+  const state = (s: BoxMeter["state"]) => (s === "nearly_full" ? " (nearly full)" : s === "over" ? " (over the limit)" : s === "beyond" ? " (more than the box takes)" : "");
+  const meters = [fill.volume && `volume ${fill.volume.pct}%${state(fill.volume.state)}`, fill.weight && `weight ${fill.weight.pct}%${state(fill.weight.state)}`].filter(Boolean).join(", ");
+  const parts = [
+    meters ? meters.charAt(0).toUpperCase() + meters.slice(1) : "No capacity known for this container type",
+    `${fill.shipments} ${fill.shipments === 1 ? "shipment" : "shipments"}`,
+    fill.missing > 0 && `${fill.missing} without a figure`,
+  ];
+  return parts.filter(Boolean).join(" · ");
+}
+
+/** What shipments about to be linked would add to the box. */
+export interface AddedCargo {
+  shipments: number;
+  weightKg: number;
+  volumeCbm: number;
+}
+
+/**
+ * The warning before shipments are linked to a box they would overfill: which limit they would
+ * pass and by how much. null when the box still takes them, or has no capacity to judge by.
+ * A warning only: the overflow is the user's decision, and linking is never refused for it.
+ */
+export function overfillWarning(box: BoxUtilization, added: AddedCargo): string | null {
+  if (added.shipments === 0) return null;
+  const after = (meter: BoxMeter | null, more: number) => (meter ? { used: meter.used + more, over: meter.used + more - meter.limit, pct: Math.max(101, Math.round(((meter.used + more) / meter.limit) * 100)) } : null);
+  const [volume, weight] = [after(box.volume, added.volumeCbm), after(box.weight, added.weightKg)];
+  const overs = [volume && volume.over > 0 && `volume to ${volume.pct}% (over by ${cbm(volume.over)})`, weight && weight.over > 0 && `weight to ${weight.pct}% (over by ${kg(weight.over)})`].filter(Boolean);
+  if (overs.length === 0) return null;
+  return `Linking ${added.shipments === 1 ? "this shipment" : `these ${added.shipments} shipments`} would bring the box's ${overs.join(" and its ")}. You can still link ${added.shipments === 1 ? "it" : "them"}.`;
+}
+

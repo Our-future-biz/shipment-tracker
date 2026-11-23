@@ -8,7 +8,7 @@
 // says so. Over the limit is a state to show, never an error.
 
 import type { ContainerCapacity } from "../../../lib/containerCapacity";
-import type { BoxMeter, BoxMeterState, BoxUtilization, BoxUtilizationRow } from "../interfaces/interfaces";
+import type { BoxFill, BoxMeter, BoxMeterState, BoxUtilization, BoxUtilizationRow } from "../interfaces/interfaces";
 import { NOT_STACKABLE } from "./cargoProjection";
 import { dimensionFiguresFilled } from "./remeasureNotice";
 
@@ -37,12 +37,12 @@ const yes = (v: string) => v.trim().toLowerCase() === "yes";
 
 /**
  * A share of a limit as a whole percentage that never claims more than is true: 99.6% is 99, not
- * 100, and anything over the limit is at least 101.
+ * 100, and anything over the limit is at least 101 (rounded to the nearest from there).
  */
 export function wholePct(used: number, limit: number): number {
   if (!(limit > 0)) return 0;
   const pct = (used / limit) * 100;
-  return pct > 100 ? Math.ceil(pct - 1e-9) : Math.floor(pct + 1e-9);
+  return pct > 100 ? Math.max(101, Math.round(pct)) : Math.floor(pct + 1e-9);
 }
 
 /** One meter: what is used of a limit, and of the most the box can ever take. */
@@ -126,5 +126,17 @@ export function boxUtilization(containerType: string, capacity: ContainerCapacit
     },
     notCounted: rows.length - counted.length,
     rows,
+  };
+}
+
+/** A box's fill in short, for a list of sailings. */
+export function boxFillOf(box: BoxUtilization): BoxFill {
+  const short = (meter: BoxMeter | null) => (meter ? { pct: meter.pct, state: meter.state } : null);
+  return {
+    volume: short(box.volume),
+    weight: short(box.weight),
+    fullPct: box.fullPct,
+    shipments: box.totals.shipments,
+    missing: box.rows.filter((r) => r.counted && (r.weightMissing || r.volumeMissing)).length,
   };
 }

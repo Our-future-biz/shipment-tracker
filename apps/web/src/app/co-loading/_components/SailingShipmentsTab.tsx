@@ -9,23 +9,31 @@ import {
   InboxOutlined,
   PlusOutlined,
   SearchOutlined,
+  WarningOutlined,
 } from "@ant-design/icons";
 import { useQuery } from "@tanstack/react-query";
 import { api, apiErrorMessage } from "@/lib/api";
 import { useDebounced } from "@/hooks/useDebounced";
 import { useShipments, type ShipmentItem } from "@/hooks/useShipments";
-import { useSailingShipmentLinks, type CoLoadingSailing } from "@/hooks/useCoLoadingServices";
+import { useSailingShipmentLinks, useSailingUtilization, type CoLoadingSailing } from "@/hooks/useCoLoadingServices";
 import { linkedCount } from "@/app/shipments/_components/MasterJobDialog";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { EMPTY_CELL } from "@/components/EmptyCell";
 import { formatDate } from "@/lib/date";
 import { placeCodeOf } from "@/lib/places";
 import { useMessages } from "@/lib/toast";
-import { CARD, EMPTY_STATE, HINT, LINK, MODAL_TITLE, REF, TD, TH } from "@/styles/ui";
+import { CARD, EMPTY_STATE, HINT, LINK, MODAL_TITLE, REF, TD, TD_TOTAL, TH } from "@/styles/ui";
+import { overfillWarning, tableCbm, tableKg, type BoxUtilization } from "../_lib/boxUtilization";
 import { sailingTitle } from "../_lib/sailings";
 
 // The picker's head stays put while its rows scroll, as the master job's picker does.
 const PICK_TH = `${TH} sticky top-0 z-10 bg-white`;
+
+/** A figure typed on a shipment (free text, a comma for the decimal point): 0 when there is none. */
+const typedNumber = (v: string | number | null | undefined): number => {
+  const n = parseFloat(String(v ?? "").replace(/[^0-9.,-]/g, "").replace(",", "."));
+  return Number.isFinite(n) ? n : 0;
+};
 
 // A cell's text, cut short with the whole of it on hover, or a dash.
 const cell = (v: string | null | undefined) => (v ? <span title={v}>{v}</span> : EMPTY_CELL);
@@ -47,6 +55,10 @@ export function SailingShipmentsTab({
 }) {
   const { shipments, isLoading, isError } = useShipments({ sailing: sailing.id });
   const { link, unlink } = useSailingShipmentLinks(sailing.id);
+  // The figures are the box's own (Box utilization): each shipment's cargo lines, else its typed
+  // totals, in kg. While they are read, the shipment's typed totals stand in.
+  const { box } = useSailingUtilization(sailing.id);
+  const partOf = new Map((box?.rows ?? []).map((row) => [row.shipmentId, row]));
   const message = useMessages();
   const [picking, setPicking] = useState(false);
   const [toRemove, setToRemove] = useState<ShipmentItem | null>(null);
@@ -74,7 +86,7 @@ export function SailingShipmentsTab({
         </Tooltip>
       </div>
       <div className="px-5 py-3 overflow-x-auto">
-        <table className="w-full min-w-[860px] table-fixed border-collapse">
+        <table className="w-full min-w-[940px] table-fixed border-collapse">
           <thead>
             <tr>
               <th className={`${TH} w-[160px]`}>Internal Reference</th>
@@ -82,7 +94,8 @@ export function SailingShipmentsTab({
               <th className={TH}>Shipper</th>
               <th className={TH}>Consignee</th>
               <th className={`${TH} w-[150px]`}>Status</th>
-              <th className={`${TH} w-[90px] text-right`}>Weight (t)</th>
+              <th className={`${TH} w-[70px] text-right`}>Colli</th>
+              <th className={`${TH} w-[100px] text-right`}>Weight (kg)</th>
               <th className={`${TH} w-[100px] text-right`}>Volume (cbm)</th>
               <th className={`${TH} w-12`}>
                 <span className="sr-only">Actions</span>
@@ -90,8 +103,13 @@ export function SailingShipmentsTab({
             </tr>
           </thead>
           <tbody>
-            {shipments.map((s) => (
-              <tr key={s.id}>
+            {shipments.map((s) => {
+              const part = partOf.get(s.id);
+              const colli = part ? part.colli : typedNumber(s.pcs);
+              const weightKg = part ? part.weightKg : typedNumber(s.totalWeightTons) * 1000;
+              const volumeCbm = part ? part.volumeCbm : typedNumber(s.totalVolumeCbm);
+              return (
+              <tr key={s.id} className={part && !part.counted ? "text-slate-400" : ""}>
                 <td className={`${TD} truncate`}>
                   <Link href={`/shipments/${s.id}`} className={`${REF} ${LINK} font-semibold`}>
                     {s.jobNumber}
@@ -101,12 +119,10 @@ export function SailingShipmentsTab({
                 <td className={`${TD} truncate`}>{cell(s.shipper)}</td>
                 <td className={`${TD} truncate`}>{cell(s.consignee)}</td>
                 <td className={`${TD} truncate`}>{cell(s.status)}</td>
-                <td className={`${TD} text-right tabular-nums`}>
-                  {s.totalWeightTons || EMPTY_CELL}
-                </td>
-                <td className={`${TD} text-right tabular-nums`}>
-                  {s.totalVolumeCbm || EMPTY_CELL}
-                </td>
+                {/* A figure that is missing is a dash, never a 0. */}
+                <td className={`${TD} text-right tabular-nums`}>{colli > 0 ? colli.toLocaleString("en-US") : EMPTY_CELL}</td>
+                <td className={`${TD} text-right tabular-nums`}>{weightKg > 0 ? tableKg(weightKg) : EMPTY_CELL}</td>
+                <td className={`${TD} text-right tabular-nums`}>{volumeCbm > 0 ? tableCbm(volumeCbm) : EMPTY_CELL}</td>
                 <td className={`${TD} text-center`}>
                   <Dropdown
                     trigger={["click"]}
@@ -139,8 +155,22 @@ export function SailingShipmentsTab({
                   </Dropdown>
                 </td>
               </tr>
-            ))}
+              );
+            })}
           </tbody>
+          {box && shipments.length > 0 && (
+            <tfoot>
+              <tr>
+                <td className={TD_TOTAL} colSpan={5}>
+                  Total{box.notCounted > 0 ? ` (${box.notCounted} cancelled, not counted)` : ""}
+                </td>
+                <td className={`${TD_TOTAL} text-right tabular-nums`}>{box.totals.colli.toLocaleString("en-US")}</td>
+                <td className={`${TD_TOTAL} text-right tabular-nums`}>{tableKg(box.totals.weightKg)}</td>
+                <td className={`${TD_TOTAL} text-right tabular-nums`}>{tableCbm(box.totals.volumeCbm)}</td>
+                <td className={TD_TOTAL} />
+              </tr>
+            </tfoot>
+          )}
         </table>
         {isLoading ? (
           <div className="flex justify-center py-8">
@@ -177,6 +207,7 @@ export function SailingShipmentsTab({
         open={picking}
         sailingName={name}
         serviceName={serviceName}
+        box={box}
         onClose={() => setPicking(false)}
         onLink={async (ids) => {
           await link.mutateAsync(ids);
@@ -195,18 +226,23 @@ function LinkSailingShipmentsModal({
   open,
   sailingName,
   serviceName,
+  box,
   onClose,
   onLink,
 }: {
   open: boolean;
   sailingName: string;
   serviceName: string;
+  /** The box as it stands, to warn before a link would overfill it; null while it is read. */
+  box: BoxUtilization | null;
   onClose: () => void;
   onLink: (shipmentIds: string[]) => Promise<void>;
 }) {
   const message = useMessages();
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<string[]>([]);
+  // What each ticked shipment would add to the box, kept by id: a tick stays through a new search.
+  const [cargoOf, setCargoOf] = useState<Record<string, { weightKg: number; volumeCbm: number }>>({});
   const [linking, setLinking] = useState(false);
   const search = useDebounced(query, 300);
   const results = useQuery({
@@ -221,12 +257,23 @@ function LinkSailingShipmentsModal({
     enabled: open && !!serviceName,
   });
   const candidates = results.data?.data ?? [];
-  const toggle = (id: string) =>
-    setSelected((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  const toggle = (s: ShipmentItem) => {
+    setSelected((prev) => (prev.includes(s.id) ? prev.filter((x) => x !== s.id) : [...prev, s.id]));
+    setCargoOf((prev) => ({ ...prev, [s.id]: { weightKg: typedNumber(s.totalWeightTons) * 1000, volumeCbm: typedNumber(s.totalVolumeCbm) } }));
+  };
+  // A warning only: the overflow is the user's decision.
+  const warning = box
+    ? overfillWarning(box, {
+        shipments: selected.length,
+        weightKg: selected.reduce((total, id) => total + (cargoOf[id]?.weightKg ?? 0), 0),
+        volumeCbm: selected.reduce((total, id) => total + (cargoOf[id]?.volumeCbm ?? 0), 0),
+      })
+    : null;
 
   const close = () => {
     setQuery("");
     setSelected([]);
+    setCargoOf({});
     onClose();
   };
   const handleLink = async () => {
@@ -280,8 +327,14 @@ function LinkSailingShipmentsModal({
           onChange={(e) => setQuery(e.target.value)}
           aria-label="Search shipments"
         />
+        {warning && (
+          <p className="m-0 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[13px] text-amber-800" role="status">
+            <WarningOutlined className="mt-0.5" aria-hidden />
+            <span>{warning}</span>
+          </p>
+        )}
         <div className="max-h-[420px] overflow-auto scroll-pt-9 rounded-lg border border-slate-200">
-          <table className="w-full min-w-[720px] table-fixed border-separate border-spacing-0">
+          <table className="w-full min-w-[800px] table-fixed border-separate border-spacing-0">
             <thead>
               <tr>
                 <th className={`${PICK_TH} w-10 !pl-3`}>
@@ -291,6 +344,7 @@ function LinkSailingShipmentsModal({
                 <th className={PICK_TH}>Customer</th>
                 <th className={`${PICK_TH} w-[150px]`}>Route</th>
                 <th className={`${PICK_TH} w-[96px]`}>ETD</th>
+                <th className={`${PICK_TH} w-[100px] text-right`}>Weight (kg)</th>
                 <th className={`${PICK_TH} w-[110px] !pr-3 text-right`}>Volume (cbm)</th>
               </tr>
             </thead>
@@ -306,19 +360,19 @@ function LinkSailingShipmentsModal({
                 return (
                   <tr
                     key={s.id}
-                    onClick={() => toggle(s.id)}
+                    onClick={() => toggle(s)}
                     className={`cursor-pointer transition-colors ${isChecked ? "bg-indigo-50/70" : "hover:bg-slate-50"}`}
                   >
                     <td
                       className={`${TD} !pl-3`}
                       onClick={(e) => {
                         e.stopPropagation();
-                        if (!(e.target as Element).closest(".ant-checkbox-wrapper")) toggle(s.id);
+                        if (!(e.target as Element).closest(".ant-checkbox-wrapper")) toggle(s);
                       }}
                     >
                       <Checkbox
                         checked={isChecked}
-                        onChange={() => toggle(s.id)}
+                        onChange={() => toggle(s)}
                         aria-label={`Link ${s.jobNumber}`}
                       />
                     </td>
@@ -340,9 +394,8 @@ function LinkSailingShipmentsModal({
                     <td className={`${TD} whitespace-nowrap tabular-nums`}>
                       {formatDate(s.estimatedDeparture) || EMPTY_CELL}
                     </td>
-                    <td className={`${TD} text-right tabular-nums !pr-3`}>
-                      {s.totalVolumeCbm || EMPTY_CELL}
-                    </td>
+                    <td className={`${TD} text-right tabular-nums`}>{typedNumber(s.totalWeightTons) > 0 ? tableKg(typedNumber(s.totalWeightTons) * 1000) : EMPTY_CELL}</td>
+                    <td className={`${TD} text-right tabular-nums !pr-3`}>{typedNumber(s.totalVolumeCbm) > 0 ? tableCbm(typedNumber(s.totalVolumeCbm)) : EMPTY_CELL}</td>
                   </tr>
                 );
               })}

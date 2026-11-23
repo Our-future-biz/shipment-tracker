@@ -89,8 +89,16 @@ class CoLoadingSailingRepository {
    * the box's fill is worked out from. Two reads whatever the number of shipments.
    */
   async boxShipments(sailingId: string, companyId: string): Promise<Omit<BoxShipment, "cancelled">[]> {
+    return (await this.boxShipmentsOf([sailingId], companyId)).get(sailingId) ?? [];
+  }
+
+  /** The same for several sailings at once, by sailing: two reads whatever the number of sailings. */
+  async boxShipmentsOf(sailingIds: string[], companyId: string): Promise<Map<string, Omit<BoxShipment, "cancelled">[]>> {
+    const bySailing = new Map<string, Omit<BoxShipment, "cancelled">[]>();
+    if (sailingIds.length === 0) return bySailing;
     const rows = await db
       .select({
+        sailingId: links.sailingId,
         id: shipmentTable.id,
         jobNumber: shipmentTable.jobNumber,
         customer: shipmentTable.customer,
@@ -104,8 +112,8 @@ class CoLoadingSailingRepository {
       })
       .from(links)
       .innerJoin(shipmentTable, eq(shipmentTable.id, links.shipmentId))
-      .where(and(eq(links.companyId, companyId), eq(links.sailingId, sailingId), isNull(links.deletedAt), eq(shipmentTable.companyId, companyId), isNull(shipmentTable.deletedAt)));
-    if (rows.length === 0) return [];
+      .where(and(eq(links.companyId, companyId), inArray(links.sailingId, sailingIds), isNull(links.deletedAt), eq(shipmentTable.companyId, companyId), isNull(shipmentTable.deletedAt)));
+    if (rows.length === 0) return bySailing;
     const lines = await db
       .select({
         shipmentId: dimensions.shipmentId,
@@ -126,7 +134,13 @@ class CoLoadingSailingRepository {
       if (list) list.push(line);
       else byShipment.set(shipmentId, [line]);
     }
-    return rows.map((r) => ({ ...r, cargoDimensions: byShipment.get(r.id) ?? [] }));
+    for (const { sailingId, ...r } of rows) {
+      const shipment = { ...r, cargoDimensions: byShipment.get(r.id) ?? [] };
+      const list = bySailing.get(sailingId);
+      if (list) list.push(shipment);
+      else bySailing.set(sailingId, [shipment]);
+    }
+    return bySailing;
   }
 
   async create(values: NewCoLoadingSailingRecord): Promise<CoLoadingSailingRecord> {

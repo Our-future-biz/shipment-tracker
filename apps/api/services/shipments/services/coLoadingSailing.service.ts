@@ -2,7 +2,7 @@ import { APIError } from "encore.dev/api";
 import { isUuid } from "../../../lib/uuid";
 import { containerCapacity } from "../../../lib/containerCapacity";
 import type { BoxUtilization, CoLoadingSailingItem } from "../interfaces/interfaces";
-import { boxUtilization } from "../lib/boxUtilization";
+import { boxFillOf, boxUtilization, type BoxShipment } from "../lib/boxUtilization";
 import { CANCELLED_STATUS } from "../lib/fieldDefaults";
 import { checkSailingInput, linkRefusal, type SailingInput } from "../lib/coLoadingSailing";
 import { userNameOf } from "../lib/userName";
@@ -23,13 +23,24 @@ const toItem = (r: CoLoadingSailingRecord): CoLoadingSailingItem => ({
   createdAt: r.createdAt.toISOString(),
 });
 
+/** The fill of a box of this type holding these shipments; a cancelled one is listed, not counted. */
+const fillOf = (containerType: string, shipments: Omit<BoxShipment, "cancelled">[]) =>
+  boxUtilization(
+    containerType,
+    containerCapacity(containerType),
+    shipments.map((s) => ({ ...s, cancelled: s.status === CANCELLED_STATUS })),
+  );
+
 // A Co-Loading Concept service's sailings: listed on its page, made with "Create new sailing" by anyone
 // in the company - not while the service is closed (requireOpen).
 class CoLoadingSailingService {
   /** The service's sailings, the newest first; a closed service's too (it stays in the app). */
   async list(serviceId: string, companyId: string): Promise<CoLoadingSailingItem[]> {
     await coLoadingServiceService.get(serviceId, companyId);
-    return (await repo.listByService(serviceId, companyId)).map(toItem);
+    const rows = await repo.listByService(serviceId, companyId);
+    // Each sailing with how full its box is, so every open box is seen on the one list.
+    const cargo = await repo.boxShipmentsOf(rows.map((r) => r.id), companyId);
+    return rows.map((r) => ({ ...toItem(r), fill: boxFillOf(fillOf(r.containerType, cargo.get(r.id) ?? [])) }));
   }
 
   /** One sailing, for its own page (Box utilization, Linked shipments, Earnings). */
@@ -45,8 +56,7 @@ class CoLoadingSailingService {
    */
   async utilization(id: string, companyId: string): Promise<BoxUtilization> {
     const sailing = await this.get(id, companyId);
-    const shipments = (await repo.boxShipments(sailing.id, companyId)).map((s) => ({ ...s, cancelled: s.status === CANCELLED_STATUS }));
-    return boxUtilization(sailing.containerType, containerCapacity(sailing.containerType), shipments);
+    return fillOf(sailing.containerType, await repo.boxShipments(sailing.id, companyId));
   }
 
   /**

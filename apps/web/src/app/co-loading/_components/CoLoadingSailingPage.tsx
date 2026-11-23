@@ -4,10 +4,12 @@ import type { ReactNode } from "react";
 import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Spin } from "antd";
 import { BackLink } from "@/components/BackLink";
-import { useCoLoadingSailing, useCoLoadingService } from "@/hooks/useCoLoadingServices";
+import { useCoLoadingSailing, useCoLoadingService, useSailingUtilization } from "@/hooks/useCoLoadingServices";
 import { formatDate } from "@/lib/date";
 import { CARD, EMPTY, HINT, LABEL_TEXT, PAGE_TITLE, REF } from "@/styles/ui";
+import { fillOfBox } from "../_lib/boxUtilization";
 import { SAILING_TABS, sailingTabOf, sailingTitle } from "../_lib/sailings";
+import { BoxFillChip } from "./BoxFillChip";
 import { BoxUtilizationTab } from "./BoxUtilizationTab";
 import { SailingShipmentsTab } from "./SailingShipmentsTab";
 
@@ -50,6 +52,8 @@ export function CoLoadingSailingPage() {
   const { sailingId } = useParams<{ serviceId: string; sailingId: string }>();
   const { sailing, isLoading, notFound } = useCoLoadingSailing(sailingId);
   const { service } = useCoLoadingService(sailing?.serviceId ?? "");
+  // How full the box is stands in the header on every tab.
+  const { box } = useSailingUtilization(sailing?.id ?? "");
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -97,6 +101,7 @@ export function CoLoadingSailingPage() {
                 <Fact label="Port of Loading">{text(sailing.pol)}</Fact>
                 <Fact label="Port of Discharge">{text(sailing.pod)}</Fact>
                 <Fact label="HUB">{text(sailing.hub)}</Fact>
+                <Fact label="Box utilization">{box ? <BoxFillChip fill={fillOfBox(box)} /> : text(null)}</Fact>
               </div>
             </div>
 

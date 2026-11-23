@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fullWords, meterBar, meterScale, meterTone, meterWords, missingNote, noVolumeWords, rowNotes, shareWords, usedOfLimit, type BoxMeter, type BoxRow, type BoxUtilization } from "./boxUtilization";
+import { fillOfBox, fillWords, fullWords, meterBar, meterScale, meterTone, meterWords, missingNote, noVolumeWords, overfillWarning, rowNotes, shareWords, usedOfLimit, type BoxMeter, type BoxRow, type BoxUtilization } from "./boxUtilization";
 
 const HC = { containerType: "40' HC", insideCbm: 76.4, planningCbm: 64.9, standardKg: 26200, heavyTestedKg: 28400, maxKg: 28400 };
 const OT = { containerType: "40' OT", insideCbm: 67.3, planningCbm: 57.2, standardKg: 26600, heavyTestedKg: null, maxKg: 28550 };
@@ -129,5 +129,35 @@ describe("how full the box is", () => {
     expect(fullWords(box({ fullPct: 104 }))).toBe("Over: 104%");
     expect(fullWords(box({ fullPct: null }))).toBe("—");
     expect(fullWords(box({ fullPct: 0, totals: { shipments: 0, colli: 0, weightKg: 0, volumeCbm: 0, freightTons: 0 } }))).toBe("Empty");
+  });
+});
+
+describe("a box's fill in short", () => {
+  const filled = box({
+    volume: meter(52.34, 64.9, 76.4, "room"),
+    weight: meter(24100, 26200, 28400, "nearly_full"),
+    fullPct: 91,
+    totals: { shipments: 5, colli: 212, weightKg: 24100, volumeCbm: 52.34, freightTons: 54.89 },
+    rows: [row(), row({ weightMissing: true }), row({ counted: false, weightMissing: true, volumeMissing: true })],
+  });
+
+  it("is the same on the sailing's header as on the list", () => {
+    expect(fillOfBox(filled)).toEqual({ volume: { pct: 80, state: "room" }, weight: { pct: 91, state: "nearly_full" }, fullPct: 91, shipments: 5, missing: 1 });
+  });
+
+  it("is said in one line", () => {
+    expect(fillWords(fillOfBox(filled))).toBe("Volume 80%, weight 91% (nearly full) · 5 shipments · 1 without a figure");
+    expect(fillWords({ volume: null, weight: { pct: 104, state: "over" }, fullPct: 104, shipments: 1, missing: 0 })).toBe("Weight 104% (over the limit) · 1 shipment");
+    expect(fillWords({ volume: null, weight: null, fullPct: null, shipments: 0, missing: 0 })).toBe("No capacity known for this container type · 0 shipments");
+  });
+
+  it("warns before a link would overfill the box, and only then", () => {
+    expect(overfillWarning(filled, { shipments: 1, weightKg: 2000, volumeCbm: 5 })).toBeNull();
+    expect(overfillWarning(filled, { shipments: 0, weightKg: 0, volumeCbm: 0 })).toBeNull();
+    expect(overfillWarning(filled, { shipments: 1, weightKg: 4200, volumeCbm: 5 })).toBe("Linking this shipment would bring the box's weight to 108% (over by 2,100 kg). You can still link it.");
+    expect(overfillWarning(filled, { shipments: 3, weightKg: 4200, volumeCbm: 20 })).toBe(
+      "Linking these 3 shipments would bring the box's volume to 111% (over by 7.4 cbm) and its weight to 108% (over by 2,100 kg). You can still link them.",
+    );
+    expect(overfillWarning(box(), { shipments: 2, weightKg: 99999, volumeCbm: 999 })).toBeNull();
   });
 });

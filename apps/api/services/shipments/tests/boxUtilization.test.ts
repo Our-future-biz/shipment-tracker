@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 vi.mock("encore.dev/api", () => import("../../../lib/tests/encoreApi.stub"));
 
 import { containerCapacity } from "../../../lib/containerCapacity";
-import { boxUtilization, meterOf, wholePct, type BoxShipment } from "../lib/boxUtilization";
+import { boxFillOf, boxUtilization, meterOf, wholePct, type BoxShipment } from "../lib/boxUtilization";
 import { NOT_STACKABLE } from "../lib/cargoProjection";
 
 // A 40' HC: 64.9 cbm planning of 76.4 inside; 26,200 kg standard, 28,400 at most.
@@ -44,6 +44,8 @@ describe("wholePct", () => {
     expect(wholePct(99.6, 100)).toBe(99);
     expect(wholePct(100, 100)).toBe(100);
     expect(wholePct(100.01, 100)).toBe(101);
+    expect(wholePct(108.02, 100)).toBe(108);
+    expect(wholePct(108.6, 100)).toBe(109);
     expect(wholePct(0, 100)).toBe(0);
     expect(wholePct(5, 0)).toBe(0);
   });
@@ -118,8 +120,8 @@ describe("boxUtilization", () => {
   it("shows a box over its limit, and one beyond what it can ever take, without refusing either", () => {
     const over = fill([typed("27", "66")]);
     expect(over.volume).toMatchObject({ pct: 102, state: "over", free: -1.1 });
-    expect(over.weight).toMatchObject({ pct: 104, state: "over", free: -800 });
-    expect(over.fullPct).toBe(104);
+    expect(over.weight).toMatchObject({ pct: 103, state: "over", free: -800 });
+    expect(over.fullPct).toBe(103);
     const beyond = fill([typed("14", "40"), typed("15", "40")]);
     expect(beyond.volume?.state).toBe("beyond");
     expect(beyond.weight?.state).toBe("beyond");
@@ -169,5 +171,17 @@ describe("boxUtilization", () => {
     const box = fill(Array.from({ length: 250 }, () => typed("0.1", "0.2")));
     expect(box.totals).toMatchObject({ shipments: 250, weightKg: 25000, volumeCbm: 50 });
     expect(box.rows).toHaveLength(250);
+  });
+});
+
+describe("boxFillOf", () => {
+  it("is the box in short: both percentages, how they stand, and how many shipments lack a figure", () => {
+    const fill = boxFillOf(boxUtilization("40' HC", containerCapacity("40' HC"), [typed("6.4", "11.2"), typed("17.7", "41.2"), typed("", "1"), typed("", "", { cancelled: true })]));
+    expect(fill).toEqual({ volume: { pct: 82, state: "room" }, weight: { pct: 91, state: "nearly_full" }, fullPct: 91, shipments: 3, missing: 1 });
+  });
+
+  it("has no volume for a reefer and nothing for a type without capacity", () => {
+    expect(boxFillOf(boxUtilization("40' HRF", containerCapacity("40' HRF"), [typed("10", "30")]))).toMatchObject({ volume: null, weight: { pct: 36, state: "room" }, fullPct: 36 });
+    expect(boxFillOf(boxUtilization("53' HC", containerCapacity("53' HC"), []))).toEqual({ volume: null, weight: null, fullPct: null, shipments: 0, missing: 0 });
   });
 });

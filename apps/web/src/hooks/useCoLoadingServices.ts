@@ -91,7 +91,13 @@ export function useSailingUtilization(id: string) {
 export function useSailingShipmentLinks(sailingId: string) {
   const qc = useQueryClient();
   // The shipments lists, and the fill of the box the shipment joined or left.
-  const settle = () => Promise.all([qc.invalidateQueries({ queryKey: ["shipments"] }), qc.invalidateQueries({ queryKey: [...LIST_KEY, "sailing", sailingId, "utilization"] })]);
+  const settle = () =>
+    Promise.all([
+      qc.invalidateQueries({ queryKey: ["shipments"] }),
+      qc.invalidateQueries({ queryKey: [...LIST_KEY, "sailing", sailingId, "utilization"] }),
+      // The service's list of sailings shows each box's fill too.
+      qc.invalidateQueries({ queryKey: [...LIST_KEY, "sailings"] }),
+    ]);
   const link = useMutation({
     mutationFn: (shipmentIds: string[]) => api.shipments.coLoadingSailingLinkShipments(sailingId, { shipmentIds }),
     onSuccess: settle,
