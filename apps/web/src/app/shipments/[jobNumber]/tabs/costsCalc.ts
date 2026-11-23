@@ -24,6 +24,17 @@
 import { chargeLabel } from "@/lib/chargeCodes";
 import { money, num, round2 } from "@/lib/money";
 
+/**
+ * The quantity of a cost or selling row: a blank quantity means 1 (a lump sum), but a 0 typed on
+ * purpose stays 0 - that row then adds nothing. The server holds the same rule for invoices, Job
+ * Profit and a sailing's Earnings (api invoicing lib/invoiceCalc qtyOrOne), so the Costs tab's
+ * totals agree with them (Council Review 7, K19).
+ */
+export function qtyOrOne(v: string | number | null | undefined): number {
+  if (v === null || v === undefined || (typeof v === "string" && v.trim() === "")) return 1;
+  return num(v);
+}
+
 // num() and money() live in the shared @/lib/money; re-exported so existing imports keep working.
 export { num, money } from "@/lib/money";
 
@@ -170,9 +181,9 @@ export function computeCosts(
   let hasRxe = false;
 
   for (const r of buying) {
-    // a row = quantity × unit price, an empty quantity = 1
-    const est = num(r.estAmount) * (num(r.estQty) || 1);
-    const real = num(r.realAmount) * (num(r.realQty) || 1);
+    // a row = quantity × unit price, an empty quantity = 1, a typed 0 = 0
+    const est = num(r.estAmount) * qtyOrOne(r.estQty);
+    const real = num(r.realAmount) * qtyOrOne(r.realQty);
     const estRaw = conv(est, r.estCurrency);
     const realRaw = real ? conv(real, r.realCurrency) : 0;
     const estC = estRaw === null ? null : round2(estRaw);
@@ -219,7 +230,7 @@ export function computeCosts(
   let sellNotInvoicedCount = 0;
 
   for (const r of selling) {
-    const raw = num(r.amount) * (num(r.qty) || 1);
+    const raw = num(r.amount) * qtyOrOne(r.qty);
     const converted = conv(raw, r.currency);
     const inBilling = converted === null ? null : round2(converted);
 

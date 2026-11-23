@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { computeCosts, type BuyingRow, type SellingRow } from "./costsCalc";
+import { computeCosts, qtyOrOne, type BuyingRow, type SellingRow } from "./costsCalc";
 
 const buy = (over: Partial<BuyingRow>): BuyingRow => ({
   id: "b1",
@@ -163,5 +163,31 @@ describe("the CZK figures, as the server's job profit has them (mock council S7-
     expect(t.sellCZK).toBe(Math.round(revenue * 100) / 100);
     expect(t.sellTotalCZK).toBe(t.sellCZK);
     expect(t.profitCZK).toBe(Math.round((revenue - cost) * 100) / 100);
+  });
+});
+
+describe("a quantity of 0 (Council Review 7, K19)", () => {
+  it("is 0, as on invoices and in Job Profit; only a blank quantity is 1", () => {
+    expect(qtyOrOne("")).toBe(1);
+    expect(qtyOrOne("  ")).toBe(1);
+    expect(qtyOrOne(null)).toBe(1);
+    expect(qtyOrOne(undefined)).toBe(1);
+    expect(qtyOrOne("0")).toBe(0);
+    expect(qtyOrOne("0,00")).toBe(0);
+    expect(qtyOrOne(0)).toBe(0);
+    expect(qtyOrOne("2,5")).toBe(2.5);
+  });
+
+  it("adds nothing to the selling total, where it used to add one unit", () => {
+    const t = computeCosts([], [sell({ id: "a", qty: "0", amount: "500" }), sell({ id: "b", qty: "", amount: "300" }), sell({ id: "c", qty: "2", amount: "100" })], "CZK", rates);
+    expect(t.sellTotal).toBe(500);
+    expect(t.sellRowTotals).toMatchObject({ a: 0, b: 300, c: 200 });
+  });
+
+  it("adds nothing to the buying total: an estimate with quantity 0, and a real cost with quantity 0 falls back to the estimate", () => {
+    const none = computeCosts([buy({ id: "a", estQty: "0", estAmount: "400" })], [], "CZK", rates);
+    expect(none.buyTotal).toBe(0);
+    const back = computeCosts([buy({ id: "a", estQty: "1", estAmount: "400", realQty: "0", realAmount: "999" })], [], "CZK", rates);
+    expect(back.buyTotal).toBe(400);
   });
 });
