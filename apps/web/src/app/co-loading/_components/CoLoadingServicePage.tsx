@@ -12,11 +12,12 @@ import { formatDate } from "@/lib/date";
 import { useMessages } from "@/lib/toast";
 import { BTN, HINT, LINK, PAGE_SUBTITLE, PAGE_TITLE } from "@/styles/ui";
 import { canManageServices, closedLine, tileLine } from "../_lib/services";
+import { CoLoadingServiceShipments } from "./CoLoadingServiceShipments";
 
-// A Co-Loading Concept service's own page, opened from its tile. The work on its shipments, which come
-// from the Shipments module, is not built yet. Managers and higher close the service here (its tile is
-// hidden from users and nothing new is put in it) and reopen it. A closed one still opens from a link,
-// saying it is closed: it stays in the app.
+// A Co-Loading Concept service's own page, opened from its tile: its heading, then the Shipments grid
+// with the jobs of its Service Name (CoLoadingServiceShipments). Managers and higher close the service
+// here (its tile is hidden from users and nothing new is put in it: the grid is read-only) and reopen
+// it. A closed one still opens from a link, saying it is closed: it stays in the app.
 export function CoLoadingServicePage() {
   const { serviceId } = useParams<{ serviceId: string }>();
   const { service, isLoading, notFound } = useCoLoadingService(serviceId);
@@ -94,7 +95,13 @@ export function CoLoadingServicePage() {
                 in it until {isManager ? "you reopen it" : "a manager reopens it"}.
               </div>
             )}
-            <p className={`${PAGE_SUBTITLE} m-0 mt-3`}>Coming soon.</p>
+            <div className="mt-4">
+              {service.serviceName ? (
+                <CoLoadingServiceShipments serviceName={service.serviceName} closed={!!service.closedAt} />
+              ) : (
+                <p className={`${HINT} m-0`}>This service has no Service Name, so it has no shipments to show.</p>
+              )}
+            </div>
           </>
         )}
       </div>

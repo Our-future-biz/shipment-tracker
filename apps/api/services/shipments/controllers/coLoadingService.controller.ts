@@ -29,6 +29,8 @@ interface CoLoadingServiceCreateRequest {
   name: string & MaxLen<200>;
   /** A shipment's Service Name: ISHA | Domestic */
   serviceName: string & MaxLen<50>;
+  /** weekly | bi_weekly | ad_hoc */
+  frequency: string & MaxLen<20>;
   /** import | export */
   direction: string & MaxLen<20>;
   /** sea_lcl | sea_fcl | air | rail | road */

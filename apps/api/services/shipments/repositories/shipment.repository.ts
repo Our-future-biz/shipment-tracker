@@ -376,6 +376,17 @@ export function directionMatch(direction: string | undefined): SQL | undefined {
 }
 
 /**
+ * The list's Service Name filter: the jobs whose Service Name is this one, trimmed and in any case
+ * (a Service Name typed before it was a list may differ in either). A Co-Loading Concept service shows
+ * the shipments of its own Service Name this way. Undefined when none is asked for.
+ */
+export function serviceNameMatch(serviceName: string | undefined): SQL | undefined {
+  const asked = (serviceName ?? "").trim().toLowerCase();
+  if (!asked) return undefined;
+  return sql`lower(btrim(${shipmentTable.serviceName}, ${TRIMMED_WHITESPACE})) = ${asked}`;
+}
+
+/**
  * The shipments list's warehouse filter, by the two dates a shipment carries (written back
  * by the warehouse Gate Log): in → (received) → stock → (released) → out. "in" holds the
  * ones not yet received whose ETA Warehouse/HUB is less than 7 days away (or passed).
@@ -420,6 +431,8 @@ export interface ShipmentListFilters {
   mode?: string;
   /** Trade Direction: import | export | domestic, in any case (lib/managersCockpit inDirection). */
   direction?: string;
+  /** Service Name, trimmed and in any case (serviceNameMatch): a Co-Loading Concept service's shipments. */
+  serviceName?: string;
   customerId?: string;
   /** The houses of the master job with this MCZ number. */
   masterJobMcz?: string;
@@ -1053,6 +1066,8 @@ class ShipmentRepository extends TenantRepository<typeof shipmentTable> {
     if (mode) clauses.push(mode);
     const tradeDirection = directionMatch(f.direction);
     if (tradeDirection) clauses.push(tradeDirection);
+    const serviceName = serviceNameMatch(f.serviceName);
+    if (serviceName) clauses.push(serviceName);
     if (f.warehouse) {
       const predicate = WAREHOUSE_PREDICATES[f.warehouse as WarehouseSectionId];
       if (predicate) clauses.push(predicate);

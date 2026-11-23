@@ -25,6 +25,8 @@ interface ShipmentListRequest {
   mode?: string & MaxLen<16>;
   /** Trade Direction: import | export | domestic, in any case */
   direction?: string & MaxLen<16>;
+  /** Service Name (ISHA, Domestic), trimmed and in any case: a Co-Loading Concept service's shipments */
+  serviceName?: string & MaxLen<50>;
   /** Warehouse page filter: in | stock | out */
   warehouse?: string;
   /** Customs page filter: urgent */
@@ -63,6 +65,7 @@ export const shipmentList = api(
       jobsOf: req.jobsOf?.trim() || undefined,
       mode: req.mode,
       direction: req.direction,
+      serviceName: req.serviceName?.trim() || undefined,
       warehouse: req.warehouse,
       customs: req.customs,
       invoicing: req.invoicing,

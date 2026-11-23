@@ -15,10 +15,15 @@ export type CoLoadingMode = (typeof CO_LOADING_MODES)[number];
  */
 export const CO_LOADING_SERVICE_NAMES = ["ISHA", "Domestic"] as const;
 
+/** How often the service runs: weekly, every two weeks, or when there is cargo for it. */
+export const CO_LOADING_FREQUENCIES = ["weekly", "bi_weekly", "ad_hoc"] as const;
+export type CoLoadingFrequency = (typeof CO_LOADING_FREQUENCIES)[number];
+
 /** What a new service is made from, as typed in the form. */
 export interface CoLoadingServiceInput {
   name: string;
   serviceName: string;
+  frequency: string;
   direction: string;
   mode: string;
   origin?: string;
@@ -30,6 +35,7 @@ export interface CoLoadingServiceInput {
 export interface CoLoadingServiceValues {
   name: string;
   serviceName: string;
+  frequency: CoLoadingFrequency;
   direction: CoLoadingDirection;
   mode: CoLoadingMode;
   origin: string;
@@ -48,12 +54,14 @@ export function checkServiceInput(input: CoLoadingServiceInput): { values: CoLoa
   if (name.length > NAME_MAX) return { error: `The name can be at most ${NAME_MAX} characters.` };
   const serviceName = input.serviceName.trim();
   if (!isOneOf(CO_LOADING_SERVICE_NAMES, serviceName)) return { error: "Pick the Service Name." };
+  if (!isOneOf(CO_LOADING_FREQUENCIES, input.frequency)) return { error: "Pick the frequency." };
   if (!isOneOf(CO_LOADING_DIRECTIONS, input.direction)) return { error: "Pick Import or Export." };
   if (!isOneOf(CO_LOADING_MODES, input.mode)) return { error: "Pick the mode of transport." };
   return {
     values: {
       name,
       serviceName,
+      frequency: input.frequency,
       direction: input.direction,
       mode: input.mode,
       origin: (input.origin ?? "").trim(),

@@ -90,6 +90,7 @@ export interface ShipmentsTableProps {
    * for the shipment's id. `readonlyColumns` (a stable array) are shown as plain text here
    * even though they can be edited in Shipments. `quickFilter` puts a filter by that
    * column's own options (kept in ?quick=) in the place of the shipment status one.
+   * An empty `title` leaves the heading out, for a page that has its own (a Co-Loading Concept service).
    */
   view?: { key: string; title: string; detailHref?: string; defaultColumns?: string[]; leadColumn?: string; readonlyColumns?: string[]; quickFilter?: { column: string; allLabel: string } };
   /**
@@ -847,13 +848,15 @@ export const ShipmentsTable = ({
 
   return (
     <div className="flex flex-col gap-5">
-      {/* Header */}
-      <div className="flex items-center justify-between gap-4 flex-wrap">
-        <div>
-          <h1 className={PAGE_TITLE}>{view?.title ?? "Shipments"}</h1>
+      {/* Header: none for a view whose page has its own (an empty title). */}
+      {(!view || view.title) && (
+        <div className="flex items-center justify-between gap-4 flex-wrap">
+          <div>
+            <h1 className={PAGE_TITLE}>{view?.title ?? "Shipments"}</h1>
+          </div>
+          {!view && <OverviewTiles active={activeTile} onSelect={setActiveTile} />}
         </div>
-        {!view && <OverviewTiles active={activeTile} onSelect={setActiveTile} />}
-      </div>
+      )}
 
       {!view && <NeedsAttentionTable />}
 

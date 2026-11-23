@@ -2273,6 +2273,8 @@ export interface CoLoadingServiceItem {
   name: string;
   /** The shipments' Service Name it stands for: ISHA | Domestic */
   serviceName: string;
+  /** weekly | bi_weekly | ad_hoc */
+  frequency: string;
   /** import | export */
   direction: string;
   /** sea_lcl | sea_fcl | air | rail | road */

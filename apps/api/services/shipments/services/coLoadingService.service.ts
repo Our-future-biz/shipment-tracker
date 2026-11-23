@@ -10,6 +10,7 @@ const toItem = (r: CoLoadingServiceRecord): CoLoadingServiceItem => ({
   id: r.id,
   name: r.name,
   serviceName: r.serviceName,
+  frequency: r.frequency,
   direction: r.direction,
   mode: r.mode,
   origin: r.origin,

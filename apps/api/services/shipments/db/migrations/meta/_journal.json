@@ -673,6 +673,13 @@
       "when": 1795408805713,
       "tag": "0095_co_loading_service_name",
       "breakpoints": true
+    },
+    {
+      "idx": 96,
+      "version": "7",
+      "when": 1795409561631,
+      "tag": "0096_co_loading_service_frequency",
+      "breakpoints": true
     }
   ]
 }

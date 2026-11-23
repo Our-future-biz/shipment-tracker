@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   canManageServices,
   checkServiceInput,
+  CO_LOADING_FREQUENCIES,
   CO_LOADING_SERVICE_NAMES,
   closedServiceError,
   CO_LOADING_MANAGER_ROLES,
@@ -11,21 +12,24 @@ import {
 
 describe("a Co-Loading Concept service", () => {
   it("is saved trimmed, the optional fields empty when left out", () => {
-    expect(checkServiceInput({ name: "  Import   from Ningbo ", serviceName: " ISHA ", direction: "import", mode: "sea_lcl", origin: " Ningbo (CNNGB) " })).toEqual({
-      values: { name: "Import from Ningbo", serviceName: "ISHA", direction: "import", mode: "sea_lcl", origin: "Ningbo (CNNGB)", destination: "", note: "" },
+    expect(checkServiceInput({ name: "  Import   from Ningbo ", serviceName: " ISHA ", frequency: "bi_weekly", direction: "import", mode: "sea_lcl", origin: " Ningbo (CNNGB) " })).toEqual({
+      values: { name: "Import from Ningbo", serviceName: "ISHA", frequency: "bi_weekly", direction: "import", mode: "sea_lcl", origin: "Ningbo (CNNGB)", destination: "", note: "" },
     });
   });
 
-  it("needs a name, a Service Name, a direction and a mode it knows", () => {
-    expect(checkServiceInput({ name: "  ", serviceName: "ISHA", direction: "import", mode: "air" })).toEqual({ error: "Give the service a name." });
-    expect(checkServiceInput({ name: "x".repeat(NAME_MAX + 1), serviceName: "ISHA", direction: "import", mode: "air" })).toHaveProperty("error");
-    expect(checkServiceInput({ name: "A", serviceName: "", direction: "import", mode: "air" })).toEqual({ error: "Pick the Service Name." });
-    expect(checkServiceInput({ name: "A", serviceName: "SHA", direction: "import", mode: "air" })).toEqual({ error: "Pick the Service Name." });
-    expect(checkServiceInput({ name: "A", serviceName: "ISHA", direction: "both", mode: "air" })).toEqual({ error: "Pick Import or Export." });
-    expect(checkServiceInput({ name: "A", serviceName: "ISHA", direction: "export", mode: "ship" })).toEqual({ error: "Pick the mode of transport." });
+  it("needs a name, a Service Name, a frequency, a direction and a mode it knows", () => {
+    expect(checkServiceInput({ name: "  ", serviceName: "ISHA", frequency: "weekly", direction: "import", mode: "air" })).toEqual({ error: "Give the service a name." });
+    expect(checkServiceInput({ name: "x".repeat(NAME_MAX + 1), serviceName: "ISHA", frequency: "weekly", direction: "import", mode: "air" })).toHaveProperty("error");
+    expect(checkServiceInput({ name: "A", serviceName: "", frequency: "weekly", direction: "import", mode: "air" })).toEqual({ error: "Pick the Service Name." });
+    expect(checkServiceInput({ name: "A", serviceName: "SHA", frequency: "weekly", direction: "import", mode: "air" })).toEqual({ error: "Pick the Service Name." });
+    expect(checkServiceInput({ name: "A", serviceName: "ISHA", frequency: "weekly", direction: "both", mode: "air" })).toEqual({ error: "Pick Import or Export." });
+    expect(checkServiceInput({ name: "A", serviceName: "ISHA", frequency: "weekly", direction: "export", mode: "ship" })).toEqual({ error: "Pick the mode of transport." });
+    expect(checkServiceInput({ name: "A", serviceName: "ISHA", frequency: "", direction: "import", mode: "air" })).toEqual({ error: "Pick the frequency." });
+    expect(checkServiceInput({ name: "A", serviceName: "ISHA", frequency: "monthly", direction: "import", mode: "air" })).toEqual({ error: "Pick the frequency." });
+    expect(CO_LOADING_FREQUENCIES).toEqual(["weekly", "bi_weekly", "ad_hoc"]);
     // The shipments' Service Name list, the same two.
     expect(CO_LOADING_SERVICE_NAMES).toEqual(["ISHA", "Domestic"]);
-    expect(checkServiceInput({ name: "Road", serviceName: "Domestic", direction: "import", mode: "road" })).toHaveProperty("values");
+    expect(checkServiceInput({ name: "Road", serviceName: "Domestic", frequency: "ad_hoc", direction: "import", mode: "road" })).toHaveProperty("values");
   });
 
 });

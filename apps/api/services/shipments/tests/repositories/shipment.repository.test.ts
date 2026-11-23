@@ -123,6 +123,7 @@ import {
   jobsOfMatch,
   modeMatch,
   personNameMatch,
+  serviceNameMatch,
   searchMatch,
   searchedColumns,
   shipmentRepository,
@@ -604,6 +605,21 @@ describe("the list's Trade Direction filter", () => {
 
   it("asks nothing for all directions, none, or a word that is no direction", () => {
     for (const direction of [undefined, "", "  ", "all", "cross trade", "imports", "constructor", "toString"]) expect(directionMatch(direction), direction).toBeUndefined();
+  });
+});
+
+describe("the list's Service Name filter", () => {
+  // A Co-Loading Concept service's shipments: the stored Service Name trimmed as JavaScript's trim() trims it, in any case.
+  const SERVICE_NAME = `lower(btrim("shipment"."service_name", $1)) = $2`;
+  const TRIMMED = " \t\n\r ";
+
+  it("finds the jobs of that Service Name, however it is written", () => {
+    expect(sent(serviceNameMatch("ISHA"))).toEqual({ sql: SERVICE_NAME, params: [TRIMMED, "isha"] });
+    expect(sent(serviceNameMatch(" Domestic "))).toEqual({ sql: SERVICE_NAME, params: [TRIMMED, "domestic"] });
+  });
+
+  it("asks nothing when no Service Name is given", () => {
+    for (const name of [undefined, "", "   "]) expect(serviceNameMatch(name), name).toBeUndefined();
   });
 });
 

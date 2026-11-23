@@ -7,14 +7,26 @@ import { apiErrorMessage } from "@/lib/api";
 import { DROPDOWN_OPTIONS, SERVICE_NAME_HINTS } from "@/lib/columnConfig";
 import type { CoLoadingService, CoLoadingServiceNew } from "@/hooks/useCoLoadingServices";
 import { HINT, LABEL_TEXT, MODAL_TITLE } from "@/styles/ui";
-import { DIRECTION_OPTIONS, MODE_OPTIONS } from "../_lib/services";
+import { DIRECTION_OPTIONS, FREQUENCY_OPTIONS, MODE_OPTIONS } from "../_lib/services";
 
-const EMPTY: CoLoadingServiceNew = { name: "", serviceName: "", direction: "import", mode: "sea_lcl", origin: "", destination: "", note: "" };
+const EMPTY: CoLoadingServiceNew = {
+  name: "",
+  serviceName: "",
+  frequency: "",
+  direction: "import",
+  mode: "sea_lcl",
+  origin: "",
+  destination: "",
+  note: "",
+};
 
 // New Service: a lane customer service will consolidate on. Its Service Name is picked from the shipments'
 // Service Name list (ISHA, Domestic), so the shipments that are its own can come into it from the
 // Shipments module later; here the service is only made.
-const SERVICE_NAME_OPTIONS = DROPDOWN_OPTIONS["Service Name"]!.map((value) => ({ value, label: value }));
+const SERVICE_NAME_OPTIONS = DROPDOWN_OPTIONS["Service Name"]!.map((value) => ({
+  value,
+  label: value,
+}));
 export function NewServiceModal({
   open,
   onClose,
@@ -42,6 +54,7 @@ export function NewServiceModal({
   const save = async () => {
     if (!form.name.trim()) return setError("Give the service a name.");
     if (!form.serviceName) return setError("Pick the Service Name.");
+    if (!form.frequency) return setError("Pick the frequency.");
     try {
       await onCreate(form);
       close();
@@ -86,39 +99,88 @@ export function NewServiceModal({
             onPressEnter={save}
           />,
         )}
-        {field(
-          "Service Name",
-          <Select
-            value={form.serviceName || undefined}
-            placeholder="Pick from the shipments' Service Names"
-            options={SERVICE_NAME_OPTIONS}
-            // Each says what it stands for, as where a shipment's Service Name is picked.
-            optionRender={(o) => {
-              const hint = SERVICE_NAME_HINTS[String(o.value)];
-              return hint ? (
-                <span className="flex flex-col leading-tight py-0.5">
-                  <span>{o.label}</span>
-                  <span className="text-[11px] text-slate-500 whitespace-normal">{hint}</span>
-                </span>
-              ) : (
-                o.label
-              );
-            }}
-            onChange={(v) => set("serviceName", v)}
-          />,
-          SERVICE_NAME_HINTS[form.serviceName],
-        )}
-        <div className="grid grid-cols-2 gap-4">
-          {field("Direction", <Select value={form.direction} options={[...DIRECTION_OPTIONS]} onChange={(v) => set("direction", v)} />)}
-          {field("Mode", <Select value={form.mode} options={[...MODE_OPTIONS]} onChange={(v) => set("mode", v)} />)}
+        {/* Service Name and how often the service runs, side by side as Direction and Mode are. */}
+        <div className="grid grid-cols-2 gap-4 items-start">
+          {field(
+            "Service Name",
+            <Select
+              value={form.serviceName || undefined}
+              placeholder="Pick a Service Name"
+              options={SERVICE_NAME_OPTIONS}
+              // Each says what it stands for, as where a shipment's Service Name is picked.
+              optionRender={(o) => {
+                const hint = SERVICE_NAME_HINTS[String(o.value)];
+                return hint ? (
+                  <span className="flex flex-col leading-tight py-0.5">
+                    <span>{o.label}</span>
+                    <span className="text-[11px] text-slate-500 whitespace-normal">{hint}</span>
+                  </span>
+                ) : (
+                  o.label
+                );
+              }}
+              onChange={(v) => set("serviceName", v)}
+            />,
+            SERVICE_NAME_HINTS[form.serviceName],
+          )}
+          {field(
+            "Frequency",
+            <Select
+              value={form.frequency || undefined}
+              placeholder="How often it runs"
+              options={[...FREQUENCY_OPTIONS]}
+              onChange={(v) => set("frequency", v)}
+            />,
+          )}
         </div>
         <div className="grid grid-cols-2 gap-4">
-          {field("Origin", <GeoSelect kind="place" seaports allowClear value={form.origin} onChange={(v) => set("origin", v)} />)}
-          {field("Destination", <GeoSelect kind="place" seaports allowClear value={form.destination} onChange={(v) => set("destination", v)} />)}
+          {field(
+            "Direction",
+            <Select
+              value={form.direction}
+              options={[...DIRECTION_OPTIONS]}
+              onChange={(v) => set("direction", v)}
+            />,
+          )}
+          {field(
+            "Mode",
+            <Select
+              value={form.mode}
+              options={[...MODE_OPTIONS]}
+              onChange={(v) => set("mode", v)}
+            />,
+          )}
+        </div>
+        <div className="grid grid-cols-2 gap-4">
+          {field(
+            "Origin",
+            <GeoSelect
+              kind="place"
+              seaports
+              allowClear
+              value={form.origin}
+              onChange={(v) => set("origin", v)}
+            />,
+          )}
+          {field(
+            "Destination",
+            <GeoSelect
+              kind="place"
+              seaports
+              allowClear
+              value={form.destination}
+              onChange={(v) => set("destination", v)}
+            />,
+          )}
         </div>
         {field(
           "Note",
-          <Input.TextArea value={form.note} maxLength={1000} autoSize={{ minRows: 2, maxRows: 5 }} onChange={(e) => set("note", e.target.value)} />,
+          <Input.TextArea
+            value={form.note}
+            maxLength={1000}
+            autoSize={{ minRows: 2, maxRows: 5 }}
+            onChange={(e) => set("note", e.target.value)}
+          />,
           "Shown on the service's tile.",
         )}
         {error && (

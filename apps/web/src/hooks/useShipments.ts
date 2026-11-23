@@ -90,6 +90,8 @@ export interface ShipmentQueryParams {
   mode?: string;
   /** Trade Direction (import | export | domestic), matched server-side over every job. */
   direction?: string;
+  /** Service Name (ISHA, Domestic), trimmed and in any case, matched server-side: a Co-Loading Concept service's jobs. */
+  serviceName?: string;
   /** Invoicing filter (unbilled-arrivals: arrived, not released for billing), matched server-side. */
   invoicing?: string;
   /** The houses of the master job with this MCZ number, matched server-side. */
@@ -388,6 +390,7 @@ export const useShipments = (params: ShipmentQueryParams = {}) => {
   const jobsOf = params.jobsOf?.trim() || undefined;
   const mode = params.mode || undefined;
   const direction = params.direction || undefined;
+  const serviceName = params.serviceName?.trim() || undefined;
   const invoicing = params.invoicing || undefined;
   const masterJobMcz = params.masterJobMcz?.trim() || undefined;
   // The columns only matter to a search: changing them without one doesn't reload the list.
@@ -410,9 +413,10 @@ export const useShipments = (params: ShipmentQueryParams = {}) => {
       direction ?? "",
       invoicing ?? "",
       jobsOf ?? "",
+      serviceName ?? "",
     ],
     queryFn: () =>
-      api.shipments.shipmentList({ limit: SHIPMENT_LIST_LIMIT, search, searchColumns, statusBucket, tile, warehouse, customs, masterJobMcz, handledBy, jobsOf, mode, direction, invoicing }),
+      api.shipments.shipmentList({ limit: SHIPMENT_LIST_LIMIT, search, searchColumns, statusBucket, tile, warehouse, customs, masterJobMcz, handledBy, jobsOf, mode, direction, serviceName, invoicing }),
     placeholderData: (prev) => prev,
     refetchInterval: params.refetchInterval,
     enabled: params.enabled ?? true,

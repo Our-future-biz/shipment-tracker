@@ -4438,6 +4438,7 @@ export namespace shipments {
                 offset:        params.offset === undefined ? undefined : String(params.offset),
                 search:        params.search,
                 searchColumns: params.searchColumns?.map((v) => v),
+                serviceName:   params.serviceName,
                 sortDirection: params.sortDirection === undefined ? undefined : String(params.sortDirection),
                 status:        params.status,
                 statusBucket:  params.statusBucket,
@@ -8502,6 +8503,11 @@ export namespace controllers {
         serviceName: string
 
         /**
+         * weekly | bi_weekly | ad_hoc
+         */
+        frequency: string
+
+        /**
          * import | export
          */
         direction: string
@@ -12460,6 +12466,11 @@ export namespace controllers {
         direction?: string
 
         /**
+         * Service Name (ISHA, Domestic), trimmed and in any case: a Co-Loading Concept service's shipments
+         */
+        serviceName?: string
+
+        /**
          * Warehouse page filter: in | stock | out
          */
         warehouse?: string
@@ -15562,6 +15573,11 @@ export namespace interfaces {
          * The shipments' Service Name it stands for: ISHA | Domestic
          */
         serviceName: string
+
+        /**
+         * weekly | bi_weekly | ad_hoc
+         */
+        frequency: string
 
         /**
          * import | export
