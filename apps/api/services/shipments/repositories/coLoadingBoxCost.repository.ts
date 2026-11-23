@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, isNotNull, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNotNull, sql } from "drizzle-orm";
 import { db } from "../db/db";
 import { coLoadingBoxCostChangeTable as changes, coLoadingBoxCostTable as costs, type CoLoadingBoxCostChangeRecord, type CoLoadingBoxCostRecord } from "../schemas/coLoadingBoxCost.schema";
 import { coLoadingSailingTable as sailings } from "../schemas/coLoadingSailing.schema";
@@ -21,6 +21,15 @@ export const coLoadingBoxCostRepository = {
       .from(costs)
       .where(and(eq(costs.companyId, companyId), eq(costs.sailingId, sailingId)))
       .orderBy(asc(costs.containerNo), asc(costs.kind));
+  },
+
+  /** The costs of several sailings at once: one read whatever their number (the list of sailings). */
+  async listOf(sailingIds: string[], companyId: string): Promise<CoLoadingBoxCostRecord[]> {
+    if (sailingIds.length === 0) return [];
+    return db
+      .select()
+      .from(costs)
+      .where(and(eq(costs.companyId, companyId), inArray(costs.sailingId, sailingIds)));
   },
 
   /**

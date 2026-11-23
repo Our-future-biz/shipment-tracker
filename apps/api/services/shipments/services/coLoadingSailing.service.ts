@@ -3,7 +3,7 @@ import log from "encore.dev/log";
 import { fx, invoicing } from "~encore/clients";
 import { isUuid } from "../../../lib/uuid";
 import { capacityOf, containerCapacity } from "../../../lib/containerCapacity";
-import type { BoxCostChange, BoxUtilization, CoLoadingSailingItem, SailingBoxCosts, SailingEarnings, SailingProfit, SailingRemovedShipment } from "../interfaces/interfaces";
+import type { BoxCostChange, BoxUtilization, CoLoadingSailingItem, SailingEarnings, SailingProfit, SailingRemovedShipment } from "../interfaces/interfaces";
 import { boxCostsOf, checkBoxCosts, sailingDetailChanges, type BoxCostLineInput, type BoxCostStored, type BoxRates } from "../lib/coLoadingBoxCosts";
 import { canManageServices } from "../lib/coLoadingService";
 import { BoxCostsChangedMeanwhile, coLoadingBoxCostRepository as boxCostRepo } from "../repositories/coLoadingBoxCost.repository";
@@ -36,8 +36,54 @@ const toItem = (r: CoLoadingSailingRecord): CoLoadingSailingItem => ({
  * The fill of a sailing's containers together, on this service, holding these shipments, planned to the company's share of their volume. A cancelled
  * one is listed, not counted; one of another kind than the box is for is counted and remarked on.
  */
-/** How many sailings' earnings are worked out at the same time for the list of sailings. */
-const PROFITS_AT_ONCE = 6;
+/** How many shipments' money Invoicing answers in one call. */
+const MONEY_AT_ONCE = 500;
+
+/** The shipments a master job shares costs into. */
+const mastersOf = (linked: readonly LinkedCargo[]) => new Set(linked.filter((s) => s.masterJobId).map((s) => s.id));
+
+/**
+ * The money of these shipments by id, from Invoicing, 500 at a time; null when it could not be
+ * read - then nothing is known, and nothing is shown as 0.
+ */
+async function moneyOf(linked: readonly LinkedCargo[]): Promise<Map<string, ShipmentMoney> | null> {
+  const money = new Map<string, ShipmentMoney>();
+  try {
+    for (let i = 0; i < linked.length; i += MONEY_AT_ONCE) {
+      const { items } = await invoicing._internalCoLoadingMoney({
+        jobs: linked.slice(i, i + MONEY_AT_ONCE).map((s) => ({
+          shipmentId: s.id,
+          tradeDirection: s.tradeDirection,
+          estimatedArrival: s.estimatedArrival,
+          estimatedDeparture: s.estimatedDeparture,
+          actualArrival: s.actualArrival,
+          actualDeparture: s.actualDeparture,
+        })),
+      });
+      for (const m of items) money.set(m.shipmentId, m);
+    }
+    return money;
+  } catch (err) {
+    log.warn(err, "Co-Loading earnings: the shipments' money could not be read", { shipments: linked.length });
+    return null;
+  }
+}
+
+/**
+ * The ČNB rates that value box costs: those of the departure date (D10), the latest ones while the
+ * sailing has none. null when they could not be read - then only CZK amounts are valued and the
+ * other currencies are named as left out.
+ */
+async function ratesOn(departureDate: string | null): Promise<BoxRates | null> {
+  try {
+    const on = await fx.fxRatesOn(departureDate ? { date: departureDate } : {});
+    // A fixing that should be stored and is not (the import failed) is no rate to trust yet.
+    return { rates: new Map(on.rates.map((r) => [r.currency, r.rate])), fixingDate: on.fixingDate, provisional: on.provisional || on.missing };
+  } catch (err) {
+    log.warn(err, "Co-Loading earnings: the rates for the box costs could not be read", { departureDate });
+    return null;
+  }
+}
 
 /** A stored box cost as the rules read it. */
 const storedCost = (r: { containerNo: number; kind: string; amount: string | null; currency: string; note: string }): BoxCostStored => ({
@@ -89,79 +135,46 @@ class CoLoadingSailingService {
 
   /**
    * The sailing's earnings: its shipments' selling, inland delivery and other costs from their Costs
-   * Breakdown (Invoicing, one call), beside each shipment's W/M (lib/coLoadingEarnings). For managers:
-   * the controller lets only them ask. Money that cannot be read is said to be not known.
+   * Breakdown (Invoicing), beside each shipment's W/M (lib/coLoadingEarnings). For managers: the
+   * controller lets only them ask. Money that cannot be read is said to be not known.
    */
   async earnings(id: string, companyId: string): Promise<SailingEarnings> {
     const sailing = await this.get(id, companyId);
     const service = await coLoadingServiceService.get(sailing.serviceId, companyId);
     const linked = await repo.boxShipments(sailing.id, companyId);
     const box = fillOf(sailing, service, await coLoadingServiceService.planningVolumePct(companyId), linked);
-    let money: Map<string, ShipmentMoney> | null = null;
-    try {
-      const { items } = linked.length
-        ? await invoicing._internalCoLoadingMoney({
-            jobs: linked.map((s) => ({
-              shipmentId: s.id,
-              tradeDirection: s.tradeDirection,
-              estimatedArrival: s.estimatedArrival,
-              estimatedDeparture: s.estimatedDeparture,
-              actualArrival: s.actualArrival,
-              actualDeparture: s.actualDeparture,
-            })),
-          })
-        : { items: [] };
-      money = new Map(items.map((m) => [m.shipmentId, m]));
-    } catch (err) {
-      log.warn(err, "Co-Loading earnings: the shipments' money could not be read", { sailingId: sailing.id });
-    }
-    return sailingEarnings(box.rows, money, new Set(linked.filter((s) => s.masterJobId).map((s) => s.id)), await this.boxCosts(sailing, companyId), box.fullPct);
+    const stored = (await boxCostRepo.list(sailing.id, companyId)).map(storedCost);
+    // The rates are asked for only once a cost is set.
+    const day = stored.some((s) => s.amount !== null) ? await ratesOn(sailing.departureDate) : null;
+    return sailingEarnings(box.rows, await moneyOf(linked), mastersOf(linked), boxCostsOf(sailing.containerCount, stored, day, sailing.departureDate), box.fullPct);
   }
 
   /**
    * The profit of each of a service's sailings, for the list of sailings (D19). For managers: the
-   * controller lets only them ask. Each sailing is worked out as its Earnings tab does, a few at a
-   * time; one that fails is left out, not shown as 0.
+   * controller lets only them ask. Worked out as each sailing's Earnings tab does, but read
+   * together (Council Review 7, K16): the cargo and the box costs of all sailings in one read each,
+   * the shipments' money in one call (500 shipments at a time), the rates once per departure date -
+   * about a dozen reads whatever the number of sailings.
    */
   async profits(serviceId: string, companyId: string): Promise<SailingProfit[]> {
-    await coLoadingServiceService.get(serviceId, companyId);
+    const service = await coLoadingServiceService.get(serviceId, companyId);
     const rows = await repo.listByService(serviceId, companyId);
-    const out: SailingProfit[] = [];
-    for (let i = 0; i < rows.length; i += PROFITS_AT_ONCE) {
-      const batch = await Promise.all(
-        rows.slice(i, i + PROFITS_AT_ONCE).map(async (r) => {
-          try {
-            return sailingProfit(r.id, await this.earnings(r.id, companyId));
-          } catch (err) {
-            log.warn(err, "Co-Loading: a sailing's profit could not be worked out", { sailingId: r.id });
-            return null;
-          }
-        }),
-      );
-      out.push(...batch.filter((p): p is SailingProfit => p !== null));
-    }
-    return out;
-  }
-
-  /**
-   * The costs of the sailing's boxes, valued at the ČNB rates of its departure date (D10); the
-   * latest rates while it has none or that day is still ahead - marked provisional. When the rates
-   * cannot be read, only CZK amounts are valued and the other currencies are named as left out.
-   */
-  async boxCosts(sailing: { id: string; containerCount: number; departureDate: string | null }, companyId: string): Promise<SailingBoxCosts> {
-    const stored = (await boxCostRepo.list(sailing.id, companyId)).map(storedCost);
-    let day: BoxRates | null = null;
-    // The rates are asked for only once a cost is set.
-    if (stored.some((s) => s.amount !== null)) {
-      try {
-        const on = await fx.fxRatesOn(sailing.departureDate ? { date: sailing.departureDate } : {});
-        // A fixing that should be stored and is not (the import failed) is no rate to trust yet.
-        day = { rates: new Map(on.rates.map((r) => [r.currency, r.rate])), fixingDate: on.fixingDate, provisional: on.provisional || on.missing };
-      } catch (err) {
-        log.warn(err, "Co-Loading earnings: the rates for the box costs could not be read", { sailingId: sailing.id });
-      }
-    }
-    return boxCostsOf(sailing.containerCount, stored, day, sailing.departureDate);
+    if (rows.length === 0) return [];
+    const ids = rows.map((r) => r.id);
+    const [cargo, planningPct, costs] = await Promise.all([repo.boxShipmentsOf(ids, companyId), coLoadingServiceService.planningVolumePct(companyId), boxCostRepo.listOf(ids, companyId)]);
+    const costsOf = new Map<string, BoxCostStored[]>();
+    for (const c of costs) costsOf.set(c.sailingId, [...(costsOf.get(c.sailingId) ?? []), storedCost(c)]);
+    const money = await moneyOf([...cargo.values()].flat());
+    // One read of the rates per departure date among the sailings that have a cost set ("" = no date: the latest rates).
+    const days = new Map<string, BoxRates | null>();
+    for (const r of rows) if (costsOf.get(r.id)?.some((c) => c.amount !== null)) days.set(r.departureDate ?? "", null);
+    await Promise.all([...days.keys()].map(async (date) => days.set(date, await ratesOn(date || null))));
+    return rows.map((r) => {
+      const linked = cargo.get(r.id) ?? [];
+      const box = fillOf(r, service, planningPct, linked);
+      const boxCosts = boxCostsOf(r.containerCount, costsOf.get(r.id) ?? [], days.get(r.departureDate ?? "") ?? null, r.departureDate);
+      return sailingProfit(r.id, sailingEarnings(box.rows, money, mastersOf(linked), boxCosts, box.fullPct));
+    });
   }
 
   /**

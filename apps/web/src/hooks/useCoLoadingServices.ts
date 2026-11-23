@@ -102,6 +102,8 @@ export function useSailingUtilization(id: string) {
     enabled: isUuid(id),
     staleTime: 0,
     refetchOnMount: "always",
+    // The app does not read again on coming back to the window; a box's fill must (Council Review 7, K15).
+    refetchOnWindowFocus: true,
   });
   return { box: query.data ?? null, isLoading: query.isLoading, isError: query.isError, refetch: query.refetch };
 }
@@ -114,6 +116,8 @@ export function useSailingEarnings(id: string, enabled = true) {
     enabled: enabled && isUuid(id),
     staleTime: 0,
     refetchOnMount: "always",
+    // A selling line fixed in another tab shows as soon as the manager is back here (K15).
+    refetchOnWindowFocus: true,
   });
   return { earnings: query.data ?? null, isLoading: query.isLoading, isError: query.isError, isFetching: query.isFetching, refetch: query.refetch };
 }
@@ -125,6 +129,7 @@ export function useSailingProfits(serviceId: string, enabled: boolean) {
     queryFn: () => api.shipments.coLoadingSailingProfits(serviceId),
     enabled: enabled && isUuid(serviceId),
     staleTime: 0,
+    refetchOnWindowFocus: true,
   });
   return { profits: new Map((query.data?.data ?? []).map((p) => [p.sailingId, p])), isLoading: query.isLoading, isError: query.isError };
 }
@@ -175,8 +180,8 @@ export function useSailingShipmentLinks(sailingId: string) {
   const settle = () =>
     Promise.all([
       qc.invalidateQueries({ queryKey: ["shipments"] }),
-      qc.invalidateQueries({ queryKey: [...LIST_KEY, "sailing", sailingId, "utilization"] }),
-      qc.invalidateQueries({ queryKey: [...LIST_KEY, "sailing", sailingId, "removed"] }),
+      // Everything read of this sailing: its fill, its removed list, and its earnings - the profit in its header moves too.
+      qc.invalidateQueries({ queryKey: [...LIST_KEY, "sailing", sailingId] }),
       // The service's list of sailings shows each box's fill too.
       qc.invalidateQueries({ queryKey: [...LIST_KEY, "sailings"] }),
     ]);
