@@ -5,6 +5,7 @@ import {
   sailingFormError,
   sailingHref,
   sailingTabOf,
+  sailingTabsFor,
   sailingTitle,
   sailingWeek,
   voyageNeeded,
@@ -82,5 +83,9 @@ describe("a sailing's page", () => {
     expect(sailingTabOf(null)).toBe("box");
     expect(sailingTabOf("earnings")).toBe("earnings");
     expect(sailingTabOf("nonsense")).toBe("box");
+    // Earnings is the managers' tab: nobody else sees it or opens it by its address.
+    expect(sailingTabsFor(true).map((t) => t.key)).toEqual(["box", "shipments", "earnings"]);
+    expect(sailingTabsFor(false).map((t) => t.key)).toEqual(["box", "shipments"]);
+    expect(sailingTabOf("earnings", false)).toBe("box");
   });
 });

@@ -106,6 +106,18 @@ export function useSailingUtilization(id: string) {
   return { box: query.data ?? null, isLoading: query.isLoading, isError: query.isError, refetch: query.refetch };
 }
 
+/** A sailing's earnings, read fresh each time the tab opens. Managers only: `enabled` keeps others from asking. */
+export function useSailingEarnings(id: string, enabled = true) {
+  const query = useQuery({
+    queryKey: [...LIST_KEY, "sailing", id, "earnings"],
+    queryFn: () => api.shipments.coLoadingSailingEarnings(id),
+    enabled: enabled && isUuid(id),
+    staleTime: 0,
+    refetchOnMount: "always",
+  });
+  return { earnings: query.data ?? null, isLoading: query.isLoading, isError: query.isError, refetch: query.refetch };
+}
+
 /** "Edit sailing": its number of containers and its cut-off. Every view of the sailing is read again. */
 export function useSailingDetails(id: string) {
   const qc = useQueryClient();

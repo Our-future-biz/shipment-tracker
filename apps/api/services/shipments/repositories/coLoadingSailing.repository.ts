@@ -12,7 +12,16 @@ import { shipmentTable } from "../schemas/shipment.schema";
 import type { BoxShipment } from "../lib/boxUtilization";
 
 /** A linked shipment as stored: what the box's fill reads, and what kind of shipment it is. */
-export type LinkedCargo = Omit<BoxShipment, "cancelled" | "odd"> & { freightMode: string; loadType: string };
+export type LinkedCargo = Omit<BoxShipment, "cancelled" | "odd"> & {
+  freightMode: string;
+  loadType: string;
+  tradeDirection: string;
+  estimatedArrival: string | null;
+  estimatedDeparture: string | null;
+  actualArrival: string | null;
+  actualDeparture: string | null;
+  masterJobId: string | null;
+};
 
 // One of the shipments to link got a live link meanwhile: the links of this call are undone.
 class LinkedMeanwhile extends Error {}
@@ -175,6 +184,13 @@ class CoLoadingSailingRepository {
         status: shipmentTable.status,
         freightMode: shipmentTable.freightMode,
         loadType: shipmentTable.loadType,
+        // What chooses the ČNB rates its money is valued at, and whether a master job shares costs into it (Earnings).
+        tradeDirection: shipmentTable.tradeDirection,
+        estimatedArrival: shipmentTable.estimatedArrival,
+        estimatedDeparture: shipmentTable.estimatedDeparture,
+        actualArrival: shipmentTable.actualArrival,
+        actualDeparture: shipmentTable.actualDeparture,
+        masterJobId: shipmentTable.masterJobId,
         dangerous: shipmentTable.dangerous,
         outOfGauge: shipmentTable.outOfGauge,
         temperatureControlled: shipmentTable.temperatureControlled,

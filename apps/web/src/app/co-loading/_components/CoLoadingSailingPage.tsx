@@ -5,13 +5,16 @@ import { useParams, usePathname, useRouter, useSearchParams } from "next/navigat
 import { Spin } from "antd";
 import { BackLink } from "@/components/BackLink";
 import { useCoLoadingSailing, useCoLoadingService, useSailingUtilization } from "@/hooks/useCoLoadingServices";
+import { useAuth } from "@/lib/auth/AuthContext";
 import { formatDate } from "@/lib/date";
-import { BTN, CARD, EMPTY, HINT, LABEL_TEXT, PAGE_TITLE, REF } from "@/styles/ui";
+import { BTN, CARD, EMPTY, LABEL_TEXT, PAGE_TITLE, REF } from "@/styles/ui";
 import { containersWords, fillOfBox } from "../_lib/boxUtilization";
-import { SAILING_TABS, sailingTabOf, sailingTitle } from "../_lib/sailings";
+import { SAILING_TABS, sailingTabOf, sailingTabsFor, sailingTitle } from "../_lib/sailings";
+import { canManageServices } from "../_lib/services";
 import { BoxFillChip } from "./BoxFillChip";
 import { EditSailingModal } from "./EditSailingModal";
 import { BoxUtilizationTab } from "./BoxUtilizationTab";
+import { EarningsTab } from "./EarningsTab";
 import { SailingShipmentsTab } from "./SailingShipmentsTab";
 
 // One fact of the sailing, as the master job's summary card shows its own: the label over the value.
@@ -47,7 +50,7 @@ const text = (v: string | null | undefined) =>
  * A Co-Loading Concept sailing's own page, opened from its service's Sailings list, in the master
  * job page's shape: a white header band with the way back, the sailing at a glance and the tab strip,
  * then the tab. Its tabs are Box utilization (how full its box is: BoxUtilizationTab), Linked shipments (the shipments in its box:
- * SailingShipmentsTab) and Earnings; Earnings is not built yet. The tab is kept in the address (?tab=), so a reload or a link keeps it.
+ * SailingShipmentsTab) and Earnings (what its shipments earn: EarningsTab, for managers and admins only). The tab is kept in the address (?tab=), so a reload or a link keeps it.
  */
 export function CoLoadingSailingPage() {
   const { sailingId } = useParams<{ serviceId: string; sailingId: string }>();
@@ -58,7 +61,9 @@ export function CoLoadingSailingPage() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const tab = sailingTabOf(searchParams.get("tab"));
+  const { user } = useAuth();
+  const isManager = canManageServices(user?.role);
+  const tab = sailingTabOf(searchParams.get("tab"), isManager);
   const [editing, setEditing] = useState(false);
   const openTab = (key: string) => {
     const params = new URLSearchParams(searchParams.toString());
@@ -117,7 +122,7 @@ export function CoLoadingSailingPage() {
 
             {/* Tabs, in the master job header's look */}
             <nav aria-label="Sailing sections" className="flex gap-0 mt-3.5 -mb-px overflow-x-auto">
-              {SAILING_TABS.map((t) => {
+              {sailingTabsFor(isManager).map((t) => {
                 const selected = tab === t.key;
                 return (
                   <button
@@ -161,15 +166,7 @@ export function CoLoadingSailingPage() {
         ) : sailing && tab === "box" ? (
           <BoxUtilizationTab sailingId={sailing.id} onOpenShipments={() => openTab("shipments")} />
         ) : sailing ? (
-          <section
-            className={`${CARD} px-5 py-4`}
-            aria-label={SAILING_TABS.find((t) => t.key === tab)!.label}
-          >
-            <h2 className="m-0 text-[13px] font-semibold text-slate-900">
-              {SAILING_TABS.find((t) => t.key === tab)!.label}
-            </h2>
-            <p className={`${HINT} m-0 mt-1`}>Coming soon.</p>
-          </section>
+          <EarningsTab sailingId={sailing.id} onOpenShipments={() => openTab("shipments")} />
         ) : isLoading ? (
           <div className="flex justify-center p-20">
             <Spin size="large" />

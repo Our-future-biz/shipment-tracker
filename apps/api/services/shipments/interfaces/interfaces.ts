@@ -2433,3 +2433,64 @@ export interface BoxUtilization {
   notCounted: number;
   rows: BoxUtilizationRow[];
 }
+
+/** An amount of a sailing's earnings: in CZK, and in EUR at the shipment's own rate (null when that is not known). */
+export interface EarningsAmount {
+  czk: number;
+  eur: number | null;
+}
+
+/** A linked shipment's part in its sailing's earnings, from its own Costs Breakdown. */
+export interface EarningsRow {
+  shipmentId: string;
+  jobNumber: string;
+  customer: string;
+  status: string;
+  /** False for a cancelled shipment: listed, not in the totals. */
+  counted: boolean;
+  /** W/M: the greater of its tonnes and its cbm. */
+  freightTons: number;
+  /** False when its money could not be read: the amounts below are then not known, not 0. */
+  moneyKnown: boolean;
+  /** Its selling lines ticked "Invoice", and what of them is invoiced. */
+  selling: EarningsAmount;
+  invoiced: EarningsAmount;
+  /** Its inland delivery buying lines, and its other buying lines of its own. */
+  inland: EarningsAmount;
+  other: EarningsAmount;
+  /** Selling less inland delivery and other costs: what it earns before the box is paid for. */
+  beforeBox: EarningsAmount;
+  /** Its own freight and local-charge buying lines, and a master job's shares: NOT counted, the box covers them. */
+  ownBox: EarningsAmount;
+  masterJob: EarningsAmount;
+  noSelling: boolean;
+  untickedLines: number;
+  unrecognisedLines: number;
+  missingCurrencies: string[];
+  inMasterJob: boolean;
+}
+
+/** A Co-Loading Concept sailing's earnings (lib/coLoadingEarnings). Managers only. */
+export interface SailingEarnings {
+  /** False when the shipments' money could not be read at all. */
+  moneyKnown: boolean;
+  /** False when an amount is left out (a currency with no rate) or a shipment's money is not known. */
+  complete: boolean;
+  totals: {
+    shipments: number;
+    freightTons: number;
+    selling: EarningsAmount;
+    invoiced: EarningsAmount;
+    inland: EarningsAmount;
+    other: EarningsAmount;
+    beforeBox: EarningsAmount;
+    ownBox: EarningsAmount;
+    masterJob: EarningsAmount;
+  };
+  /** How many counted shipments each remark is about. */
+  notes: { noSelling: number; unticked: number; ownBox: number; inMasterJob: number; unrecognised: number; missingCurrencies: string[] };
+  /** Linked shipments not in the totals (cancelled), and what they sell for. */
+  notCounted: number;
+  notCountedSelling: EarningsAmount;
+  rows: EarningsRow[];
+}

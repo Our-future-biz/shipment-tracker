@@ -2025,3 +2025,39 @@ export interface OperationsMoney {
   /** The parts that could not be read: their figures are null or empty for every job, never 0 */
   notKnown: string[];
 }
+
+/** A job with its dates as Shipments holds them: what its ČNB rates are chosen by (Co-Loading Earnings). */
+export interface CoLoadingMoneyJob {
+  shipmentId: string;
+  tradeDirection: string;
+  estimatedArrival: string | null;
+  estimatedDeparture: string | null;
+  actualArrival: string | null;
+  actualDeparture: string | null;
+}
+
+/** One shipment's money as a Co-Loading sailing's Earnings tab reads it (lib/coLoadingMoney), in CZK at its own rates. */
+export interface CoLoadingMoneyItem {
+  shipmentId: string;
+  /** Its selling rows ticked "Invoice". */
+  sellingCzk: number;
+  /** Of that, the rows an open invoice was made from. */
+  invoicedCzk: number;
+  /** Its buying lines that are inland delivery. */
+  inlandCzk: number;
+  /** Its other buying lines of its own: customs, insurance, storage and the like. */
+  otherCzk: number;
+  /** Its own freight and local-charge buying lines: NOT counted in Earnings, the sailing's box costs cover them. */
+  ownBoxCzk: number;
+  /** Its shares of a master job's costs: NOT counted in Earnings either. */
+  masterJobCzk: number;
+  /** How many selling rows with a value are ticked "Invoice", and how many are not ticked. */
+  sellingLines: number;
+  untickedLines: number;
+  /** Buying lines with a value whose category the catalogue does not know (counted as other costs). */
+  unrecognisedLines: number;
+  /** Currencies with no rate: the amounts in them are left out of the figures above. */
+  missingCurrencies: string[];
+  /** CZK per 1 EUR at the job's own rate; null when it is not known. */
+  eurRate: number | null;
+}

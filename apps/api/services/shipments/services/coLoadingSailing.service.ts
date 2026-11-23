@@ -1,7 +1,10 @@
 import { APIError } from "encore.dev/api";
+import log from "encore.dev/log";
+import { invoicing } from "~encore/clients";
 import { isUuid } from "../../../lib/uuid";
 import { capacityOf, containerCapacity } from "../../../lib/containerCapacity";
-import type { BoxUtilization, CoLoadingSailingItem, SailingRemovedShipment } from "../interfaces/interfaces";
+import type { BoxUtilization, CoLoadingSailingItem, SailingEarnings, SailingRemovedShipment } from "../interfaces/interfaces";
+import { sailingEarnings, type ShipmentMoney } from "../lib/coLoadingEarnings";
 import { boxFillOf, boxUtilization } from "../lib/boxUtilization";
 import { CANCELLED_STATUS } from "../lib/fieldDefaults";
 import { checkSailingInput, linkRefusal, moveRefusal, oddInBox, sailingDetailsProblem, type SailingDetails, type SailingInput } from "../lib/coLoadingSailing";
@@ -34,7 +37,7 @@ const fillOf = (sailing: { containerType: string; containerCount: number }, serv
   return boxUtilization(
     sailing.containerType,
     one && capacityOf(sailing.containerCount, one),
-    shipments.map(({ freightMode, loadType, ...s }) => ({ ...s, cancelled: s.status === CANCELLED_STATUS, odd: oddInBox(service.mode, { freightMode, loadType }) })),
+    shipments.map((s) => ({ ...s, cancelled: s.status === CANCELLED_STATUS, odd: oddInBox(service.mode, s) })),
     { planningPct, inlandWeightKg: service.inlandWeightKg, containers: sailing.containerCount },
   );
 };
@@ -66,6 +69,37 @@ class CoLoadingSailingService {
     const sailing = await this.get(id, companyId);
     const service = await coLoadingServiceService.get(sailing.serviceId, companyId);
     return fillOf(sailing, service, await coLoadingServiceService.planningVolumePct(companyId), await repo.boxShipments(sailing.id, companyId));
+  }
+
+  /**
+   * The sailing's earnings: its shipments' selling, inland delivery and other costs from their Costs
+   * Breakdown (Invoicing, one call), beside each shipment's W/M (lib/coLoadingEarnings). For managers:
+   * the controller lets only them ask. Money that cannot be read is said to be not known.
+   */
+  async earnings(id: string, companyId: string): Promise<SailingEarnings> {
+    const sailing = await this.get(id, companyId);
+    const service = await coLoadingServiceService.get(sailing.serviceId, companyId);
+    const linked = await repo.boxShipments(sailing.id, companyId);
+    const box = fillOf(sailing, service, await coLoadingServiceService.planningVolumePct(companyId), linked);
+    let money: Map<string, ShipmentMoney> | null = null;
+    try {
+      const { items } = linked.length
+        ? await invoicing._internalCoLoadingMoney({
+            jobs: linked.map((s) => ({
+              shipmentId: s.id,
+              tradeDirection: s.tradeDirection,
+              estimatedArrival: s.estimatedArrival,
+              estimatedDeparture: s.estimatedDeparture,
+              actualArrival: s.actualArrival,
+              actualDeparture: s.actualDeparture,
+            })),
+          })
+        : { items: [] };
+      money = new Map(items.map((m) => [m.shipmentId, m]));
+    } catch (err) {
+      log.warn(err, "Co-Loading earnings: the shipments' money could not be read", { sailingId: sailing.id });
+    }
+    return sailingEarnings(box.rows, money, new Set(linked.filter((s) => s.masterJobId).map((s) => s.id)));
   }
 
   /** The shipments taken off the sailing, the last one first, with who took each off and why. */

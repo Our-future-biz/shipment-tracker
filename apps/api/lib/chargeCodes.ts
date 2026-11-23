@@ -159,3 +159,8 @@ export function chargeLabel(value: string): string {
 
 /** The codes offered for new lines (the older ones are not). */
 export const OFFERED_CHARGE_CODES = CHARGE_CODES.filter((c) => !c.legacy).map((c) => c.code);
+
+/** The group a category belongs to; null for text typed before the catalogue, which belongs to none. */
+export function chargeGroup(value: string): ChargeGroup | null {
+  return byCode.get(toChargeCode(value))?.group ?? null;
+}

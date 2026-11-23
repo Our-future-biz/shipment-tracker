@@ -1,7 +1,8 @@
 import { api } from "encore.dev/api";
 import type { MaxLen } from "encore.dev/validate";
 import { getAuthData } from "~encore/auth";
-import type { BoxUtilization, CoLoadingSailingItem, SailingRemovedShipment } from "../interfaces/interfaces";
+import { requireRole } from "../../../lib/rbac";
+import type { BoxUtilization, CoLoadingSailingItem, SailingEarnings, SailingRemovedShipment } from "../interfaces/interfaces";
 import { coLoadingSailingService as service } from "../services/coLoadingSailing.service";
 
 // A Co-Loading Concept service's sailings (lib/coLoadingSailing), for everyone in the company.
@@ -27,6 +28,15 @@ export const coLoadingSailingUtilization = api(
   { expose: true, auth: true, method: "GET", path: "/co-loading/sailings/:id/utilization" },
   async ({ id }: { id: string }): Promise<BoxUtilization> => {
     return service.utilization(id, getAuthData()!.companyID);
+  },
+);
+
+// Earnings: what the sailing's shipments sell for and cost of their own, from their Costs Breakdown.
+// For managers and admins only (Council Outlay 13, decision D14).
+export const coLoadingSailingEarnings = api(
+  { expose: true, auth: true, method: "GET", path: "/co-loading/sailings/:id/earnings" },
+  async ({ id }: { id: string }): Promise<SailingEarnings> => {
+    return service.earnings(id, requireRole("superadmin", "admin", "manager").companyID);
   },
 );
 

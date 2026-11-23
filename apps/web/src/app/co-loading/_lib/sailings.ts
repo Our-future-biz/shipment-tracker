@@ -50,6 +50,9 @@ export const SAILING_TABS = [
 ] as const;
 export type SailingTab = (typeof SAILING_TABS)[number]["key"];
 
-/** The tab an address asks for (?tab=), the first one for anything else. */
-export const sailingTabOf = (asked: string | null): SailingTab =>
-  SAILING_TABS.find((t) => t.key === asked)?.key ?? "box";
+/** The tabs a person sees: Earnings is for managers and admins only (Council Outlay 13, D14). */
+export const sailingTabsFor = (manager: boolean) => SAILING_TABS.filter((t) => manager || t.key !== "earnings");
+
+/** The tab an address asks for (?tab=), the first one for anything else - or for a tab the person may not see. */
+export const sailingTabOf = (asked: string | null, manager = true): SailingTab =>
+  sailingTabsFor(manager).find((t) => t.key === asked)?.key ?? "box";
