@@ -652,6 +652,20 @@
       "when": 1795360581006,
       "tag": "0092_booked_dimensions",
       "breakpoints": true
+    },
+    {
+      "idx": 93,
+      "version": "7",
+      "when": 1795407751323,
+      "tag": "0093_co_loading_service",
+      "breakpoints": true
+    },
+    {
+      "idx": 94,
+      "version": "7",
+      "when": 1795408287904,
+      "tag": "0094_co_loading_service_closed",
+      "breakpoints": true
     }
   ]
 }

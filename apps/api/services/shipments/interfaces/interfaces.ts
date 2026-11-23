@@ -2266,3 +2266,22 @@ export interface AbsenceCoverResult {
 }
 
 // ─── end of builder A's block ───
+
+/** A Co-Loading Concept service, as its tile and its page show it (lib/coLoadingService). */
+export interface CoLoadingServiceItem {
+  id: string;
+  name: string;
+  /** import | export */
+  direction: string;
+  /** sea_lcl | sea_fcl | air | rail | road */
+  mode: string;
+  origin: string;
+  destination: string;
+  note: string;
+  createdByName: string;
+  createdAt: string;
+  /** When a manager closed it: its tile is hidden from users, nothing new goes in. Null while open. */
+  closedAt: string | null;
+  /** Who closed it, as named then; "" while open. */
+  closedByName: string;
+}

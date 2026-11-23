@@ -18,9 +18,24 @@ import {
 const labels = (role: string) => visibleNavItems({ role }).map((i) => i.label);
 
 describe("the menu", () => {
-  it("lists Master Jobs right under Shipments", () => {
+  it("lists Co-Loading Concept right under Shipments for everyone, then Master Jobs", () => {
     for (const role of ["user", "manager", "admin", "superadmin"]) {
-      expect(labels(role).slice(0, 3)).toEqual(["Dashboard", "Shipments", "Master Jobs"]);
+      expect(labels(role).slice(0, 4)).toEqual(["Dashboard", "Shipments", "Co-Loading Concept", "Master Jobs"]);
+    }
+  });
+
+  it("keeps Co-Loading Concept a plain item for everyone, lit on its page and on a service's page", () => {
+    const id = "0b7c2e1a-1111-4111-8111-111111111111";
+    for (const role of ["user", "manager", "admin", "superadmin"]) {
+      const items = visibleNavItems({ role });
+      const coLoading = items.find((i) => i.label === "Co-Loading Concept")!;
+      expect(coLoading.path).toBe("/co-loading");
+      // Its services are the company's own: tiles on its page, not pages in the menu.
+      expect(coLoading.children).toBeUndefined();
+      expect(navItemOwns(coLoading, `/co-loading/${id}`)).toBe(true);
+      expect(navGroupHolding(items, "/co-loading")).toBeNull();
+      expect(navLabelOf("/co-loading/", { role })).toBe("Co-Loading Concept");
+      expect(navLabelOf(`/co-loading/${id}/`, { role })).toBe("Co-Loading Concept");
     }
   });
 
@@ -258,7 +273,7 @@ describe("the menu", () => {
       }
       return solid;
     };
-    const pages = ["/dashboard", "/shipments", "/shipments/CZFCL00000025", "/shipments/managers", "/customers", "/sales", "/sales/pipeline", "/sales/managers", "/sales/quote/Q-1", "/tariffs", "/invoicing", "/calendar", "/calendar/public-holidays", "/warehouse-concept/gate-log", "/warehouse-concept/managers"];
+    const pages = ["/dashboard", "/shipments", "/co-loading", "/co-loading/import-shanghai","/shipments/CZFCL00000025", "/shipments/managers", "/customers", "/sales", "/sales/pipeline", "/sales/managers", "/sales/quote/Q-1", "/tariffs", "/invoicing", "/calendar", "/calendar/public-holidays", "/warehouse-concept/gate-log", "/warehouse-concept/managers"];
     const clicks: NavGroupEvent[] = [
       { type: "open", group: "/sales" },
       { type: "open", group: "/tariffs" },

@@ -5,6 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { Tooltip, Dropdown } from "antd";
 import {
   AddressBookIcon,
+  ArrowsMergeIcon,
   BuildingsIcon,
   CalendarDotsIcon,
   CaretDownIcon,
@@ -66,6 +67,10 @@ const NAV_ITEMS: NavItem[] = [
       { path: "/shipments/managers", label: "Managers", roles: MANAGER_ROLES, description: "What the operations team needs from a manager today." },
     ],
   },
+  // A concept for everyone, right under Shipments: the consolidation hub for customer service in
+  // operations. Its services are the company's own, made with New Service, so they are tiles on its page
+  // (CoLoadingOverview) rather than pages in the menu; it stays lit on a service's page.
+  { path: "/co-loading", label: "Co-Loading Concept", icon: ArrowsMergeIcon },
   { path: "/master-jobs", label: "Master Jobs", icon: StackIcon },
   { path: "/customers", label: "Customer Database", icon: AddressBookIcon },
   {

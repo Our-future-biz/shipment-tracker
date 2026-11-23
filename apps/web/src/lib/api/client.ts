@@ -3287,6 +3287,11 @@ export namespace shipments {
             this.claimTimeLimitsGet = this.claimTimeLimitsGet.bind(this)
             this.claimTimeLimitsSave = this.claimTimeLimitsSave.bind(this)
             this.claimUpdate = this.claimUpdate.bind(this)
+            this.coLoadingServiceClose = this.coLoadingServiceClose.bind(this)
+            this.coLoadingServiceCreate = this.coLoadingServiceCreate.bind(this)
+            this.coLoadingServiceGet = this.coLoadingServiceGet.bind(this)
+            this.coLoadingServiceList = this.coLoadingServiceList.bind(this)
+            this.coLoadingServiceReopen = this.coLoadingServiceReopen.bind(this)
             this.commentCreate = this.commentCreate.bind(this)
             this.commentDelete = this.commentDelete.bind(this)
             this.commentList = this.commentList.bind(this)
@@ -3523,6 +3528,64 @@ export namespace shipments {
             const resp = await this.baseClient.callTypedAPI("PATCH", `/shipments/${encodeURIComponent(shipmentId)}/claims/${encodeURIComponent(claimId)}`, JSON.stringify(params))
             return await resp.json() as {
     claim: interfaces.ShipmentClaimView
+}
+        }
+
+        /**
+         * A manager closes a service: its tile is hidden from users, nothing new goes in until it is reopened.
+         */
+        public async coLoadingServiceClose(id: string): Promise<{
+    service: interfaces.CoLoadingServiceItem
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/co-loading/services/${encodeURIComponent(id)}/close`)
+            return await resp.json() as {
+    service: interfaces.CoLoadingServiceItem
+}
+        }
+
+        /**
+         * A new service, with New Service, by a manager. A name the company has already is refused.
+         */
+        public async coLoadingServiceCreate(params: controllers.CoLoadingServiceCreateRequest): Promise<{
+    service: interfaces.CoLoadingServiceItem
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/co-loading/services`, JSON.stringify(params))
+            return await resp.json() as {
+    service: interfaces.CoLoadingServiceItem
+}
+        }
+
+        public async coLoadingServiceGet(id: string): Promise<interfaces.CoLoadingServiceItem> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/co-loading/services/${encodeURIComponent(id)}`)
+            return await resp.json() as interfaces.CoLoadingServiceItem
+        }
+
+        /**
+         * The company's services, the oldest first: the module's tiles. Closed ones for managers only.
+         */
+        public async coLoadingServiceList(): Promise<{
+    data: interfaces.CoLoadingServiceItem[]
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/co-loading/services`)
+            return await resp.json() as {
+    data: interfaces.CoLoadingServiceItem[]
+}
+        }
+
+        /**
+         * A manager reopens a closed service.
+         */
+        public async coLoadingServiceReopen(id: string): Promise<{
+    service: interfaces.CoLoadingServiceItem
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/co-loading/services/${encodeURIComponent(id)}/reopen`)
+            return await resp.json() as {
+    service: interfaces.CoLoadingServiceItem
 }
         }
 
@@ -8429,6 +8492,23 @@ export namespace controllers {
          * Cargo only: a 3-letter code; "" clears it.
          */
         settledCurrency?: string
+    }
+
+    export interface CoLoadingServiceCreateRequest {
+        name: string
+        /**
+         * import | export
+         */
+        direction: string
+
+        /**
+         * sea_lcl | sea_fcl | air | rail | road
+         */
+        mode: string
+
+        origin?: string
+        destination?: string
+        note?: string
     }
 
     export interface CollectionDatesRequest {
@@ -15468,6 +15548,38 @@ export namespace interfaces {
     }
 
     /**
+     * A Co-Loading Concept service, as its tile and its page show it (lib/coLoadingService).
+     */
+    export interface CoLoadingServiceItem {
+        id: string
+        name: string
+        /**
+         * import | export
+         */
+        direction: string
+
+        /**
+         * sea_lcl | sea_fcl | air | rail | road
+         */
+        mode: string
+
+        origin: string
+        destination: string
+        note: string
+        createdByName: string
+        createdAt: string
+        /**
+         * When a manager closed it: its tile is hidden from users, nothing new goes in. Null while open.
+         */
+        closedAt: string | null
+
+        /**
+         * Who closed it, as named then; "" while open.
+         */
+        closedByName: string
+    }
+
+    /**
      * What managers did, or what happened to records, in the last `days` days.
      */
     export interface CockpitAudit {
@@ -21564,6 +21676,15 @@ export namespace interfaces {
     }
 
     /**
+     * What the people backfill did: values looked at, records changed, values left as they are.
+     */
+    export interface PeopleNormalizeResult {
+        checked: number
+        changed: number
+        unmatched: PeopleNormalizeUnmatched[]
+    }
+
+    /**
      * What the people backfill did to the company's live shipments.
      */
     export interface PeopleNormalizeResult {
@@ -21581,15 +21702,6 @@ export namespace interfaces {
          * The names left as they are, most frequent first: to be fixed by hand.
          */
         unmatched: UnmatchedPerson[]
-    }
-
-    /**
-     * What the people backfill did: values looked at, records changed, values left as they are.
-     */
-    export interface PeopleNormalizeResult {
-        checked: number
-        changed: number
-        unmatched: PeopleNormalizeUnmatched[]
     }
 
     /**
