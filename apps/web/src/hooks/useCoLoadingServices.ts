@@ -41,3 +41,18 @@ export function useCoLoadingService(id: string) {
   });
   return { service: query.data ?? null, isLoading: isId && query.isLoading, notFound: !isId || isNotFound(query.error) };
 }
+
+export type CoLoadingSailing = interfaces.CoLoadingSailingItem;
+export type CoLoadingSailingNew = controllers.CoLoadingSailingCreateRequest;
+
+/** A Co-Loading Concept service's sailings, the newest first, and "Create new sailing". */
+export function useCoLoadingSailings(serviceId: string) {
+  const qc = useQueryClient();
+  const key = [...LIST_KEY, "sailings", serviceId];
+  const query = useQuery({ queryKey: key, queryFn: () => api.shipments.coLoadingSailingList(serviceId), enabled: isUuid(serviceId) });
+  const create = useMutation({
+    mutationFn: (input: CoLoadingSailingNew) => api.shipments.coLoadingSailingCreate(serviceId, input),
+    onSuccess: () => qc.invalidateQueries({ queryKey: key }),
+  });
+  return { sailings: query.data?.data ?? [], isLoading: query.isLoading, isError: query.isError, create };
+}

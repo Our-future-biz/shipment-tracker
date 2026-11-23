@@ -2289,3 +2289,20 @@ export interface CoLoadingServiceItem {
   /** Who closed it, as named then; "" while open. */
   closedByName: string;
 }
+
+/** A Co-Loading Concept service's sailing, as its page lists it (lib/coLoadingSailing). */
+export interface CoLoadingSailingItem {
+  id: string;
+  serviceId: string;
+  /** The vessel's name, or the week it sails: "WEEK 44" */
+  vessel: string;
+  /** "" only with a week in vessel */
+  voyage: string;
+  pol: string;
+  pod: string;
+  hub: string;
+  /** "40' HC" */
+  containerType: string;
+  createdByName: string;
+  createdAt: string;
+}

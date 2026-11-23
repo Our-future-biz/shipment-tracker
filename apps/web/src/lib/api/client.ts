@@ -3287,6 +3287,8 @@ export namespace shipments {
             this.claimTimeLimitsGet = this.claimTimeLimitsGet.bind(this)
             this.claimTimeLimitsSave = this.claimTimeLimitsSave.bind(this)
             this.claimUpdate = this.claimUpdate.bind(this)
+            this.coLoadingSailingCreate = this.coLoadingSailingCreate.bind(this)
+            this.coLoadingSailingList = this.coLoadingSailingList.bind(this)
             this.coLoadingServiceClose = this.coLoadingServiceClose.bind(this)
             this.coLoadingServiceCreate = this.coLoadingServiceCreate.bind(this)
             this.coLoadingServiceGet = this.coLoadingServiceGet.bind(this)
@@ -3528,6 +3530,32 @@ export namespace shipments {
             const resp = await this.baseClient.callTypedAPI("PATCH", `/shipments/${encodeURIComponent(shipmentId)}/claims/${encodeURIComponent(claimId)}`, JSON.stringify(params))
             return await resp.json() as {
     claim: interfaces.ShipmentClaimView
+}
+        }
+
+        /**
+         * "Create new sailing" on the service's page. Refused while the service is closed.
+         */
+        public async coLoadingSailingCreate(id: string, params: controllers.CoLoadingSailingCreateRequest): Promise<{
+    sailing: interfaces.CoLoadingSailingItem
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/co-loading/services/${encodeURIComponent(id)}/sailings`, JSON.stringify(params))
+            return await resp.json() as {
+    sailing: interfaces.CoLoadingSailingItem
+}
+        }
+
+        /**
+         * The service's sailings, the newest first: the Sailings list on its page.
+         */
+        public async coLoadingSailingList(id: string): Promise<{
+    data: interfaces.CoLoadingSailingItem[]
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/co-loading/services/${encodeURIComponent(id)}/sailings`)
+            return await resp.json() as {
+    data: interfaces.CoLoadingSailingItem[]
 }
         }
 
@@ -8493,6 +8521,26 @@ export namespace controllers {
          * Cargo only: a 3-letter code; "" clears it.
          */
         settledCurrency?: string
+    }
+
+    export interface CoLoadingSailingCreateRequest {
+        /**
+         * The vessel's name, or the week it sails ("WEEK 44") while the vessel is not known
+         */
+        vessel: string
+
+        /**
+         * Needed with a vessel's name; may be left out with a week
+         */
+        voyage?: string
+
+        pol: string
+        pod: string
+        hub: string
+        /**
+         * A container type as quotes and shipments name it: "40' HC"
+         */
+        containerType: string
     }
 
     export interface CoLoadingServiceCreateRequest {
@@ -15564,6 +15612,34 @@ export namespace interfaces {
     }
 
     /**
+     * A Co-Loading Concept service's sailing, as its page lists it (lib/coLoadingSailing).
+     */
+    export interface CoLoadingSailingItem {
+        id: string
+        serviceId: string
+        /**
+         * The vessel's name, or the week it sails: "WEEK 44"
+         */
+        vessel: string
+
+        /**
+         * "" only with a week in vessel
+         */
+        voyage: string
+
+        pol: string
+        pod: string
+        hub: string
+        /**
+         * "40' HC"
+         */
+        containerType: string
+
+        createdByName: string
+        createdAt: string
+    }
+
+    /**
      * A Co-Loading Concept service, as its tile and its page show it (lib/coLoadingService).
      */
     export interface CoLoadingServiceItem {
@@ -21702,15 +21778,6 @@ export namespace interfaces {
     }
 
     /**
-     * What the people backfill did: values looked at, records changed, values left as they are.
-     */
-    export interface PeopleNormalizeResult {
-        checked: number
-        changed: number
-        unmatched: PeopleNormalizeUnmatched[]
-    }
-
-    /**
      * What the people backfill did to the company's live shipments.
      */
     export interface PeopleNormalizeResult {
@@ -21728,6 +21795,15 @@ export namespace interfaces {
          * The names left as they are, most frequent first: to be fixed by hand.
          */
         unmatched: UnmatchedPerson[]
+    }
+
+    /**
+     * What the people backfill did: values looked at, records changed, values left as they are.
+     */
+    export interface PeopleNormalizeResult {
+        checked: number
+        changed: number
+        unmatched: PeopleNormalizeUnmatched[]
     }
 
     /**

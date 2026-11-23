@@ -12,10 +12,11 @@ import { formatDate } from "@/lib/date";
 import { useMessages } from "@/lib/toast";
 import { BTN, HINT, LINK, PAGE_SUBTITLE, PAGE_TITLE } from "@/styles/ui";
 import { canManageServices, closedLine, tileLine } from "../_lib/services";
+import { CoLoadingSailings } from "./CoLoadingSailings";
 import { CoLoadingServiceShipments } from "./CoLoadingServiceShipments";
 
-// A Co-Loading Concept service's own page, opened from its tile: its heading, then the Shipments grid
-// with the jobs of its Service Name (CoLoadingServiceShipments). Managers and higher close the service
+// A Co-Loading Concept service's own page, opened from its tile: its heading, its sailings (with
+// "Create new sailing"), then the Shipments grid with the jobs of its Service Name (CoLoadingServiceShipments). Managers and higher close the service
 // here (its tile is hidden from users and nothing new is put in it: the grid is read-only) and reopen
 // it. A closed one still opens from a link, saying it is closed: it stays in the app.
 export function CoLoadingServicePage() {
@@ -95,7 +96,8 @@ export function CoLoadingServicePage() {
                 in it until {isManager ? "you reopen it" : "a manager reopens it"}.
               </div>
             )}
-            <div className="mt-4">
+            <div className="mt-4 flex flex-col gap-5">
+              <CoLoadingSailings serviceId={service.id} closed={!!service.closedAt} />
               {service.serviceName ? (
                 <CoLoadingServiceShipments serviceName={service.serviceName} closed={!!service.closedAt} />
               ) : (
