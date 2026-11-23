@@ -14,6 +14,7 @@ import type { interfaces } from "@/lib/api/client";
 import { businessToday, formatDate, formatDateTime } from "@/lib/date";
 import { useMessages } from "@/lib/toast";
 import { BTN, BTN_PRIMARY, HINT, PAGE_SUBTITLE, REF } from "@/styles/ui";
+import { useUnsavedGuard } from "@/app/warehouse-concept/_lib/useUnsavedGuard";
 import { cargoLinesOf, draftsOf, isBlank, newDraftLine, saveProblem, type DraftLine } from "../_lib/cargoForm";
 import { CONTAINERS } from "../_lib/containers";
 import { JOB_KIND_LABEL, jobHref } from "../_lib/jobCargo";
@@ -38,9 +39,12 @@ interface JobLink {
 const linkOf = (plan: interfaces.LoadingPlanItem | null): JobLink | null =>
   plan?.linkKind && plan.linkId ? { kind: plan.linkKind, id: plan.linkId, ref: plan.linkRef } : null;
 
-/** What of a plan is saved, as one string: two of them differ when there is something to save. */
+/**
+ * What of a plan is saved, as one string: two of them differ when there is something to save. A
+ * line's id is left out: the same cargo taken from the job again is no change.
+ */
 const savedForm = (name: string, lines: DraftLine[], nominated: string[] | null, link: JobLink | null) =>
-  JSON.stringify([name.trim(), lines.filter((line) => !isBlank(line)), nominated, link?.kind ?? null, link?.id ?? null]);
+  JSON.stringify([name.trim(), lines.filter((line) => !isBlank(line)).map(({ id: _id, ...figures }) => figures), nominated, link?.kind ?? null, link?.id ?? null]);
 
 // A loading plan's page, new (/loading-planner/new) or saved (/loading-planner/<id>). A new plan
 // opened from a job (/loading-planner/new?shipment=<id> or ?quote=<reference>) starts linked to it,
@@ -136,7 +140,21 @@ function PlanEditor({ saved }: { saved: interfaces.LoadingPlanItem | null }) {
   const loadPlan = useMemo(() => planLoad(plannedCargo, plannedEquipment ?? undefined), [plannedCargo, plannedEquipment]);
 
   const colourOf = (lineId: string) => lineColour(lines.findIndex((line) => line.id === lineId));
+  // Where the page goes once a new plan is saved (its own address), after the guard below has let go.
+  const [goTo, setGoTo] = useState<string | null>(null);
   const dirty = stored ? savedForm(name, lines, nominated, link) !== savedForm(stored.name, draftsOf(stored.lines), stored.nominated, linkOf(stored)) : true;
+
+  // Leaving with unsaved work asks first: a link, the Back button, closing or reloading the page.
+  // A new plan nothing was typed into has nothing to lose.
+  const unsaved = stored ? dirty : name.trim() !== "" || hasCargo || link !== null;
+  useUnsavedGuard(unsaved && !goTo, "loading-plan");
+  // The guard takes its mark off the browser's history a moment after it lets go; only then does
+  // the page move to the saved plan's address.
+  useEffect(() => {
+    if (!goTo) return;
+    const timer = setTimeout(() => router.replace(goTo), 150);
+    return () => clearTimeout(timer);
+  }, [goTo, router]);
 
   // The PDF shows the plan as it is on screen now, saved or not. Its library is fetched on the first use.
   const [printing, setPrinting] = useState(false);
@@ -182,7 +200,7 @@ function PlanEditor({ saved }: { saved: interfaces.LoadingPlanItem | null }) {
       } else {
         const created = await createPlan(input);
         message.success("Plan saved");
-        router.replace(`/loading-planner/${created.id}`);
+        setGoTo(`/loading-planner/${created.id}`);
       }
     } catch (err) {
       message.error(apiErrorMessage(err));

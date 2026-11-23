@@ -89,3 +89,14 @@ export function summaryOf(plan: LoadingPlanItem): LoadingPlanSummary {
     updatedAt: plan.updatedAt,
   };
 }
+
+/**
+ * Whether a plan's link must be checked with the shipments or quotes service before it is saved:
+ * a link on a new plan, and one that differs from the link the stored plan has. A link the plan
+ * already has was checked when it was made - a job deleted since does not stop the plan from being
+ * saved - and a plan without a link has nothing to check.
+ */
+export function linkNeedsCheck(sent: Pick<PlanInput, "linkKind" | "linkId">, stored: Pick<PlanInput, "linkKind" | "linkId"> | null): boolean {
+  if (!sent.linkKind || !sent.linkId) return false;
+  return !stored || sent.linkKind !== stored.linkKind || sent.linkId !== stored.linkId;
+}

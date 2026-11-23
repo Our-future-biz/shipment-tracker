@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { LoadingPlanItem, PlanCargoLine, PlanInput } from "../interfaces/interfaces";
-import { cleanPlan, MAX_PIECES, summaryOf } from "../lib/planInput";
+import { cleanPlan, linkNeedsCheck, MAX_PIECES, summaryOf } from "../lib/planInput";
 
 const line = (more: Partial<PlanCargoLine> = {}): PlanCargoLine => ({
   id: "line-1",
@@ -80,5 +80,23 @@ describe("summaryOf", () => {
     };
     expect(summaryOf(plan)).toMatchObject({ id: "p1", colli: 12, weightKg: 6005, updatedBy: "b@example.com" });
     expect(summaryOf(plan)).not.toHaveProperty("lines");
+  });
+});
+
+describe("linkNeedsCheck", () => {
+  const OTHER = "9a8b7c6d-1111-4222-8333-444455556666";
+  const link = (linkId: string | null, linkKind: "shipment" | "quote" | null = "shipment") => ({ linkKind, linkId });
+
+  it("checks the link of a new plan and a link that changed", () => {
+    expect(linkNeedsCheck(link(SHIPMENT), null)).toBe(true);
+    expect(linkNeedsCheck(link(SHIPMENT), link(null, null))).toBe(true);
+    expect(linkNeedsCheck(link(SHIPMENT), link(OTHER))).toBe(true);
+    expect(linkNeedsCheck(link(SHIPMENT, "quote"), link(SHIPMENT, "shipment"))).toBe(true);
+  });
+
+  it("leaves alone a link the plan already has, and a plan without one", () => {
+    expect(linkNeedsCheck(link(SHIPMENT), link(SHIPMENT))).toBe(false);
+    expect(linkNeedsCheck(link(null, null), link(SHIPMENT))).toBe(false);
+    expect(linkNeedsCheck(link(null, null), null)).toBe(false);
   });
 });
