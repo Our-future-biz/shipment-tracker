@@ -3419,7 +3419,10 @@ export namespace shipments {
             this.coLoadingServiceCreate = this.coLoadingServiceCreate.bind(this)
             this.coLoadingServiceGet = this.coLoadingServiceGet.bind(this)
             this.coLoadingServiceList = this.coLoadingServiceList.bind(this)
+            this.coLoadingServiceInlandWeight = this.coLoadingServiceInlandWeight.bind(this)
             this.coLoadingServiceReopen = this.coLoadingServiceReopen.bind(this)
+            this.coLoadingSettingsGet = this.coLoadingSettingsGet.bind(this)
+            this.coLoadingSettingsSet = this.coLoadingSettingsSet.bind(this)
             this.commentCreate = this.commentCreate.bind(this)
             this.commentDelete = this.commentDelete.bind(this)
             this.commentList = this.commentList.bind(this)
@@ -3776,6 +3779,33 @@ export namespace shipments {
             return await resp.json() as {
     data: interfaces.CoLoadingServiceItem[]
 }
+        }
+
+        /**
+         * A manager sets a lower cargo weight for the service's inland leg, or takes it off (null).
+         */
+        public async coLoadingServiceInlandWeight(id: string, params: { inlandWeightKg: number | null }): Promise<{ service: interfaces.CoLoadingServiceItem }> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("PUT", `/co-loading/services/${encodeURIComponent(id)}/inland-weight`, JSON.stringify(params))
+            return await resp.json() as { service: interfaces.CoLoadingServiceItem }
+        }
+
+        /**
+         * The company's Co-Loading settings: the share of a box's inside volume planned with. Read by everyone.
+         */
+        public async coLoadingSettingsGet(): Promise<interfaces.CoLoadingSettings> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/co-loading/settings`)
+            return await resp.json() as interfaces.CoLoadingSettings
+        }
+
+        /**
+         * A manager sets the planning share (50 to 100 percent).
+         */
+        public async coLoadingSettingsSet(params: { planningVolumePct: number }): Promise<interfaces.CoLoadingSettings> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("PUT", `/co-loading/settings`, JSON.stringify(params))
+            return await resp.json() as interfaces.CoLoadingSettings
         }
 
         /**
@@ -16016,6 +16046,14 @@ export namespace interfaces {
             standardKg: number
             heavyTestedKg: number | null
             maxKg: number
+            /**
+             * The service's lower weight for the inland leg, in kg, when it is below the box's own limit; else null.
+             */
+            inlandKg: number | null
+            /**
+             * The share of the inside volume the planning volume is, in whole percent.
+             */
+            planningPct: number
         } | null
         /**
          * null where the type has no volume (reefers, flat racks) or no capacity at all.
@@ -16120,6 +16158,25 @@ export namespace interfaces {
          * Who closed it, as named then; "" while open.
          */
         closedByName: string
+        /**
+         * A lower cargo weight for the inland leg between the port and the hub, in kg; null for none.
+         */
+        inlandWeightKg: number | null
+    }
+
+    /**
+     * The company's Co-Loading Concept settings.
+     */
+    export interface CoLoadingSettings {
+        /**
+         * The share of a box's inside volume planned with, in whole percent.
+         */
+        planningVolumePct: number
+        /**
+         * A manager changed it; false while the company plans with the starting figure.
+         */
+        changed: boolean
+        canEdit: boolean
     }
 
     /**

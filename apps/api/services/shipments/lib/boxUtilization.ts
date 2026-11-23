@@ -60,10 +60,23 @@ export function meterOf(used: number, limit: number, max: number, decimals: numb
 /** A density no cargo has: most often kilograms typed where tonnes were asked, or the other way round. */
 const oddDensity = (weightKg: number, volumeCbm: number) => weightKg > 0 && volumeCbm > 0 && (weightKg / volumeCbm > 3000 || weightKg / volumeCbm < 20);
 
-/** The fill of a box. `capacity` is null for a container type the capacity table does not have. */
-export function boxUtilization(containerType: string, capacity: ContainerCapacity | null, shipments: readonly BoxShipment[]): BoxUtilization {
+/** What a company and a service add to a box's own capacity. */
+export interface BoxPlanning {
+  /** The share of the inside volume planned with, in whole percent: what `capacity.planningCbm` was worked out with. */
+  planningPct: number;
+  /** The service's lower cargo weight for the inland leg, in kg; null for none. */
+  inlandWeightKg: number | null;
+}
+
+/**
+ * The fill of a box. `capacity` is null for a container type the capacity table does not have. An
+ * inland weight below the box's own limit becomes the limit of the weight meter: the box is full
+ * when the road or rail leg is.
+ */
+export function boxUtilization(containerType: string, capacity: ContainerCapacity | null, shipments: readonly BoxShipment[], planning: BoxPlanning): BoxUtilization {
+  const inlandKg = capacity && planning.inlandWeightKg !== null && planning.inlandWeightKg < capacity.standardKg ? planning.inlandWeightKg : null;
   const volumeLimit = capacity?.planningCbm ?? null;
-  const weightLimit = capacity?.standardKg ?? null;
+  const weightLimit = capacity ? (inlandKg ?? capacity.standardKg) : null;
 
   const rows: BoxUtilizationRow[] = shipments.map((s) => {
     const figures = dimensionFiguresFilled(s);
@@ -100,7 +113,7 @@ export function boxUtilization(containerType: string, capacity: ContainerCapacit
   const volumeCbm = round(sum((r) => r.volumeCbm), 3);
 
   const volume = capacity && capacity.planningCbm !== null && capacity.insideCbm !== null ? meterOf(volumeCbm, capacity.planningCbm, capacity.insideCbm, 3) : null;
-  const weight = capacity ? meterOf(weightKg, capacity.standardKg, capacity.maxKg, 1) : null;
+  const weight = capacity && weightLimit !== null ? meterOf(weightKg, weightLimit, capacity.maxKg, 1) : null;
   const fuller = volume && weight ? (volume.pct > weight.pct ? "volume" : "weight") : volume ? "volume" : weight ? "weight" : null;
   const fullPct = fuller === "volume" ? volume!.pct : fuller === "weight" ? weight!.pct : null;
 
@@ -110,7 +123,7 @@ export function boxUtilization(containerType: string, capacity: ContainerCapacit
 
   return {
     containerType,
-    capacity,
+    capacity: capacity ? { ...capacity, inlandKg, planningPct: planning.planningPct } : null,
     volume,
     weight,
     fullPct,

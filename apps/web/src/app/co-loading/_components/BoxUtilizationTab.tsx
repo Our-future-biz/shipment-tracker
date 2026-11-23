@@ -234,7 +234,8 @@ export function BoxUtilizationTab({ sailingId, onOpenShipments }: BoxUtilization
 
       <p className={`${HINT} m-0`}>
         The figures are each shipment&apos;s own: its cargo lines, or its typed totals where it has none. This is a sum, not a stowage check: cargo that cannot be stacked or is long
-        fills a box sooner than its cbm says.{capacity?.planningCbm ? ` A box is planned to 85% of its inside volume.` : ""}
+        fills a box sooner than its cbm says.{capacity?.planningCbm ? ` A box is planned to ${capacity.planningPct}% of its inside volume (Co-Loading Concept, Settings).` : ""}
+        {capacity && capacity.inlandKg !== null ? ` This service's inland weight of ${capacity.inlandKg.toLocaleString("en-US")} kg is the weight limit.` : ""}
       </p>
     </div>
   );

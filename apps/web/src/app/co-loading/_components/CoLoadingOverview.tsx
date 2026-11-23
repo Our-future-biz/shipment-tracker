@@ -3,15 +3,16 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { Input } from "antd";
-import { PlusOutlined, SearchOutlined } from "@ant-design/icons";
+import { PlusOutlined, SearchOutlined, SettingOutlined } from "@ant-design/icons";
 import { ArrowsMergeIcon, CaretRightIcon } from "@phosphor-icons/react";
 import { Pill } from "@/components/Pill";
 import { useCoLoadingServices } from "@/hooks/useCoLoadingServices";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { formatDate } from "@/lib/date";
 import { useMessages } from "@/lib/toast";
-import { BTN_PRIMARY, CARD, HINT, PAGE_SUBTITLE, PAGE_TITLE } from "@/styles/ui";
+import { BTN, BTN_PRIMARY, CARD, HINT, PAGE_SUBTITLE, PAGE_TITLE } from "@/styles/ui";
 import { canManageServices, closedLine, searchServices, tileLine, tilesInOrder } from "../_lib/services";
+import { CoLoadingSettingsModal } from "./CoLoadingSettingsModal";
 import { NewServiceModal } from "./NewServiceModal";
 
 // Co-Loading Concept's own page: the consolidation hub customer service works in. The bar (New Service on
@@ -26,6 +27,7 @@ export function CoLoadingOverview() {
   const message = useMessages();
   const [query, setQuery] = useState("");
   const [adding, setAdding] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const shown = useMemo(() => tilesInOrder(searchServices(services, query)), [services, query]);
 
   let empty: string | null = null;
@@ -68,9 +70,13 @@ export function CoLoadingOverview() {
               className="w-[320px] max-w-full"
             />
           </div>
-          {/* The right of the bar is empty: services have no dates, columns or export yet. Kept as wide
-              as the button, so the search stays in the middle. */}
-          <div className="shrink-0 w-[124px] max-sm:hidden" aria-hidden />
+          {/* Settings: the share of a box planned with. Everyone sees it; managers change it. */}
+          <div className="flex shrink-0 justify-end min-w-[124px] max-sm:min-w-0">
+            <button type="button" onClick={() => setSettingsOpen(true)} className={BTN}>
+              <SettingOutlined />
+              Settings
+            </button>
+          </div>
         </div>
 
         {empty ? (
@@ -102,6 +108,7 @@ export function CoLoadingOverview() {
         )}
       </div>
 
+      <CoLoadingSettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
       <NewServiceModal
         open={adding}
         onClose={() => setAdding(false)}

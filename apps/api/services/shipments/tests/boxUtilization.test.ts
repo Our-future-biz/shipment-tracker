@@ -38,7 +38,8 @@ const line = (pieces: string, l: string, w: string, h: string, kg: string, more:
   stackable: "",
   ...more,
 });
-const fill = (shipments: BoxShipment[], type = "40' HC") => boxUtilization(type, containerCapacity(type), shipments);
+const PLAN = { planningPct: 85, inlandWeightKg: null };
+const fill = (shipments: BoxShipment[], type = "40' HC") => boxUtilization(type, containerCapacity(type), shipments, PLAN);
 
 describe("wholePct", () => {
   it("never claims more than is true", () => {
@@ -163,7 +164,7 @@ describe("boxUtilization", () => {
   });
 
   it("still gives the totals for a container type without capacity figures, with no percentage", () => {
-    const box = boxUtilization("53' HC", containerCapacity("53' HC"), [typed("10", "30")]);
+    const box = boxUtilization("53' HC", containerCapacity("53' HC"), [typed("10", "30")], PLAN);
     expect(box).toMatchObject({ capacity: null, volume: null, weight: null, fullPct: null, limitedBy: null });
     expect(box.totals).toMatchObject({ weightKg: 10000, volumeCbm: 30 });
     expect(box.rows[0]).toMatchObject({ weightSharePct: null, volumeSharePct: null, implausible: false });
@@ -172,6 +173,26 @@ describe("boxUtilization", () => {
   it("adds W/M shipment by shipment, as it is charged", () => {
     // 2 t on 5 cbm is 5 W/M; 8 t on 3 cbm is 8 W/M: 13 together, not the 10 of the box's totals.
     expect(fill([typed("2", "5"), typed("8", "3")]).totals.freightTons).toBe(13);
+  });
+
+  it("is full at the service's inland weight when that is below the box's own limit", () => {
+    const inland = (kg: number | null, cargo = [typed("23", "10")]) => boxUtilization("40' HC", containerCapacity("40' HC"), cargo, { planningPct: 85, inlandWeightKg: kg });
+    expect(inland(24000).weight).toMatchObject({ used: 23000, limit: 24000, max: 28400, pct: 95, free: 1000, state: "nearly_full" });
+    expect(inland(24000).capacity).toMatchObject({ inlandKg: 24000, standardKg: 26200 });
+    expect(inland(22000).weight).toMatchObject({ pct: 105, state: "over", free: -1000 });
+    expect(inland(24000).rows[0]!.weightSharePct).toBe(95.8);
+    // An inland weight at or above the box's own limit changes nothing, and neither does none.
+    expect(inland(26200).weight).toMatchObject({ limit: 26200 });
+    expect(inland(30000).capacity).toMatchObject({ inlandKg: null });
+    expect(inland(null).weight).toMatchObject({ limit: 26200, pct: 87 });
+  });
+
+  it("plans the volume to the company's share of the inside volume", () => {
+    const at = (pct: number) => boxUtilization("40' HC", containerCapacity("40' HC", pct / 100), [typed("5", "65")], { planningPct: pct, inlandWeightKg: null });
+    expect(at(85).volume).toMatchObject({ limit: 64.9, pct: 101, state: "over" });
+    expect(at(90).volume).toMatchObject({ limit: 68.8, pct: 94, state: "nearly_full" });
+    expect(at(100).volume).toMatchObject({ limit: 76.4, max: 76.4, pct: 85, state: "room" });
+    expect(at(90).capacity).toMatchObject({ planningPct: 90, planningCbm: 68.8 });
   });
 
   it("holds 250 shipments without losing one", () => {
@@ -183,12 +204,12 @@ describe("boxUtilization", () => {
 
 describe("boxFillOf", () => {
   it("is the box in short: both percentages, how they stand, and how many shipments lack a figure", () => {
-    const fill = boxFillOf(boxUtilization("40' HC", containerCapacity("40' HC"), [typed("6.4", "11.2"), typed("17.7", "41.2"), typed("", "1"), typed("", "", { cancelled: true })]));
+    const fill = boxFillOf(boxUtilization("40' HC", containerCapacity("40' HC"), [typed("6.4", "11.2"), typed("17.7", "41.2"), typed("", "1"), typed("", "", { cancelled: true })], PLAN));
     expect(fill).toEqual({ volume: { pct: 82, state: "room" }, weight: { pct: 91, state: "nearly_full" }, fullPct: 91, shipments: 3, missing: 1 });
   });
 
   it("has no volume for a reefer and nothing for a type without capacity", () => {
-    expect(boxFillOf(boxUtilization("40' HRF", containerCapacity("40' HRF"), [typed("10", "30")]))).toMatchObject({ volume: null, weight: { pct: 36, state: "room" }, fullPct: 36 });
-    expect(boxFillOf(boxUtilization("53' HC", containerCapacity("53' HC"), []))).toEqual({ volume: null, weight: null, fullPct: null, shipments: 0, missing: 0 });
+    expect(boxFillOf(boxUtilization("40' HRF", containerCapacity("40' HRF"), [typed("10", "30")], PLAN))).toMatchObject({ volume: null, weight: { pct: 36, state: "room" }, fullPct: 36 });
+    expect(boxFillOf(boxUtilization("53' HC", containerCapacity("53' HC"), [], PLAN))).toEqual({ volume: null, weight: null, fullPct: null, shipments: 0, missing: 0 });
   });
 });

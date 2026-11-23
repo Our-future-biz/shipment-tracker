@@ -2,7 +2,7 @@ import { api } from "encore.dev/api";
 import type { MaxLen } from "encore.dev/validate";
 import { getAuthData } from "~encore/auth";
 import { requireRole } from "../../../lib/rbac";
-import type { CoLoadingServiceItem } from "../interfaces/interfaces";
+import type { CoLoadingServiceItem, CoLoadingSettings } from "../interfaces/interfaces";
 import { coLoadingServiceService as service } from "../services/coLoadingService.service";
 
 // Co-Loading Concept's services (lib/coLoadingService). Everyone in the company works in them; managers
@@ -45,6 +45,31 @@ export const coLoadingServiceCreate = api(
   { expose: true, auth: true, method: "POST", path: "/co-loading/services" },
   async (req: CoLoadingServiceCreateRequest): Promise<{ service: CoLoadingServiceItem }> => {
     return { service: await service.create(req, managers()) };
+  },
+);
+
+// The company's Co-Loading settings: the share of a box's inside volume planned with. Read by everyone.
+export const coLoadingSettingsGet = api(
+  { expose: true, auth: true, method: "GET", path: "/co-loading/settings" },
+  async (): Promise<CoLoadingSettings> => {
+    const { companyID, role } = getAuthData()!;
+    return service.settings(companyID, role);
+  },
+);
+
+// A manager sets the planning share (50 to 100 percent).
+export const coLoadingSettingsSet = api(
+  { expose: true, auth: true, method: "PUT", path: "/co-loading/settings" },
+  async ({ planningVolumePct }: { planningVolumePct: number }): Promise<CoLoadingSettings> => {
+    return service.saveSettings(planningVolumePct, managers());
+  },
+);
+
+// A manager sets a lower cargo weight for the service's inland leg, or takes it off (null).
+export const coLoadingServiceInlandWeight = api(
+  { expose: true, auth: true, method: "PUT", path: "/co-loading/services/:id/inland-weight" },
+  async ({ id, inlandWeightKg }: { id: string; inlandWeightKg: number | null }): Promise<{ service: CoLoadingServiceItem }> => {
+    return { service: await service.setInlandWeight(id, inlandWeightKg, managers().companyID) };
   },
 );
 

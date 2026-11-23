@@ -54,6 +54,16 @@ class CoLoadingServiceRepository {
     return row ?? null;
   }
 
+  /** Sets the service's inland weight (null for none); the service as it is now, null when not found. */
+  async setInlandWeight(id: string, companyId: string, inlandWeightKg: number | null): Promise<CoLoadingServiceRecord | null> {
+    const [row] = await db
+      .update(services)
+      .set({ inlandWeightKg, updatedAt: new Date() })
+      .where(and(eq(services.id, id), eq(services.companyId, companyId), isNull(services.deletedAt)))
+      .returning();
+    return row ?? null;
+  }
+
   /** The new service; null when the company has a live one of that name already (any case). */
   async create(values: NewCoLoadingServiceRecord): Promise<CoLoadingServiceRecord | null> {
     const [row] = await db

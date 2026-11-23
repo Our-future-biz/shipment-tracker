@@ -1,7 +1,9 @@
 import { APIError } from "encore.dev/api";
 import { isUuid } from "../../../lib/uuid";
-import type { CoLoadingServiceItem } from "../interfaces/interfaces";
-import { checkServiceInput, closedServiceError, servicesSeenBy, type CoLoadingServiceInput } from "../lib/coLoadingService";
+import type { CoLoadingServiceItem, CoLoadingSettings } from "../interfaces/interfaces";
+import { DEFAULT_PLANNING_VOLUME_PCT, inlandWeightProblem, planningPctProblem } from "../lib/coLoadingSettings";
+import { coLoadingSettingRepository } from "../repositories/coLoadingSetting.repository";
+import { canManageServices, checkServiceInput, closedServiceError, servicesSeenBy, type CoLoadingServiceInput } from "../lib/coLoadingService";
 import { userNameOf } from "../lib/userName";
 import { coLoadingServiceRepository as repo } from "../repositories/coLoadingService.repository";
 import type { CoLoadingServiceRecord } from "../schemas/coLoadingService.schema";
@@ -20,6 +22,7 @@ const toItem = (r: CoLoadingServiceRecord): CoLoadingServiceItem => ({
   createdAt: r.createdAt.toISOString(),
   closedAt: r.closedAt?.toISOString() ?? null,
   closedByName: r.closedByName,
+  inlandWeightKg: r.inlandWeightKg,
 });
 
 // Co-Loading Concept's services: listed as the module's tiles, made with New Service, closed and
@@ -40,6 +43,34 @@ class CoLoadingServiceService {
     const row = isUuid(id) ? await repo.get(id, companyId) : null;
     if (!row) throw APIError.notFound("Service not found");
     return row;
+  }
+
+  /** The share of a box's inside volume the company plans with, in whole percent. */
+  async planningVolumePct(companyId: string): Promise<number> {
+    return (await coLoadingSettingRepository.get(companyId))?.planningVolumePct ?? DEFAULT_PLANNING_VOLUME_PCT;
+  }
+
+  /** The company's settings: read by everyone, changed by managers. */
+  async settings(companyId: string, role: string): Promise<CoLoadingSettings> {
+    const row = await coLoadingSettingRepository.get(companyId);
+    return { planningVolumePct: row?.planningVolumePct ?? DEFAULT_PLANNING_VOLUME_PCT, changed: row !== null, canEdit: canManageServices(role) };
+  }
+
+  async saveSettings(planningVolumePct: number, actor: { userID: string; companyID: string; role: string }): Promise<CoLoadingSettings> {
+    const problem = planningPctProblem(planningVolumePct);
+    if (problem) throw APIError.invalidArgument(problem);
+    await coLoadingSettingRepository.savePlanningPct(actor.companyID, planningVolumePct, actor.userID);
+    return this.settings(actor.companyID, actor.role);
+  }
+
+  /** Sets a lower cargo weight for the service's inland leg, or takes it off (null). Not while the service is closed. */
+  async setInlandWeight(id: string, inlandWeightKg: number | null, companyId: string): Promise<CoLoadingServiceItem> {
+    const problem = inlandWeightProblem(inlandWeightKg);
+    if (problem) throw APIError.invalidArgument(problem);
+    await this.requireOpen(id, companyId);
+    const row = await repo.setInlandWeight(id, companyId, inlandWeightKg);
+    if (!row) throw APIError.notFound("Service not found");
+    return toItem(row);
   }
 
   /** Closes the service: its tile is hidden from users, nothing new goes in until it is reopened. */

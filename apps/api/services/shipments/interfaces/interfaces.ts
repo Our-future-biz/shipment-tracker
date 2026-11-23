@@ -2288,6 +2288,17 @@ export interface CoLoadingServiceItem {
   closedAt: string | null;
   /** Who closed it, as named then; "" while open. */
   closedByName: string;
+  /** A lower cargo weight for the inland leg between the port and the hub, in kg; null for none. */
+  inlandWeightKg: number | null;
+}
+
+/** The company's Co-Loading Concept settings. */
+export interface CoLoadingSettings {
+  /** The share of a box's inside volume planned with, in whole percent. */
+  planningVolumePct: number;
+  /** A manager changed it; false while the company plans with the starting figure. */
+  changed: boolean;
+  canEdit: boolean;
 }
 
 /** A Co-Loading Concept service's sailing, as its page lists it (lib/coLoadingSailing). */
@@ -2394,6 +2405,10 @@ export interface BoxUtilization {
     standardKg: number;
     heavyTestedKg: number | null;
     maxKg: number;
+    /** The service's lower weight for the inland leg, in kg, when it is below the box's own limit; else null. */
+    inlandKg: number | null;
+    /** The share of the inside volume the planning volume is, in whole percent. */
+    planningPct: number;
   } | null;
   /** null where the type has no volume (reefers, flat racks) or no capacity at all. */
   volume: BoxMeter | null;

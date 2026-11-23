@@ -24,14 +24,15 @@ const toItem = (r: CoLoadingSailingRecord): CoLoadingSailingItem => ({
 });
 
 /**
- * The fill of a box of this type, on a service of this mode, holding these shipments. A cancelled
+ * The fill of a box of this type, on this service, holding these shipments, planned to the company's share of its volume. A cancelled
  * one is listed, not counted; one of another kind than the box is for is counted and remarked on.
  */
-const fillOf = (containerType: string, serviceMode: string, shipments: LinkedCargo[]) =>
+const fillOf = (containerType: string, service: { mode: string; inlandWeightKg: number | null }, planningPct: number, shipments: LinkedCargo[]) =>
   boxUtilization(
     containerType,
-    containerCapacity(containerType),
-    shipments.map(({ freightMode, loadType, ...s }) => ({ ...s, cancelled: s.status === CANCELLED_STATUS, odd: oddInBox(serviceMode, { freightMode, loadType }) })),
+    containerCapacity(containerType, planningPct / 100),
+    shipments.map(({ freightMode, loadType, ...s }) => ({ ...s, cancelled: s.status === CANCELLED_STATUS, odd: oddInBox(service.mode, { freightMode, loadType }) })),
+    { planningPct, inlandWeightKg: service.inlandWeightKg },
   );
 
 // A Co-Loading Concept service's sailings: listed on its page, made with "Create new sailing" by anyone
@@ -42,8 +43,8 @@ class CoLoadingSailingService {
     const service = await coLoadingServiceService.get(serviceId, companyId);
     const rows = await repo.listByService(serviceId, companyId);
     // Each sailing with how full its box is, so every open box is seen on the one list.
-    const cargo = await repo.boxShipmentsOf(rows.map((r) => r.id), companyId);
-    return rows.map((r) => ({ ...toItem(r), fill: boxFillOf(fillOf(r.containerType, service.mode, cargo.get(r.id) ?? [])) }));
+    const [cargo, planningPct] = await Promise.all([repo.boxShipmentsOf(rows.map((r) => r.id), companyId), coLoadingServiceService.planningVolumePct(companyId)]);
+    return rows.map((r) => ({ ...toItem(r), fill: boxFillOf(fillOf(r.containerType, service, planningPct, cargo.get(r.id) ?? [])) }));
   }
 
   /** One sailing, for its own page (Box utilization, Linked shipments, Earnings). */
@@ -60,7 +61,7 @@ class CoLoadingSailingService {
   async utilization(id: string, companyId: string): Promise<BoxUtilization> {
     const sailing = await this.get(id, companyId);
     const service = await coLoadingServiceService.get(sailing.serviceId, companyId);
-    return fillOf(sailing.containerType, service.mode, await repo.boxShipments(sailing.id, companyId));
+    return fillOf(sailing.containerType, service, await coLoadingServiceService.planningVolumePct(companyId), await repo.boxShipments(sailing.id, companyId));
   }
 
   /** The shipments taken off the sailing, the last one first, with who took each off and why. */

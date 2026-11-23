@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { check, pgTable, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
+import { check, pgTable, text, timestamp, uniqueIndex, uuid, integer } from "drizzle-orm/pg-core";
 import { defaultTableColumns, defaultTableIndexes, tenantColumns, tenantIndex } from "../../../lib/db/defaults";
 import type { CoLoadingDirection, CoLoadingMode } from "../lib/coLoadingService";
 
@@ -22,6 +22,9 @@ export const coLoadingServiceTable = pgTable(
     origin: text("origin").notNull().default(""),
     destination: text("destination").notNull().default(""),
     note: text("note").notNull().default(""),
+    // A lower cargo weight for the inland leg between the port and the hub, in kg, set by a manager;
+    // null for none. A box of this service is then full at it, where it is below the box's own limit.
+    inlandWeightKg: integer("inland_weight_kg"),
     // Who made it, as named then; none for the service the module starts with.
     createdById: uuid("created_by_id"),
     createdByName: text("created_by_name").notNull().default(""),

@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { App } from "antd";
@@ -12,6 +13,7 @@ import { formatDate } from "@/lib/date";
 import { useMessages } from "@/lib/toast";
 import { BTN, HINT, LINK, PAGE_SUBTITLE, PAGE_TITLE } from "@/styles/ui";
 import { canManageServices, closedLine, tileLine } from "../_lib/services";
+import { InlandWeightModal } from "./InlandWeightModal";
 import { CoLoadingSailings } from "./CoLoadingSailings";
 import { CoLoadingServiceShipments } from "./CoLoadingServiceShipments";
 
@@ -25,6 +27,7 @@ export function CoLoadingServicePage() {
   const { close, reopen } = useCoLoadingServiceClosing();
   const { user } = useAuth();
   const isManager = canManageServices(user?.role);
+  const [inlandOpen, setInlandOpen] = useState(false);
   const { modal } = App.useApp();
   const message = useMessages();
 
@@ -75,6 +78,12 @@ export function CoLoadingServicePage() {
                 <h1 className={PAGE_TITLE}>{service.name}</h1>
                 {service.closedAt && <Pill tone="slate">Closed</Pill>}
               </div>
+              <div className="flex flex-wrap items-center gap-2">
+              {isManager && !service.closedAt && (
+                <button type="button" onClick={() => setInlandOpen(true)} className={BTN}>
+                  Inland weight
+                </button>
+              )}
               {isManager &&
                 (service.closedAt ? (
                   <button type="button" onClick={onReopen} disabled={reopen.isPending} className={BTN}>
@@ -87,9 +96,16 @@ export function CoLoadingServicePage() {
                     Close service
                   </button>
                 ))}
+              </div>
             </div>
             <p className={`${PAGE_SUBTITLE} m-0`}>{tileLine(service)}</p>
             {service.note && <p className={`${PAGE_SUBTITLE} m-0`}>{service.note}</p>}
+            {service.inlandWeightKg !== null && (
+              <p className={`${PAGE_SUBTITLE} m-0`}>
+                Inland weight: a box carries at most {service.inlandWeightKg.toLocaleString("en-US")} kg between the port and the hub.
+              </p>
+            )}
+            <InlandWeightModal open={inlandOpen} onClose={() => setInlandOpen(false)} service={service} />
             {service.closedAt && (
               <div role="status" className="mt-3 rounded-xl border border-slate-200 bg-white px-4 py-3 text-[13px] text-slate-700">
                 <span className="font-semibold">{closedLine(service, formatDate)}.</span> Users no longer see its tile, and nothing new can be put

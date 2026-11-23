@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { fillOfBox, fillWords, fullWords, meterBar, meterScale, meterTone, meterWords, missingNote, noVolumeWords, oddInBox, oddWarning, overfillWarning, removedReasonWords, rowNotes, shareWords, usedOfLimit, type BoxMeter, type BoxRow, type BoxUtilization } from "./boxUtilization";
 
-const HC = { containerType: "40' HC", insideCbm: 76.4, planningCbm: 64.9, standardKg: 26200, heavyTestedKg: 28400, maxKg: 28400 };
-const OT = { containerType: "40' OT", insideCbm: 67.3, planningCbm: 57.2, standardKg: 26600, heavyTestedKg: null, maxKg: 28550 };
+const HC = { containerType: "40' HC", insideCbm: 76.4, planningCbm: 64.9, standardKg: 26200, heavyTestedKg: 28400, maxKg: 28400, inlandKg: null as number | null, planningPct: 85 };
+const OT = { containerType: "40' OT", insideCbm: 67.3, planningCbm: 57.2, standardKg: 26600, heavyTestedKg: null, maxKg: 28550, inlandKg: null, planningPct: 85 };
 const meter = (used: number, limit: number, max: number, state: BoxMeter["state"]): BoxMeter => ({ used, limit, max, pct: Math.floor((used / limit) * 100), free: Math.round((limit - used) * 1000) / 1000, state });
 const row = (more: Partial<BoxRow> = {}): BoxRow => ({
   shipmentId: "s1",
@@ -74,7 +74,11 @@ describe("a meter in words", () => {
   });
 
   it("names the limit and the maximum under the bar", () => {
-    expect(meterScale("volume", HC)).toBe("planning 64.9 · inside 76.4 cbm");
+    expect(meterScale("volume", HC)).toBe("planning 64.9 (85%) · inside 76.4 cbm");
+    expect(meterScale("weight", { ...HC, inlandKg: 24000 })).toBe("inland 24,000 · standard 26,200 · at most 28,400 kg");
+    expect(meterWords("weight", meter(25000, 24000, 28400, "over"), { ...HC, inlandKg: 24000 })).toBe(
+      "Over the inland weight by 1,000 kg. The box itself takes 26,200 kg, so the limit is the leg between the port and the hub.",
+    );
     expect(meterScale("weight", HC)).toBe("standard 26,200 · heavy tested 28,400 kg");
     expect(meterScale("weight", OT)).toBe("standard 26,600 · at most 28,550 kg");
   });

@@ -30,6 +30,28 @@ export function useCoLoadingServiceClosing() {
   return { close, reopen };
 }
 
+/** The company's Co-Loading settings (the planning share of a box's volume): read by everyone, saved by managers. */
+export function useCoLoadingSettings() {
+  const qc = useQueryClient();
+  const key = [...LIST_KEY, "settings"];
+  const query = useQuery({ queryKey: key, queryFn: () => api.shipments.coLoadingSettingsGet() });
+  const save = useMutation({
+    mutationFn: (planningVolumePct: number) => api.shipments.coLoadingSettingsSet({ planningVolumePct }),
+    // Every box's fill is worked out with the share: all of Co-Loading is read again.
+    onSuccess: () => qc.invalidateQueries({ queryKey: LIST_KEY }),
+  });
+  return { settings: query.data ?? null, isLoading: query.isLoading, isError: query.isError, save };
+}
+
+/** A manager sets a service's lower cargo weight for its inland leg, or takes it off. */
+export function useCoLoadingInlandWeight(serviceId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (inlandWeightKg: number | null) => api.shipments.coLoadingServiceInlandWeight(serviceId, { inlandWeightKg }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: LIST_KEY }),
+  });
+}
+
 /** One service, for its own page. */
 export function useCoLoadingService(id: string) {
   const isId = isUuid(id);

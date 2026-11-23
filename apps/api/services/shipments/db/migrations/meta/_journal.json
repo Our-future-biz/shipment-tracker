@@ -701,6 +701,13 @@
       "when": 1795436519444,
       "tag": "0099_co_loading_link_removed",
       "breakpoints": true
+    },
+    {
+      "idx": 100,
+      "version": "7",
+      "when": 1795436936615,
+      "tag": "0100_co_loading_settings",
+      "breakpoints": true
     }
   ]
 }

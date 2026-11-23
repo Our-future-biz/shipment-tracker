@@ -44,6 +44,7 @@ export function meterWords(kind: MeterKind, meter: BoxMeter, capacity: NonNullab
       return meter.free > 0 ? `Nearly full: room for ${amount(kind, meter.free)}` : "Full";
     case "over":
       if (kind === "volume") return `Over the planning volume by ${over}. The box holds ${cbm(meter.max)} inside, so it may still load if the cargo stows well.`;
+      if (capacity.inlandKg !== null) return `Over the inland weight by ${over}. The box itself takes ${kg(capacity.standardKg)}, so the limit is the leg between the port and the hub.`;
       return capacity.heavyTestedKg
         ? `Over the standard limit by ${over}. A heavy-tested box takes up to ${kg(capacity.heavyTestedKg)}.`
         : `Over the standard limit by ${over}. Up to ${kg(meter.max)} needs the shipping line's confirmation.`;
@@ -54,7 +55,8 @@ export function meterWords(kind: MeterKind, meter: BoxMeter, capacity: NonNullab
 
 /** What the scale under a meter says: its limit and the most the box can take. */
 export function meterScale(kind: MeterKind, capacity: NonNullable<BoxUtilization["capacity"]>): string {
-  if (kind === "volume") return `planning ${number(capacity.planningCbm ?? 0, 1)} · inside ${cbm(capacity.insideCbm ?? 0)}`;
+  if (kind === "volume") return `planning ${number(capacity.planningCbm ?? 0, 1)} (${capacity.planningPct}%) · inside ${cbm(capacity.insideCbm ?? 0)}`;
+  if (capacity.inlandKg !== null) return `inland ${number(capacity.inlandKg, 0)} · standard ${number(capacity.standardKg, 0)} · at most ${kg(capacity.maxKg)}`;
   return capacity.heavyTestedKg ? `standard ${number(capacity.standardKg, 0)} · heavy tested ${kg(capacity.heavyTestedKg)}` : `standard ${number(capacity.standardKg, 0)} · at most ${kg(capacity.maxKg)}`;
 }
 
