@@ -136,9 +136,11 @@ describe("3D scene", () => {
   });
 
   it("marks the centre of gravity and its tolerance", () => {
-    const balance = sceneBalance(rack, 10);
+    const balance = sceneBalance(rack);
     expect(balance.ok).toBe(true);
-    expect(balance.tolerance[0]).toBeCloseTo(sceneFloor(rack).length / 20, 6);
+    // 90 cm lengthwise on a 40', a tenth of the half-width sideways.
+    expect(balance.tolerance[0]).toBeCloseTo(0.9, 6);
+    expect(balance.tolerance[1]).toBeCloseTo(sceneFloor(rack).width / 20, 6);
     expect(Math.abs(balance.cog[0] - sceneFloor(rack).length / 2)).toBeLessThanOrEqual(balance.tolerance[0]);
   });
 });

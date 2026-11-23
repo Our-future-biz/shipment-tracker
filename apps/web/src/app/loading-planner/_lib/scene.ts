@@ -1,4 +1,4 @@
-import { balanceOf } from "./balance";
+import { balanceLimits, balanceOf } from "./balance";
 import type { ContainerLoad, PlacedPiece } from "./plan";
 
 // The 3D picture of a load, in metres. The axes of the picture: X runs along the container, Y up,
@@ -41,12 +41,12 @@ export const sceneBoxes = (load: ContainerLoad): SceneBox[] =>
     size: [m(piece.length), m(piece.height), m(piece.width)],
   }));
 
-export function sceneBalance(load: ContainerLoad, tolerancePct: number): SceneBalance {
+export function sceneBalance(load: ContainerLoad): SceneBalance {
   const balance = balanceOf(load.pieces, load.container);
-  const floor = sceneFloor(load);
+  const limits = balanceLimits(load.container);
   return {
     cog: [m(balance.cogZ), m(balance.cogX)],
-    tolerance: [(floor.length / 2) * (tolerancePct / 100), (floor.width / 2) * (tolerancePct / 100)],
+    tolerance: [m(limits.alongMm), m(limits.acrossMm)],
     ok: balance.ok,
   };
 }

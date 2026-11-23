@@ -1,7 +1,6 @@
 import { jsPDF } from "jspdf";
-import { BALANCE_TOLERANCE_PCT } from "./balance";
 import { fitLabel, gaugeOf, type CargoLine } from "./gauge";
-import { END_WALLS_NOTE, floorOverloadText, hasDoors, lineColour, loadStats, planTotals, type PieceGroup } from "./loadStats";
+import { balanceLimitText, END_WALLS_NOTE, floorOverloadText, outOfBalanceText, hasDoors, lineColour, loadStats, planTotals, type PieceGroup } from "./loadStats";
 import type { ContainerLoad, LoadPlan } from "./plan";
 import { formatDim, formatKg, formatSize, type DimUnit } from "./units";
 
@@ -94,7 +93,6 @@ function fit(doc: jsPDF, text: string, maxWidth: number): string {
 }
 
 const pctText = (value: number) => `${Math.round(value)}%`;
-const offText = (value: number) => `${Math.abs(value) < 0.5 ? "0" : Math.abs(value).toFixed(0)}%`;
 /** "5,000 × 3,000 × 2,000": the unit stands in the column's head. */
 const sizeText = (l: number, w: number, h: number, unit: DimUnit) => formatSize(l, w, h, unit).replace(` ${unit}`, "");
 
@@ -285,7 +283,7 @@ function summaryPage(doc: jsPDF, input: PlanPdfInput, colourOf: (lineId: string)
     ["Containers", `${plan.loads.length}${totals.equipment.length > 0 ? `  (${totals.equipment.map((e) => `${e.count} × ${e.name}`).join(", ")})` : ""}`],
     ["Colli loaded", `${totals.pieces}${totals.notLoaded > 0 ? `  (${totals.notLoaded} not loaded)` : ""}`, totals.notLoaded > 0 ? RED : undefined],
     ["Weight loaded", formatKg(totals.weightKg)],
-    ["Balanced", `${totals.balanced} of ${plan.loads.length} within ${BALANCE_TOLERANCE_PCT}% of the middle`, totals.balanced < plan.loads.length ? RED : undefined],
+    ["Balanced", `${totals.balanced} of ${plan.loads.length} containers`, totals.balanced < plan.loads.length ? RED : undefined],
   ];
   figures.forEach(([title, text, colour], index) => {
     label(doc, title, MARGIN + quarter * index, y);
@@ -373,7 +371,11 @@ function loadPage(doc: jsPDF, input: PlanPdfInput, load: ContainerLoad, number: 
     ["Weight (of payload)", `${formatKg(load.totalWeightKg)}  (${pctText(stats.payloadPct)})`],
     ["Floor used", pctText(stats.floorPct)],
     ["Highest point", `${formatDim(stats.topMm, unit)} ${unit}`],
-    ["Centre of gravity", `${offText(balance.alongPct)} off lengthwise, ${offText(balance.acrossPct)} off sideways`, balance.ok ? undefined : RED],
+    [
+      `Centre of gravity (limit ${balanceLimitText(container, unit)})`,
+      `${formatDim(Math.abs(balance.cogZ - container.internalL / 2), unit)} ${unit} off lengthwise, ${formatDim(Math.abs(balance.cogX - container.internalW / 2), unit)} ${unit} off sideways`,
+      balance.ok ? undefined : RED,
+    ],
     ["Check", [balance.ok ? "Balanced" : "OUT OF BALANCE", stats.outOfGauge ? "Out of gauge" : ""].filter(Boolean).join(" · "), balance.ok ? (stats.outOfGauge ? AMBER : GREEN) : RED],
   ];
   let x = MARGIN;
@@ -421,8 +423,7 @@ function loadPage(doc: jsPDF, input: PlanPdfInput, load: ContainerLoad, number: 
   if (stats.endWallsFolded) y = paragraph(doc, END_WALLS_NOTE, y, "bold", AMBER, newPage);
   for (const overload of stats.floorOverloads) y = paragraph(doc, floorOverloadText(overload, container, unit), y, "bold", AMBER, newPage);
   if (!balance.ok) {
-    const text = `The centre of gravity is more than ${BALANCE_TOLERANCE_PCT}% off the middle of the floor, and the planner found no better arrangement. Spread the weight over more containers or change the equipment.`;
-    y = paragraph(doc, text, y, "bold", RED, newPage);
+    y = paragraph(doc, outOfBalanceText(container, unit), y, "bold", RED, newPage);
   }
   if (!hasDoors(container)) paragraph(doc, "A flat rack has no doors: positions are measured from the end wall on the left.", y, "normal", MUTED, newPage);
 }

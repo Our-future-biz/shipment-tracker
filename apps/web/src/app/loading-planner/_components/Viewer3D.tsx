@@ -3,7 +3,6 @@
 import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
-import { BALANCE_TOLERANCE_PCT } from "../_lib/balance";
 import { hasDoors } from "../_lib/loadStats";
 import type { ContainerLoad, PlacedPiece } from "../_lib/plan";
 import { cameraFor, sceneBalance, sceneBoxes, sceneFloor, type CameraView } from "../_lib/scene";
@@ -96,7 +95,7 @@ function buildScene(load: ContainerLoad, hexOf: (lineId: string) => string): { s
 
   // The balance: the area the centre of gravity must stay in, drawn on the floor, and a post with
   // a ball where it is. Green inside, red outside.
-  const balance = sceneBalance(load, BALANCE_TOLERANCE_PCT);
+  const balance = sceneBalance(load);
   const [tolX, tolZ] = balance.tolerance;
   const zone = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.PlaneGeometry(tolX * 2, tolZ * 2)), new THREE.LineBasicMaterial({ color: OK }));
   zone.rotation.x = -Math.PI / 2;

@@ -1,4 +1,4 @@
-import { balanceOf, floorOverloads, type Balance, type FloorOverload } from "./balance";
+import { balanceLimits, balanceOf, floorOverloads, type Balance, type FloorOverload } from "./balance";
 import type { ContainerSpec } from "./containers";
 import { isOutOfGauge, overhang, type ContainerLoad, type LoadPlan, type PlacedPiece } from "./plan";
 import { formatDim, type DimUnit } from "./units";
@@ -94,6 +94,16 @@ export function loadStats(load: ContainerLoad): LoadStats {
 }
 
 /** One overloaded stretch of floor as a sentence, the same on the screen and in the PDF. */
+/** "600 mm lengthwise, 118 mm sideways": how far off the middle the centre of gravity of this container may lie. */
+export function balanceLimitText(container: ContainerSpec, unit: DimUnit): string {
+  const limits = balanceLimits(container);
+  return `${formatDim(limits.alongMm, unit)} ${unit} lengthwise, ${formatDim(Math.round(limits.acrossMm), unit)} ${unit} sideways`;
+}
+
+/** What a container that could not be balanced says. */
+export const outOfBalanceText = (container: ContainerSpec, unit: DimUnit): string =>
+  `The centre of gravity is further off the middle of the floor than allowed (${balanceLimitText(container, unit)}), and the planner found no better arrangement. Spread the weight over more containers or change the equipment.`;
+
 export function floorOverloadText(overload: FloorOverload, container: ContainerSpec, unit: DimUnit): string {
   return (
     `${overload.names.join(", ")}: ${overload.tonnesPerMetre.toFixed(1)} t per metre on ${formatDim(overload.lengthMm, unit)} ${unit} of floor ` +

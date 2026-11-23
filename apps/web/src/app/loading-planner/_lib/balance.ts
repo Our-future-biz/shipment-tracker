@@ -1,8 +1,20 @@
 import type { ContainerSpec } from "./containers";
 import type { ContainerLoad, PlacedPiece } from "./plan";
 
-/** The centre of gravity must lie within this share of the half-length and half-width of the floor. */
+/** Across the container the centre of gravity must lie within this share of the half-width of the floor. */
 export const BALANCE_TOLERANCE_PCT = 10;
+/** Along the container it may be this far off the middle, in mm: what carriers usually allow on a 20' and on a 40' or 45'. */
+const ALONG_LIMIT_20_MM = 600;
+const ALONG_LIMIT_40_MM = 900;
+
+/** How far off the middle of the floor the centre of gravity of a container may lie, in mm. */
+export const balanceLimits = (container: ContainerSpec): { alongMm: number; acrossMm: number } => ({
+  alongMm: container.feet <= 20 ? ALONG_LIMIT_20_MM : ALONG_LIMIT_40_MM,
+  acrossMm: (container.internalW / 2) * (BALANCE_TOLERANCE_PCT / 100),
+});
+
+/** The rule in one line, for a plan with containers of any length. */
+export const BALANCE_RULE = "centre of gravity within 60 cm of the middle on a 20', 90 cm on a 40' or 45'";
 
 export interface Balance {
   /** Centre of gravity on the floor, in mm from the start corner. */
@@ -25,7 +37,8 @@ export function balanceOf(pieces: PlacedPiece[], container: ContainerSpec): Bala
   const cogZ = pieces.reduce((total, p) => total + (p.z + p.length / 2) * p.weightKg, 0) / weight;
   const alongPct = ((cogZ - midZ) / midZ) * 100;
   const acrossPct = ((cogX - midX) / midX) * 100;
-  const ok = Math.abs(alongPct) <= BALANCE_TOLERANCE_PCT && Math.abs(acrossPct) <= BALANCE_TOLERANCE_PCT;
+  const limits = balanceLimits(container);
+  const ok = Math.abs(cogZ - midZ) <= limits.alongMm && Math.abs(cogX - midX) <= limits.acrossMm;
   return { cogX, cogZ, alongPct, acrossPct, ok };
 }
 

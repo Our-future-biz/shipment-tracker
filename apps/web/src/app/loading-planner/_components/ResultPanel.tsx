@@ -6,8 +6,8 @@ import { KpiTile } from "@/components/KpiTile";
 import { Pill } from "@/components/Pill";
 import { SectionCard } from "@/components/SectionCard";
 import { BTN_BAR, CARD, EMPTY_STATE, HINT, LABEL_TEXT, TD, TH } from "@/styles/ui";
-import { BALANCE_TOLERANCE_PCT } from "../_lib/balance";
-import { END_WALLS_NOTE, floorOverloadText, hasDoors, loadStats, planTotals, type PieceGroup } from "../_lib/loadStats";
+import { BALANCE_RULE } from "../_lib/balance";
+import { balanceLimitText, END_WALLS_NOTE, floorOverloadText, outOfBalanceText, hasDoors, loadStats, planTotals, type PieceGroup } from "../_lib/loadStats";
 import type { ContainerLoad, LoadPlan } from "../_lib/plan";
 import { formatDim, formatKg, formatSize, type DimUnit } from "../_lib/units";
 import { FloorPlan } from "./FloorPlan";
@@ -106,7 +106,7 @@ function LoadCard({ load, number, unit, colourOf, numberOf, onShow3D }: LoadCard
           <span className={balance.ok ? "" : "text-red-600 font-medium"}>
             {offText(balance.alongPct)} off lengthwise ({formatDim(along, unit)} {unit}), {offText(balance.acrossPct)} off sideways ({formatDim(across, unit)} {unit})
           </span>
-          <span className="text-slate-500"> · limit {BALANCE_TOLERANCE_PCT}%</span>
+          <span className="text-slate-500"> · limit {balanceLimitText(container, unit)}</span>
         </span>
       </div>
 
@@ -157,10 +157,7 @@ function LoadCard({ load, number, unit, colourOf, numberOf, onShow3D }: LoadCard
       {!balance.ok && (
         <p className="m-0 flex items-start gap-2 text-[13px] text-red-600">
           <WarningOutlined className="mt-0.5" />
-          <span>
-            The centre of gravity is more than {BALANCE_TOLERANCE_PCT}% off the middle of the floor, and the planner found no better arrangement. Spread the weight over
-            more containers or change the equipment.
-          </span>
+          <span>{outOfBalanceText(container, unit)}</span>
         </p>
       )}
       {!hasDoors(container) && <p className={`${HINT} m-0`}>A flat rack has no doors: positions are measured from the end wall on the left.</p>}
@@ -215,7 +212,7 @@ export function ResultPanel({ plan, unit, colourOf, numberOf, unplanned, tooMuch
           label="Balanced containers"
           value={`${totals.balanced} of ${plan.loads.length}`}
           tone={totals.balanced < plan.loads.length ? "red" : undefined}
-          hint={`centre of gravity within ${BALANCE_TOLERANCE_PCT}% of the middle`}
+          hint={BALANCE_RULE}
         />
       </div>
 

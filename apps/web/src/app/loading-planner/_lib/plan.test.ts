@@ -368,6 +368,21 @@ describe("planLoad", () => {
       expect(coil.z + coil.length).toBeLessThan(5898 - 1500);
     });
 
+    it("allows the centre of gravity 60 cm off lengthwise on a 20' and 90 cm on a 40', a tenth of the half-width sideways", () => {
+      const one = (id: string, offAlong: number, offAcross = 0) => {
+        const container = spec(id);
+        const piece = { lineId: "a", name: "case", y: 0, length: 1000, width: 1000, height: 1000, weightKg: 5000, crosswise: false };
+        return balanceOf([{ ...piece, z: container.internalL / 2 - 500 + offAlong, x: container.internalW / 2 - 500 + offAcross }], container).ok;
+      };
+      expect(one("20dc", 590)).toBe(true);
+      expect(one("20dc", -610)).toBe(false);
+      expect(one("40hc", 890)).toBe(true);
+      expect(one("40hc", 910)).toBe(false);
+      expect(one("45hq", -890)).toBe(true);
+      expect(one("40hc", 0, 110)).toBe(true);
+      expect(one("40hc", 0, 125)).toBe(false);
+    });
+
     it("reports a load it cannot balance", () => {
       const container = spec("20dc");
       const pieces = [
