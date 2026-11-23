@@ -39,6 +39,7 @@ export default class Client {
     public readonly fx: fx.ServiceClient
     public readonly holidays: holidays.ServiceClient
     public readonly invoicing: invoicing.ServiceClient
+    public readonly loadingPlanner: loadingPlanner.ServiceClient
     public readonly quotes: quotes.ServiceClient
     public readonly sales: sales.ServiceClient
     public readonly shipments: shipments.ServiceClient
@@ -67,6 +68,7 @@ export default class Client {
         this.fx = new fx.ServiceClient(base)
         this.holidays = new holidays.ServiceClient(base)
         this.invoicing = new invoicing.ServiceClient(base)
+        this.loadingPlanner = new loadingPlanner.ServiceClient(base)
         this.quotes = new quotes.ServiceClient(base)
         this.sales = new sales.ServiceClient(base)
         this.shipments = new shipments.ServiceClient(base)
@@ -2563,6 +2565,70 @@ export namespace invoicing {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("POST", `/supplier-invoices/${encodeURIComponent(id)}/take-back-payment`, JSON.stringify(params))
             return await resp.json() as interfaces.PayableDetailResponse
+        }
+    }
+}
+
+export namespace loadingPlanner {
+
+    export class ServiceClient {
+        private baseClient: BaseClient
+
+        constructor(baseClient: BaseClient) {
+            this.baseClient = baseClient
+            this.loadingPlanCreate = this.loadingPlanCreate.bind(this)
+            this.loadingPlanDelete = this.loadingPlanDelete.bind(this)
+            this.loadingPlanGet = this.loadingPlanGet.bind(this)
+            this.loadingPlanList = this.loadingPlanList.bind(this)
+            this.loadingPlanUpdate = this.loadingPlanUpdate.bind(this)
+        }
+
+        /**
+         * Saves a new plan. Its author is the signed-in user.
+         */
+        public async loadingPlanCreate(params: controllers.LoadingPlanCreateRequest): Promise<controllers.LoadingPlanCreateResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/loading-plans`, JSON.stringify(params))
+            return await resp.json() as controllers.LoadingPlanCreateResponse
+        }
+
+        /**
+         * Hides the plan (soft delete: the row stays in the database).
+         */
+        public async loadingPlanDelete(id: string): Promise<controllers.LoadingPlanDeleteResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("DELETE", `/loading-plans/${encodeURIComponent(id)}`)
+            return await resp.json() as controllers.LoadingPlanDeleteResponse
+        }
+
+        public async loadingPlanGet(id: string): Promise<controllers.LoadingPlanGetResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/loading-plans/${encodeURIComponent(id)}`)
+            return await resp.json() as controllers.LoadingPlanGetResponse
+        }
+
+        /**
+         * The company's saved loading plans, last saved first. Open to every user.
+         */
+        public async loadingPlanList(params: controllers.LoadingPlanListRequest): Promise<controllers.LoadingPlanListResponse> {
+            // Convert our params into the objects we need for the request
+            const query = makeRecord<string, string | string[]>({
+                linkKind: params.linkKind,
+                linkId: params.linkId,
+            })
+
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/loading-plans`, undefined, {query})
+            return await resp.json() as controllers.LoadingPlanListResponse
+        }
+
+        /**
+         * Saves a plan again, whole: the request replaces its name, link, cargo and equipment.
+         */
+        public async loadingPlanUpdate(id: string, params: controllers.LoadingPlanUpdateRequest): Promise<controllers.LoadingPlanUpdateResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("PUT", `/loading-plans/${encodeURIComponent(id)}`, JSON.stringify(params))
+            return await resp.json() as controllers.LoadingPlanUpdateResponse
         }
     }
 }
@@ -10580,6 +10646,54 @@ export namespace controllers {
          * Last month, YYYY-MM
          */
         to: string
+    }
+
+    export interface LoadingPlanCreateRequest {
+        name: string
+        /**
+         * What the plan is linked to; null for a what-if plan.
+         */
+        linkKind: interfaces.PlanLinkKind | null
+        linkId: string | null
+        /**
+         * The job number or quote reference, as shown to the user.
+         */
+        linkRef: string
+        lines: interfaces.PlanCargoLine[]
+        /**
+         * Ids of the nominated container types; null lets the planner choose.
+         */
+        nominated: string[] | null
+    }
+
+    export interface LoadingPlanCreateResponse {
+        plan: interfaces.LoadingPlanItem
+    }
+
+    export interface LoadingPlanDeleteResponse {
+        ok: boolean
+    }
+
+    export interface LoadingPlanGetResponse {
+        plan: interfaces.LoadingPlanItem
+    }
+
+    export interface LoadingPlanListRequest {
+        /**
+         * "shipment" or "quote"; with linkId: only the plans linked to that job.
+         */
+        linkKind?: string
+        linkId?: string
+    }
+
+    export interface LoadingPlanListResponse {
+        plans: interfaces.LoadingPlanSummary[]
+    }
+
+    export type LoadingPlanUpdateRequest = LoadingPlanCreateRequest
+
+    export interface LoadingPlanUpdateResponse {
+        plan: interfaces.LoadingPlanItem
     }
 
     export interface LinkMasterJobRequest {
@@ -20096,6 +20210,72 @@ export namespace interfaces {
         outPieces: number
         outKg: number
         outCbm: number
+    }
+
+    /**
+     * What a plan can be linked to. A plan without a link is a what-if plan.
+     */
+    export type PlanLinkKind = "shipment" | "quote"
+
+    /**
+     * One line of a loading plan's cargo list. Sizes in mm, weight in kg per piece.
+     */
+    export interface PlanCargoLine {
+        id: string
+        name: string
+        lengthMm: number
+        widthMm: number
+        heightMm: number
+        weightKg: number
+        colli: number
+        /**
+         * May also be loaded crosswise.
+         */
+        canTurn: boolean
+        stackable: boolean
+    }
+
+    export interface LoadingPlanItem {
+        id: string
+        name: string
+        linkKind: PlanLinkKind | null
+        /**
+         * Id of the linked shipment or quote; null without a link.
+         */
+        linkId: string | null
+        /**
+         * The job number or quote reference, as shown to the user.
+         */
+        linkRef: string
+        lines: PlanCargoLine[]
+        /**
+         * Ids of the nominated container types; null lets the planner choose.
+         */
+        nominated: string[] | null
+        /**
+         * E-mail of the user who made the plan, and of the one who saved it last.
+         */
+        createdBy: string
+        updatedBy: string
+        createdAt: string
+        updatedAt: string
+    }
+
+    /**
+     * A loading plan as the list shows it.
+     */
+    export interface LoadingPlanSummary {
+        id: string
+        name: string
+        linkKind: PlanLinkKind | null
+        linkId: string | null
+        linkRef: string
+        colli: number
+        weightKg: number
+        createdBy: string
+        updatedBy: string
+        createdAt: string
+        updatedAt: string
     }
 
     export interface LaneFill {

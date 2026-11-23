@@ -56,7 +56,7 @@ customer links), `quotes` (sales quotes), `sales` (follow-up tasks, pipeline, ma
 `invoicing`, `fx` (ČNB exchange rates), `tariffs` (ocean, rail and collection tariffs),
 `trucking` (road transport by subcontracted hauliers, haulier portal), `warehouse`,
 `warehouseConcept` (gate log, warehouse tasks), `holidays`, `automation`, `extraction` (AI reading
-of documents).
+of documents), `loadingPlanner` (saved container loading plans).
 
 `encore.service.ts` holds only the `Service` and, where needed, start-up code (for example
 `configureAppEnvironment(appMeta().environment)` in customers, shipments and trucking). No
