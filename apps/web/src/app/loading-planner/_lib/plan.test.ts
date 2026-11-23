@@ -279,6 +279,29 @@ describe("planLoad", () => {
       expect(balanceOf(pieces, container).ok).toBe(true);
     });
 
+    it("moves a heavy piece from the end of a filled flat rack to its middle", () => {
+      // The machine is loaded first, at one end, and the pallets fill the rest of the flat rack.
+      const plan = planLoad([
+        line("pallet", 1200, 800, 1000, 400, { colli: 40, stackable: true }),
+        line("machine", 5000, 3000, 2000, 15000),
+      ]);
+      expectSoundFloors({ loads: plan.loads.map((l) => ({ ...l, pieces: l.pieces.filter((p) => p.y === 0) })), notLoaded: [] });
+      for (const l of plan.loads) expect(balanceOf(l.pieces, l.container).ok, l.container.name).toBe(true);
+      const rack = plan.loads.find((l) => l.container.group === "flat-rack")!;
+      const machine = rack.pieces.find((p) => p.name === "machine")!;
+      expect(machine.z).toBeGreaterThan(2000);
+      expect(machine.z + machine.length).toBeLessThan(rack.container.internalL - 2000);
+    });
+
+    it("puts the heaviest of several full-width pieces in the middle", () => {
+      const container = spec("40fr");
+      const at = (z: number, weightKg: number) => ({ lineId: `w${weightKg}`, name: "machine", x: -300, y: 0, z, length: 3000, width: 2974, height: 1500, weightKg, crosswise: false });
+      const pieces = [at(0, 12000), at(3000, 2000), at(6000, 3000)];
+      centreLoad(pieces, container);
+      expect(pieces.map((p) => p.weightKg).sort((a, b) => pieces.find((p) => p.weightKg === a)!.z - pieces.find((p) => p.weightKg === b)!.z)).toEqual([3000, 12000, 2000]);
+      expect(balanceOf(pieces, container).ok).toBe(true);
+    });
+
     it("reports a load it cannot balance", () => {
       const container = spec("20dc");
       const pieces = [

@@ -48,17 +48,50 @@ const swapPlaces = (a: PlacedPiece[], b: PlacedPiece[]) => {
 };
 
 /**
- * Brings the centre of gravity of a load towards the middle of the floor, in place:
- * first by swapping stacks that cover the same floor area (so nothing can collide), heavier ones
- * to the middle, then by sliding the whole load as far as the free floor allows.
+ * Puts the heavy part of a load in the middle of its length. The floor is cut across wherever no
+ * piece lies over the cut; the bands between the cuts can change places without anything colliding.
+ * The heaviest band goes in the middle, each next one to the lighter end. A load with a piece overhanging
+ * the ends is left as it is.
  */
-export function centreLoad(pieces: PlacedPiece[], container: ContainerSpec): void {
-  if (pieces.length === 0) return;
-  const offCentre = () => {
-    const balance = balanceOf(pieces, container);
-    return Math.abs(balance.alongPct) + Math.abs(balance.acrossPct);
-  };
+function heavyBandsToMiddle(pieces: PlacedPiece[], container: ContainerSpec): void {
+  if (pieces.some((p) => p.z < 0 || p.z + p.length > container.internalL)) return;
 
+  const bands: { start: number; end: number; pieces: PlacedPiece[] }[] = [];
+  for (const piece of [...pieces].sort((a, b) => a.z - b.z)) {
+    const last = bands[bands.length - 1];
+    if (last && piece.z < last.end) {
+      last.end = Math.max(last.end, piece.z + piece.length);
+      last.pieces.push(piece);
+    } else {
+      bands.push({ start: piece.z, end: piece.z + piece.length, pieces: [piece] });
+    }
+  }
+  if (bands.length < 3) return;
+
+  const [heaviest, ...rest] = [...bands].sort((a, b) => weightOf(b.pieces) - weightOf(a.pieces));
+  if (!heaviest) return;
+  const front: typeof bands = [];
+  const back: typeof bands = [];
+  let frontWeight = 0;
+  let backWeight = 0;
+  for (const band of rest) {
+    if (frontWeight <= backWeight) {
+      front.unshift(band);
+      frontWeight += weightOf(band.pieces);
+    } else {
+      back.push(band);
+      backWeight += weightOf(band.pieces);
+    }
+  }
+  let z = 0;
+  for (const band of [...front, heaviest, ...back]) {
+    for (const piece of band.pieces) piece.z += z - band.start;
+    z += band.end - band.start;
+  }
+}
+
+/** Swaps stacks that cover the same floor area (so nothing can collide), heavier ones to the middle. */
+function swapEqualStacks(pieces: PlacedPiece[], offCentre: () => number): void {
   const stacks = stacksOf(pieces);
   const sameFloor = (a: PlacedPiece[], b: PlacedPiece[]) => a[0]?.length === b[0]?.length && a[0]?.width === b[0]?.width;
   for (let round = 0; round < stacks.length; round++) {
@@ -77,8 +110,11 @@ export function centreLoad(pieces: PlacedPiece[], container: ContainerSpec): voi
     const { a, b } = best as { a: PlacedPiece[]; b: PlacedPiece[] };
     swapPlaces(a, b);
   }
+}
 
-  // Slide the load. A piece overhanging the floor is already centred, so that direction stays.
+/** Slides the whole load as far towards the middle as the free floor allows. */
+function slideToMiddle(pieces: PlacedPiece[], container: ContainerSpec): void {
+  // A piece overhanging the floor is already centred, so that direction stays.
   const balance = balanceOf(pieces, container);
   const slide = (wanted: number, starts: number[], ends: number[], floorSize: number) => {
     const least = -Math.min(...starts);
@@ -91,6 +127,35 @@ export function centreLoad(pieces: PlacedPiece[], container: ContainerSpec): voi
     piece.x += dx;
     piece.z += dz;
   }
+}
+
+/**
+ * Brings the centre of gravity of a load towards the middle of the floor, in place. Two ways are
+ * tried and the better one kept: the load as it was packed, and the load with its heavy part moved
+ * to the middle of its length. Either way equal-sized stacks then change places, heavier ones to
+ * the middle, and the whole load slides as far as the free floor allows.
+ */
+export function centreLoad(pieces: PlacedPiece[], container: ContainerSpec): void {
+  if (pieces.length === 0) return;
+  const settle = (reorder: boolean) => {
+    const copy = pieces.map((piece) => ({ ...piece }));
+    const offCentre = () => {
+      const balance = balanceOf(copy, container);
+      return Math.abs(balance.alongPct) + Math.abs(balance.acrossPct);
+    };
+    if (reorder) heavyBandsToMiddle(copy, container);
+    // Slide first, so a swap is judged on the load where it will stand, then slide what the swaps moved.
+    slideToMiddle(copy, container);
+    swapEqualStacks(copy, offCentre);
+    slideToMiddle(copy, container);
+    return { copy, off: offCentre() };
+  };
+  const [asPacked, reordered] = [settle(false), settle(true)];
+  const best = reordered.off < asPacked.off - 0.01 ? reordered.copy : asPacked.copy;
+  pieces.forEach((piece, index) => {
+    piece.x = best[index]?.x ?? piece.x;
+    piece.z = best[index]?.z ?? piece.z;
+  });
 }
 
 export interface BeddingNeed {

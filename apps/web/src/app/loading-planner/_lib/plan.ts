@@ -106,6 +106,11 @@ function place(bin: Bin, line: CargoLine): boolean {
   const best = ways[0];
   if (!best?.spot) return stack(bin, line);
 
+  // The first piece of a load, when it takes the floor's whole width, goes to the middle of the
+  // length: the rest of the cargo then fills both ends and the load stays in balance.
+  if (bin.pieces.length === 0 && best.fp.width >= bin.floor.width && best.fp.length < bin.floor.length) {
+    best.spot.z = Math.round((bin.floor.length - best.fp.length) / 2);
+  }
   occupy(bin.floor, best.spot, best.fp.length, best.fp.width);
   bin.lines.push(line);
   bin.pieces.push({

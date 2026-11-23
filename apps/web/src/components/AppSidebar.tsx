@@ -19,6 +19,7 @@ import {
   PackageIcon,
   ReceiptIcon,
   SealCheckIcon,
+  ShippingContainerIcon,
   SquaresFourIcon,
   StackIcon,
   TruckIcon,
@@ -134,6 +135,8 @@ const NAV_ITEMS: NavItem[] = [
   { path: "/settings/users", label: "Users", icon: UsersIcon, roles: ["admin", "manager"] },
   { path: "/settings/organization", label: "Organization", icon: BuildingsIcon, roles: ["admin", "superadmin"] },
   { path: "/platform/companies", label: "Platform", icon: HardDrivesIcon, roles: ["superadmin"] },
+  // The last item of the menu, for everyone: what-if loading plans and the plans of shipments and quotes.
+  { path: "/loading-planner", label: "Loading Planner", icon: ShippingContainerIcon },
 ];
 
 /** Hide role-restricted items the user can't access. */
