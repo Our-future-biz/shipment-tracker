@@ -2325,6 +2325,29 @@ export interface SailingHistoryEntry {
   text: string;
 }
 
+/** A shipment whose customer is told from its sailing (Council Outlay 14, C6). */
+export interface SailingNoticeRow {
+  shipmentId: string;
+  jobNumber: string;
+  customer: string;
+  /** For a rolled shipment: where it went and why, and when it was moved (ISO). */
+  movedTo?: string;
+  reason?: string;
+  movedAt?: string;
+  /** Who told the customer, how ("email", "phone", "other") and when (ISO); null while nobody has. */
+  told: { at: string; byName: string; channel: string } | null;
+}
+
+/** A sailing's customer notices: who was told the cargo sailed, and who that it was rolled to a later sailing. The app sends nothing; it keeps the user's word. */
+export interface SailingCustomerNotices {
+  /** The sailing is set to Departed or a later stage: only then is "sailed" recorded. */
+  hasSailed: boolean;
+  /** The shipments on the sailing, by job number; cancelled ones left out. */
+  sailed: SailingNoticeRow[];
+  /** The shipments moved on from this sailing to another, the last moved first. */
+  rolled: SailingNoticeRow[];
+}
+
 /** A sailing's checklist, hand-over note and history (Council Outlay 14, C5). */
 export interface SailingLog {
   checklist: SailingChecklistItem[];

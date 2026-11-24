@@ -3458,6 +3458,8 @@ export namespace shipments {
             this.coLoadingSettingsSet = this.coLoadingSettingsSet.bind(this)
             this.coLoadingSettingsChecklist = this.coLoadingSettingsChecklist.bind(this)
             this.coLoadingSailingLog = this.coLoadingSailingLog.bind(this)
+            this.coLoadingSailingNotices = this.coLoadingSailingNotices.bind(this)
+            this.coLoadingSailingNoticesRecord = this.coLoadingSailingNoticesRecord.bind(this)
             this.coLoadingSailingTick = this.coLoadingSailingTick.bind(this)
             this.coLoadingSailingNote = this.coLoadingSailingNote.bind(this)
             this.commentCreate = this.commentCreate.bind(this)
@@ -4006,6 +4008,22 @@ export namespace shipments {
         public async coLoadingSailingLog(id: string): Promise<interfaces.SailingLog> {
             const resp = await this.baseClient.callTypedAPI("GET", `/co-loading/sailings/${encodeURIComponent(id)}/log`)
             return await resp.json() as interfaces.SailingLog
+        }
+
+        /**
+         * A sailing's customer notices: who was told the cargo sailed, and who that it was rolled.
+         */
+        public async coLoadingSailingNotices(id: string): Promise<interfaces.SailingCustomerNotices> {
+            const resp = await this.baseClient.callTypedAPI("GET", `/co-loading/sailings/${encodeURIComponent(id)}/customer-notices`)
+            return await resp.json() as interfaces.SailingCustomerNotices
+        }
+
+        /**
+         * Records that these shipments' customers were told, one customer notice on each shipment.
+         */
+        public async coLoadingSailingNoticesRecord(id: string, params: { kind: string; shipmentIds: string[]; channel: string; note?: string }): Promise<interfaces.SailingCustomerNotices> {
+            const resp = await this.baseClient.callTypedAPI("POST", `/co-loading/sailings/${encodeURIComponent(id)}/customer-notices`, JSON.stringify(params))
+            return await resp.json() as interfaces.SailingCustomerNotices
         }
 
         /**
@@ -16903,6 +16921,31 @@ export namespace interfaces {
         by: string
         kind: "created" | "changed" | "stage" | "note" | "check" | "linked" | "removed" | "moved"
         text: string
+    }
+
+    /**
+     * A shipment whose customer is told from its sailing.
+     */
+    export interface SailingNoticeRow {
+        shipmentId: string
+        jobNumber: string
+        customer: string
+        movedTo?: string
+        reason?: string
+        movedAt?: string
+        /**
+         * Who told the customer, how ("email", "phone", "other") and when (ISO); null while nobody has.
+         */
+        told: { at: string; byName: string; channel: string } | null
+    }
+
+    /**
+     * A sailing's customer notices: who was told the cargo sailed, and who that it was rolled to a later sailing.
+     */
+    export interface SailingCustomerNotices {
+        hasSailed: boolean
+        sailed: SailingNoticeRow[]
+        rolled: SailingNoticeRow[]
     }
 
     /**

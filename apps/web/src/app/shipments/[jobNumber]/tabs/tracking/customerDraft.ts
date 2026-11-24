@@ -17,6 +17,9 @@ export const NOTICE_KIND_OPTIONS = [
   { value: "pod_sent", label: "POD sent" },
   { value: "draft_sent", label: "BoL draft sent" },
   { value: "bl_provided", label: "Bill of Lading provided" },
+  // Also recorded from a Co-Loading sailing, for several shipments at once (Council Outlay 14, C6).
+  { value: "sailed", label: "Sailed" },
+  { value: "rolled", label: "Rolled to a later sailing" },
 ] as const;
 
 export type NoticeKindValue = (typeof NOTICE_KIND_OPTIONS)[number]["value"];
@@ -59,6 +62,14 @@ const BODY: Record<NoticeKindValue, Record<NoticeLanguage, { subject: string; le
   bl_provided: {
     en: { subject: "Bill of Lading", lead: "Please find attached the Bill of Lading of your shipment {reference}." },
     cs: { subject: "konosament", lead: "v příloze posíláme konosament Vaší zásilky {reference}." },
+  },
+  sailed: {
+    en: { subject: "sailed", lead: "Your shipment {reference} has sailed." },
+    cs: { subject: "zásilka odplula", lead: "Vaše zásilka {reference} odplula." },
+  },
+  rolled: {
+    en: { subject: "moved to a later sailing", lead: "We are sorry to inform you that your shipment {reference} has been moved to a later sailing. The new dates are below." },
+    cs: { subject: "přesun na pozdější odjezd", lead: "omlouváme se, Vaše zásilka {reference} byla přesunuta na pozdější odjezd. Nové termíny uvádíme níže." },
   },
 };
 

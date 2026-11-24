@@ -13,6 +13,9 @@ export const NOTICE_KINDS = {
   pod_sent: "POD sent",
   draft_sent: "BoL draft sent",
   bl_provided: "Bill of Lading provided",
+  // Told from a Co-Loading sailing, for several shipments at once (Council Outlay 14, C6).
+  sailed: "Sailed",
+  rolled: "Rolled to a later sailing",
 } as const;
 
 export type NoticeKind = keyof typeof NOTICE_KINDS;

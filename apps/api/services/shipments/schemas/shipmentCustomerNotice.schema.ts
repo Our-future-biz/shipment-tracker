@@ -26,7 +26,7 @@ export const shipmentCustomerNoticeTable = pgTable(
     tenantIndex("shipment_customer_notice", table),
     foreignKey({ name: "shipment_customer_notice_shipment_fk", columns: [table.shipmentId], foreignColumns: [shipmentTable.id] }).onDelete("cascade"),
     index("shipment_customer_notice_shipment_idx").on(table.shipmentId, table.createdAt),
-    check("shipment_customer_notice_kind_check", sql`${table.kind} IN ('status', 'arrival_notice', 'eta_change', 'delivery_advice', 'pod_sent', 'draft_sent', 'bl_provided')`),
+    check("shipment_customer_notice_kind_check", sql`${table.kind} IN ('status', 'arrival_notice', 'eta_change', 'delivery_advice', 'pod_sent', 'draft_sent', 'bl_provided', 'sailed', 'rolled')`),
     check("shipment_customer_notice_channel_check", sql`${table.channel} IN ('email', 'phone', 'other')`),
   ],
 );

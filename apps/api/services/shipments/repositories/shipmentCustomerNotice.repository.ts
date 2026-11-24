@@ -18,6 +18,17 @@ class ShipmentCustomerNoticeRepository extends TenantRepository<typeof t> {
       .limit(limit);
   }
 
+  /** These shipments' notices of one kind, the latest first: who told the customer what, and when. */
+  async ofKind(shipmentIds: readonly string[], kind: string, companyId: string): Promise<ShipmentCustomerNoticeRecord[]> {
+    if (shipmentIds.length === 0) return [];
+    return this.db
+      .select()
+      .from(t)
+      .where(and(eq(t.companyId, companyId), inArray(t.shipmentId, [...shipmentIds]), eq(t.kind, kind), isNull(t.deletedAt)))
+      .orderBy(desc(t.createdAt))
+      .limit(2000);
+  }
+
   /** Each of these shipments' latest notice. */
   async latestPerShipment(shipmentIds: readonly string[], companyId: string): Promise<Map<string, ShipmentCustomerNoticeRecord>> {
     if (shipmentIds.length === 0) return new Map();

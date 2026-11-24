@@ -3,9 +3,10 @@ import type { MaxLen } from "encore.dev/validate";
 import { getAuthData } from "~encore/auth";
 import { mainSearchInput } from "../../../lib/mainSearch";
 import { requireRole } from "../../../lib/rbac";
-import type { BoxCostChange, BoxUtilization, CoLoadingBoard, CoLoadingSailingItem, SearchCoLoadingItem, SearchMasterJobsRequest, SailingEarnings, SailingLog, SailingProfit, SailingCopyResult, SailingPlanCargo, SailingRemovedShipment, SailingShipmentFacts, ShipmentSailing } from "../interfaces/interfaces";
+import type { BoxCostChange, BoxUtilization, CoLoadingBoard, CoLoadingSailingItem, SearchCoLoadingItem, SearchMasterJobsRequest, SailingEarnings, SailingLog, SailingProfit, SailingCopyResult, SailingCustomerNotices, SailingPlanCargo, SailingRemovedShipment, SailingShipmentFacts, ShipmentSailing } from "../interfaces/interfaces";
 import { coLoadingCopyService } from "../services/coLoadingCopy.service";
 import { coLoadingLogService } from "../services/coLoadingLog.service";
+import { coLoadingNoticesService } from "../services/coLoadingNotices.service";
 import { coLoadingSailingService as service } from "../services/coLoadingSailing.service";
 
 // A Co-Loading Concept service's sailings (lib/coLoadingSailing), for everyone in the company.
@@ -313,5 +314,31 @@ export const coLoadingSailingNote = api(
   { expose: true, auth: true, method: "PUT", path: "/co-loading/sailings/:id/note" },
   async ({ id, note }: { id: string; note: string & MaxLen<4000> }): Promise<SailingLog> => {
     return coLoadingLogService.setNote(id, note, getAuthData()!);
+  },
+);
+
+// A sailing's customer notices (Council Outlay 14, C6): who was told the cargo sailed, and who that it was rolled. For everyone.
+export const coLoadingSailingNotices = api(
+  { expose: true, auth: true, method: "GET", path: "/co-loading/sailings/:id/customer-notices" },
+  async ({ id }: { id: string }): Promise<SailingCustomerNotices> => {
+    return coLoadingNoticesService.list(id, getAuthData()!.companyID);
+  },
+);
+
+interface SailingNoticesRecordRequest {
+  id: string;
+  /** "sailed" or "rolled" */
+  kind: string & MaxLen<10>;
+  shipmentIds: string[] & MaxLen<200>;
+  /** How they were told: "email", "phone" or "other" */
+  channel: string & MaxLen<10>;
+  note?: string & MaxLen<1000>;
+}
+
+// Records that these shipments' customers were told, one customer notice on each shipment. The app sends nothing: it keeps the user's word.
+export const coLoadingSailingNoticesRecord = api(
+  { expose: true, auth: true, method: "POST", path: "/co-loading/sailings/:id/customer-notices" },
+  async ({ id, ...input }: SailingNoticesRecordRequest): Promise<SailingCustomerNotices> => {
+    return coLoadingNoticesService.record(id, input, getAuthData()!);
   },
 );

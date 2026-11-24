@@ -8,6 +8,7 @@ import { apiErrorMessage } from "@/lib/api";
 import { formatDateTime } from "@/lib/date";
 import { useMessages } from "@/lib/toast";
 import { CARD, HINT } from "@/styles/ui";
+import { CustomersToldCard } from "./CustomersToldCard";
 
 const NOTE_MAX = 2000;
 /** The dot before a history line, by what happened. */
@@ -106,6 +107,8 @@ export function SailingLogTab({ sailingId, closed }: { sailingId: string; closed
           </div>
         </SectionCard>
       </div>
+
+      <CustomersToldCard sailingId={sailingId} />
 
       <SectionCard title="History" bodyClassName="p-0" extra={<CountChip count={log.history.length} />}>
         <ol className="m-0 list-none p-0">

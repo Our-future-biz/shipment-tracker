@@ -390,3 +390,19 @@ export function useSailingShipmentFacts(sailingId: string) {
   return { facts: query.data?.data ?? [], isLoading: query.isLoading, isError: query.isError, copy };
 }
 export type SailingShipmentFacts = ReturnType<typeof useSailingShipmentFacts>["facts"][number];
+
+/** A sailing's customer notices (Council Outlay 14, C6): who was told the cargo sailed or was rolled, and the recording of it for several shipments. */
+export function useSailingNotices(id: string) {
+  const qc = useQueryClient();
+  const key = [...LIST_KEY, "sailing-notices", id];
+  const query = useQuery({ queryKey: key, queryFn: () => api.shipments.coLoadingSailingNotices(id), enabled: !!id });
+  const record = useMutation({
+    mutationFn: (input: { kind: "sailed" | "rolled"; shipmentIds: string[]; channel: string; note?: string }) => api.shipments.coLoadingSailingNoticesRecord(id, input),
+    // The notices stand on each shipment's Tracking tab too: those are read again.
+    onSuccess: (notices) => {
+      qc.setQueryData(key, notices);
+      return qc.invalidateQueries({ queryKey: ["shipment-tracking"] });
+    },
+  });
+  return { notices: query.data ?? null, isLoading: query.isLoading, isError: query.isError, record };
+}

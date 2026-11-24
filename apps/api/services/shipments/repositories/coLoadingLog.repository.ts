@@ -51,6 +51,34 @@ export const coLoadingLogRepository = {
       .limit(500);
   },
 
+  /**
+   * The sailing's links as its customer notices read them (Council Outlay 14, C6): the shipments on
+   * it now, and those moved on to another sailing, each with its customer and where it went. A
+   * deleted shipment has no customer to tell: left out.
+   */
+  async noticeLinks(sailingId: string, companyId: string) {
+    const movedTo = alias(sailings, "moved_to");
+    return db
+      .select({
+        shipmentId: shipmentTable.id,
+        jobNumber: shipmentTable.jobNumber,
+        customer: shipmentTable.customer,
+        status: shipmentTable.status,
+        linkedAt: links.createdAt,
+        removedAt: links.deletedAt,
+        removedReason: links.removedReason,
+        removedNote: links.removedNote,
+        movedToVessel: movedTo.vessel,
+        movedToVoyage: movedTo.voyage,
+      })
+      .from(links)
+      .innerJoin(shipmentTable, eq(shipmentTable.id, links.shipmentId))
+      .leftJoin(movedTo, eq(movedTo.id, links.movedToSailingId))
+      .where(and(eq(links.companyId, companyId), eq(links.sailingId, sailingId), eq(shipmentTable.companyId, companyId), isNull(shipmentTable.deletedAt)))
+      .orderBy(asc(shipmentTable.jobNumber), desc(links.createdAt))
+      .limit(1000);
+  },
+
   /** Every link the sailing ever had, live or taken off, with the shipment's job number - a deleted shipment's too - and where a moved one went. */
   async historyLinks(sailingId: string, companyId: string) {
     const movedTo = alias(sailings, "moved_to");

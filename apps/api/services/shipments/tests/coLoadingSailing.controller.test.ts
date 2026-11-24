@@ -10,6 +10,7 @@ vi.mock("~encore/auth", () => ({ getAuthData: () => ({ userID: "u1", companyID: 
 // The copy to shipments goes through the shipment service, which needs the database: a stand-in keeps this file to the controller.
 vi.mock("../services/coLoadingCopy.service", () => ({ coLoadingCopyService: { facts: vi.fn(), copy: vi.fn() } }));
 // The checklist, note and history read the database: a stand-in, as for the copy.
+vi.mock("../services/coLoadingNotices.service", () => ({ coLoadingNoticesService: { list: vi.fn(), record: vi.fn() } }));
 vi.mock("../services/coLoadingLog.service", () => ({ coLoadingLogService: { log: vi.fn(), setTick: vi.fn(), setNote: vi.fn() } }));
 vi.mock("../services/coLoadingSailing.service", () => ({ coLoadingSailingService: service }));
 

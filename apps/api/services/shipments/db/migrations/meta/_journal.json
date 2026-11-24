@@ -750,6 +750,13 @@
       "when": 1795533676209,
       "tag": "0106_co_loading_cargo_since_linked",
       "breakpoints": true
+    },
+    {
+      "idx": 107,
+      "version": "7",
+      "when": 1795534779296,
+      "tag": "0107_customer_notice_sailed_rolled",
+      "breakpoints": true
     }
   ]
 }
