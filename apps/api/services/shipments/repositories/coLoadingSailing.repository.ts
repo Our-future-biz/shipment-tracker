@@ -139,6 +139,20 @@ class CoLoadingSailingRepository {
     return row ?? null;
   }
 
+  /** The live sailing that has this Master Job as its own, if any: a Master Job belongs to one sailing. */
+  async sailingOfMasterJob(masterJobId: string, companyId: string): Promise<CoLoadingSailingRecord | null> {
+    const [row] = await db.select().from(sailings).where(and(eq(sailings.companyId, companyId), eq(sailings.masterJobId, masterJobId), isNull(sailings.deletedAt))).limit(1);
+    return row ?? null;
+  }
+
+  /** Sets or clears the sailing's Master Job and records it in the sailing's changes, together. */
+  async setMasterJob(sailingId: string, companyId: string, masterJobId: string | null, words: { old: string; next: string }, by: { id: string; name: string }): Promise<void> {
+    await db.transaction(async (tx) => {
+      await tx.update(sailings).set({ masterJobId, updatedAt: new Date() }).where(and(eq(sailings.id, sailingId), eq(sailings.companyId, companyId)));
+      await tx.insert(costChanges).values({ companyId, sailingId, containerNo: 0, kind: "master_job", oldNote: words.old, newNote: words.next, changedById: by.id, changedByName: by.name });
+    });
+  }
+
   /** Marks whether the people who must act were told that the sailing's box is over its limit. */
   async setOverNotified(sailingId: string, companyId: string, told: boolean): Promise<void> {
     await db.update(sailings).set({ overNotified: told }).where(and(eq(sailings.id, sailingId), eq(sailings.companyId, companyId)));

@@ -18,6 +18,7 @@ import { AttentionChips } from "./AttentionChips";
 import { BoxFillChip } from "./BoxFillChip";
 import { EditSailingModal } from "./EditSailingModal";
 import { SailingLogTab } from "./SailingLogTab";
+import { SailingMasterJobCard } from "./SailingMasterJobCard";
 import { SailingStageControl } from "./SailingStageControl";
 import { BoxUtilizationTab } from "./BoxUtilizationTab";
 import { EarningsTab } from "./EarningsTab";
@@ -199,13 +200,16 @@ export function CoLoadingSailingPage() {
           // Wait for the service: its Service Name says which shipments go in the box, and a closed
           // one takes nothing new.
           service ? (
-            <SailingShipmentsTab
+            <div className="flex flex-col gap-4">
+              <SailingMasterJobCard sailingId={sailing.id} sailingName={sailingTitle(sailing)} closed={!!service.closedAt} />
+              <SailingShipmentsTab
               sailing={sailing}
               serviceLabel={service.name}
               serviceName={service.serviceName}
               serviceMode={service.mode}
               closed={!!service.closedAt}
             />
+            </div>
           ) : serviceLoading ? (
             <div className="flex justify-center p-20">
               <Spin size="large" />

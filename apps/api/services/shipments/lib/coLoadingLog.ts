@@ -83,6 +83,7 @@ export function changeEntry(c: { containerNo: number; kind: string; oldAmount: s
   if (c.kind === "stage") return { ...base, kind: "stage", text: `Stage: ${words(c.oldNote)} → ${words(c.newNote)}` };
   if (c.kind === "note") return { ...base, kind: "note", text: c.newNote ? (c.oldNote ? "Hand-over note changed" : "Hand-over note written") : "Hand-over note cleared" };
   if (c.kind === "check") return { ...base, kind: "check", text: c.newNote ? `Ticked: ${c.newNote}` : `Unticked: ${c.oldNote}` };
+  if (c.kind === "master_job") return { ...base, kind: "changed", text: `Master Job: ${words(c.oldNote)} → ${words(c.newNote)}` };
   if (c.kind === "containers") return { ...base, kind: "changed", text: `Number of containers: ${Number(c.oldAmount ?? 0)} → ${Number(c.newAmount ?? 0)}` };
   if (c.kind === "departure") return { ...base, kind: "changed", text: `Departure date: ${c.oldNote ? day(c.oldNote) : "none"} → ${c.newNote ? day(c.newNote) : "none"}` };
   if (c.kind === "cutoff") return { ...base, kind: "changed", text: `Cut-off: ${c.oldNote ? day(c.oldNote) : "none"} → ${c.newNote ? day(c.newNote) : "none"}` };

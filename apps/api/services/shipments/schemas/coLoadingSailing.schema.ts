@@ -29,6 +29,9 @@ export const coLoadingSailingTable = pgTable(
     // Where the sailing stands, set by hand (Council Outlay 14, C3): open, closed (for cargo), departed,
     // arrived, devanned. From "closed" on, linking a shipment asks for a reason.
     stage: text("stage").notNull().default("open"),
+    // The sailing's Master Job (Council Outlay 14, C2): one per sailing; null while it has none. A
+    // bare uuid: the Master Job may be deleted, and the sailing then simply has none.
+    masterJobId: uuid("master_job_id"),
     // The box is over its limit and the people who must act were told (Council Outlay 14, C4): told
     // once, and again only after the box was back within its limits.
     overNotified: boolean("over_notified").notNull().default(false),

@@ -188,6 +188,7 @@ export function changeWords(c: BoxCostChange, severalContainers: boolean, format
   // What the sailing's own history keeps in the same record (Council Outlay 14, C3 and C5).
   if (c.kind === "stage") return `Stage: ${c.oldNote || "none"} → ${c.newNote || "none"}`;
   if (c.kind === "note") return c.newNote ? "Hand-over note changed" : "Hand-over note cleared";
+  if (c.kind === "master_job") return `Master Job: ${c.oldNote || "none"} → ${c.newNote || "none"}`;
   if (c.kind === "check") return c.newNote ? `Ticked: ${c.newNote}` : `Unticked: ${c.oldNote}`;
   // The sailing's own facts (Edit sailing): old and new words.
   const fact = SAILING_FACT_LABEL[c.kind];

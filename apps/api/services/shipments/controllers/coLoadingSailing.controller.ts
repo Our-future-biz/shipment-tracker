@@ -3,9 +3,10 @@ import type { MaxLen } from "encore.dev/validate";
 import { getAuthData } from "~encore/auth";
 import { mainSearchInput } from "../../../lib/mainSearch";
 import { requireRole } from "../../../lib/rbac";
-import type { BoxCostChange, BoxUtilization, CoLoadingBoard, CoLoadingSailingItem, SearchCoLoadingItem, SearchMasterJobsRequest, SailingEarnings, SailingLog, SailingProfit, SailingCopyResult, SailingCustomerNotices, SailingPlanCargo, SailingRemovedShipment, SailingShipmentFacts, ShipmentSailing } from "../interfaces/interfaces";
+import type { BoxCostChange, BoxUtilization, CoLoadingBoard, CoLoadingSailingItem, SearchCoLoadingItem, SearchMasterJobsRequest, SailingEarnings, SailingLog, SailingMasterJob, SailingProfit, SailingCopyResult, SailingCustomerNotices, SailingPlanCargo, SailingRemovedShipment, SailingShipmentFacts, ShipmentSailing } from "../interfaces/interfaces";
 import { coLoadingCopyService } from "../services/coLoadingCopy.service";
 import { coLoadingLogService } from "../services/coLoadingLog.service";
+import { coLoadingMasterJobService } from "../services/coLoadingMasterJob.service";
 import { coLoadingNoticesService } from "../services/coLoadingNotices.service";
 import { coLoadingSailingService as service } from "../services/coLoadingSailing.service";
 
@@ -340,5 +341,37 @@ export const coLoadingSailingNoticesRecord = api(
   { expose: true, auth: true, method: "POST", path: "/co-loading/sailings/:id/customer-notices" },
   async ({ id, ...input }: SailingNoticesRecordRequest): Promise<SailingCustomerNotices> => {
     return coLoadingNoticesService.record(id, input, getAuthData()!);
+  },
+);
+
+// The sailing's Master Job (Council Outlay 14, C2): its Master B/L, containers and seals, and where each of the sailing's shipments stands beside it. For everyone.
+export const coLoadingSailingMasterJob = api(
+  { expose: true, auth: true, method: "GET", path: "/co-loading/sailings/:id/master-job" },
+  async ({ id }: { id: string }): Promise<SailingMasterJob> => {
+    return coLoadingMasterJobService.get(id, getAuthData()!.companyID);
+  },
+);
+
+// "Create master job" from the sailing with these of its shipments, or - with mczNumber - links an existing one. One Master Job per sailing.
+export const coLoadingSailingMasterJobSet = api(
+  { expose: true, auth: true, method: "POST", path: "/co-loading/sailings/:id/master-job" },
+  async ({ id, shipmentIds, mczNumber }: { id: string; shipmentIds?: string[] & MaxLen<200>; mczNumber?: string & MaxLen<40> }): Promise<SailingMasterJob> => {
+    return mczNumber ? coLoadingMasterJobService.link(id, mczNumber, getAuthData()!) : coLoadingMasterJobService.create(id, shipmentIds ?? [], getAuthData()!);
+  },
+);
+
+// Puts more of the sailing's shipments on its Master Job, by the Master Job's own rules.
+export const coLoadingSailingMasterJobShipments = api(
+  { expose: true, auth: true, method: "POST", path: "/co-loading/sailings/:id/master-job/shipments" },
+  async ({ id, shipmentIds }: { id: string; shipmentIds: string[] & MaxLen<200> }): Promise<SailingMasterJob> => {
+    return coLoadingMasterJobService.putOn(id, shipmentIds, getAuthData()!);
+  },
+);
+
+// Takes the Master Job off the sailing; the Master Job and its shipments stay as they are.
+export const coLoadingSailingMasterJobUnlink = api(
+  { expose: true, auth: true, method: "DELETE", path: "/co-loading/sailings/:id/master-job" },
+  async ({ id }: { id: string }): Promise<SailingMasterJob> => {
+    return coLoadingMasterJobService.unlink(id, getAuthData()!);
   },
 );

@@ -406,3 +406,24 @@ export function useSailingNotices(id: string) {
   });
   return { notices: query.data ?? null, isLoading: query.isLoading, isError: query.isError, record };
 }
+
+/**
+ * A sailing's Master Job (Council Outlay 14, C2): read, made from the sailing's shipments, linked by its MCZ number, more shipments put on it, unlinked.
+ * A Master Job writes onto its shipments, so the shipments lists, the Master Jobs and every view of the sailing are read again.
+ */
+export function useSailingMasterJob(id: string) {
+  const qc = useQueryClient();
+  const key = [...LIST_KEY, "sailing-master-job", id];
+  const query = useQuery({ queryKey: key, queryFn: () => api.shipments.coLoadingSailingMasterJob(id), enabled: !!id });
+  const settle = (now: interfaces.SailingMasterJob) => {
+    qc.setQueryData(key, now);
+    return Promise.all([qc.invalidateQueries({ queryKey: LIST_KEY }), qc.invalidateQueries({ queryKey: ["shipments"] }), qc.invalidateQueries({ queryKey: ["master-jobs"] })]);
+  };
+  // A refused change may still have changed something (a Master Job made, its shipments not linked): read again either way.
+  const reread = () => qc.invalidateQueries({ queryKey: key });
+  const create = useMutation({ mutationFn: (shipmentIds: string[]) => api.shipments.coLoadingSailingMasterJobSet(id, { shipmentIds }), onSuccess: settle, onError: reread });
+  const link = useMutation({ mutationFn: (mczNumber: string) => api.shipments.coLoadingSailingMasterJobSet(id, { mczNumber }), onSuccess: settle, onError: reread });
+  const putOn = useMutation({ mutationFn: (shipmentIds: string[]) => api.shipments.coLoadingSailingMasterJobShipments(id, { shipmentIds }), onSuccess: settle, onError: reread });
+  const unlink = useMutation({ mutationFn: () => api.shipments.coLoadingSailingMasterJobUnlink(id), onSuccess: settle });
+  return { data: query.data ?? null, isLoading: query.isLoading, isError: query.isError, create, link, putOn, unlink };
+}

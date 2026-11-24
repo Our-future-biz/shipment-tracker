@@ -2325,6 +2325,24 @@ export interface SailingHistoryEntry {
   text: string;
 }
 
+/** A sailing's Master Job, with where each of the sailing's shipments stands beside it (Council Outlay 14, C2). */
+export interface SailingMasterJob {
+  /** Null while the sailing has none - or its Master Job was deleted. */
+  masterJob: {
+    id: string;
+    mczNumber: string;
+    masterBolNumber: string;
+    vessel: string;
+    voyage: string;
+    /** Its containers as the Master Job shows them: number, seal and type. */
+    containers: { containerNumber: string; sealNumber: string; type: string }[];
+    /** How many shipments are in it, the sailing's own or not. */
+    shipmentCount: number;
+  } | null;
+  /** The sailing's shipments (cancelled ones left out), by job number: "on" its Master Job, in an"other", or in "none". */
+  shipments: { shipmentId: string; jobNumber: string; customer: string; place: "on" | "other" | "none" }[];
+}
+
 /** A shipment whose customer is told from its sailing (Council Outlay 14, C6). */
 export interface SailingNoticeRow {
   shipmentId: string;
@@ -2796,7 +2814,7 @@ export interface BoxCostChange {
    * A box cost, or a change of the sailing itself: "containers" (old and new number in the amounts), "departure" and
    * "cutoff" (old and new date in the notes), "vessel", "voyage", "pol", "pod", "hub", "container_type" (old and new words in the notes).
    */
-  kind: BoxCostKind | "containers" | "departure" | "cutoff" | "vessel" | "voyage" | "pol" | "pod" | "hub" | "container_type" | "stage" | "note" | "check";
+  kind: BoxCostKind | "containers" | "departure" | "cutoff" | "vessel" | "voyage" | "pol" | "pod" | "hub" | "container_type" | "stage" | "note" | "check" | "master_job";
   oldAmount: number | null;
   oldCurrency: string;
   oldNote: string;

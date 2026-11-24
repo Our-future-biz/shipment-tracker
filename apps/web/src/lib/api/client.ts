@@ -3459,6 +3459,10 @@ export namespace shipments {
             this.coLoadingSettingsChecklist = this.coLoadingSettingsChecklist.bind(this)
             this.coLoadingSailingLog = this.coLoadingSailingLog.bind(this)
             this.coLoadingSailingNotices = this.coLoadingSailingNotices.bind(this)
+            this.coLoadingSailingMasterJob = this.coLoadingSailingMasterJob.bind(this)
+            this.coLoadingSailingMasterJobSet = this.coLoadingSailingMasterJobSet.bind(this)
+            this.coLoadingSailingMasterJobShipments = this.coLoadingSailingMasterJobShipments.bind(this)
+            this.coLoadingSailingMasterJobUnlink = this.coLoadingSailingMasterJobUnlink.bind(this)
             this.coLoadingSailingNoticesRecord = this.coLoadingSailingNoticesRecord.bind(this)
             this.coLoadingSailingTick = this.coLoadingSailingTick.bind(this)
             this.coLoadingSailingNote = this.coLoadingSailingNote.bind(this)
@@ -4008,6 +4012,38 @@ export namespace shipments {
         public async coLoadingSailingLog(id: string): Promise<interfaces.SailingLog> {
             const resp = await this.baseClient.callTypedAPI("GET", `/co-loading/sailings/${encodeURIComponent(id)}/log`)
             return await resp.json() as interfaces.SailingLog
+        }
+
+        /**
+         * The sailing's Master Job: its Master B/L, containers and seals, and where each of the sailing's shipments stands beside it.
+         */
+        public async coLoadingSailingMasterJob(id: string): Promise<interfaces.SailingMasterJob> {
+            const resp = await this.baseClient.callTypedAPI("GET", `/co-loading/sailings/${encodeURIComponent(id)}/master-job`)
+            return await resp.json() as interfaces.SailingMasterJob
+        }
+
+        /**
+         * "Create master job" from the sailing with these of its shipments, or - with mczNumber - links an existing one.
+         */
+        public async coLoadingSailingMasterJobSet(id: string, params: { shipmentIds?: string[]; mczNumber?: string }): Promise<interfaces.SailingMasterJob> {
+            const resp = await this.baseClient.callTypedAPI("POST", `/co-loading/sailings/${encodeURIComponent(id)}/master-job`, JSON.stringify(params))
+            return await resp.json() as interfaces.SailingMasterJob
+        }
+
+        /**
+         * Puts more of the sailing's shipments on its Master Job.
+         */
+        public async coLoadingSailingMasterJobShipments(id: string, params: { shipmentIds: string[] }): Promise<interfaces.SailingMasterJob> {
+            const resp = await this.baseClient.callTypedAPI("POST", `/co-loading/sailings/${encodeURIComponent(id)}/master-job/shipments`, JSON.stringify(params))
+            return await resp.json() as interfaces.SailingMasterJob
+        }
+
+        /**
+         * Takes the Master Job off the sailing; the Master Job and its shipments stay as they are.
+         */
+        public async coLoadingSailingMasterJobUnlink(id: string): Promise<interfaces.SailingMasterJob> {
+            const resp = await this.baseClient.callTypedAPI("DELETE", `/co-loading/sailings/${encodeURIComponent(id)}/master-job`)
+            return await resp.json() as interfaces.SailingMasterJob
         }
 
         /**
@@ -16351,7 +16387,7 @@ export namespace interfaces {
         /**
          * A box cost, or a change of the sailing that moves them: "containers" (numbers in the amounts) or "departure" (dates in the notes).
          */
-        kind: BoxCostKind | "containers" | "departure" | "cutoff" | "vessel" | "voyage" | "pol" | "pod" | "hub" | "container_type" | "stage" | "note" | "check"
+        kind: BoxCostKind | "containers" | "departure" | "cutoff" | "vessel" | "voyage" | "pol" | "pod" | "hub" | "container_type" | "stage" | "note" | "check" | "master_job"
         oldAmount: number | null
         oldCurrency: string
         oldNote: string
@@ -16921,6 +16957,25 @@ export namespace interfaces {
         by: string
         kind: "created" | "changed" | "stage" | "note" | "check" | "linked" | "removed" | "moved"
         text: string
+    }
+
+    /**
+     * A sailing's Master Job, with where each of the sailing's shipments stands beside it.
+     */
+    export interface SailingMasterJob {
+        masterJob: {
+            id: string
+            mczNumber: string
+            masterBolNumber: string
+            vessel: string
+            voyage: string
+            containers: { containerNumber: string; sealNumber: string; type: string }[]
+            shipmentCount: number
+        } | null
+        /**
+         * The sailing's shipments, by job number: "on" its Master Job, in an"other", or in "none".
+         */
+        shipments: { shipmentId: string; jobNumber: string; customer: string; place: "on" | "other" | "none" }[]
     }
 
     /**
