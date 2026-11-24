@@ -3,7 +3,7 @@ import { TenantRepository } from "../../../lib/db/repository";
 import { plainSalesReferenceSql } from "../../../lib/db/salesReferenceSql";
 import { plainSalesReference } from "../../../lib/salesReference";
 import { db } from "../db/db";
-import type { PlanLinkKind } from "../interfaces/interfaces";
+import type { PlanLinkKind, PlanResult } from "../interfaces/interfaces";
 import { loadingPlanTable as t, type LoadingPlanRecord, type NewLoadingPlanRecord } from "../schemas/loadingPlan.schema";
 
 /** As many plans as the list shows at once. */
@@ -22,6 +22,7 @@ const listColumns = {
   linkRef: t.linkRef,
   colli: colliSum,
   weightKg: weightSum,
+  result: t.result,
   createdBy: t.createdBy,
   updatedBy: t.updatedBy,
   createdAt: t.createdAt,
@@ -37,6 +38,7 @@ export interface LoadingPlanListRow {
   linkRef: string;
   colli: number;
   weightKg: number;
+  result: PlanResult | null;
   createdBy: string;
   updatedBy: string;
   createdAt: Date;
@@ -44,7 +46,7 @@ export interface LoadingPlanListRow {
 }
 
 /** What a save writes of a plan. */
-export type PlanWrite = Pick<NewLoadingPlanRecord, "name" | "linkKind" | "linkId" | "linkRef" | "lines" | "nominated" | "updatedBy">;
+export type PlanWrite = Pick<NewLoadingPlanRecord, "name" | "linkKind" | "linkId" | "linkRef" | "lines" | "nominated" | "result" | "updatedBy">;
 
 // A save's time is always later than the one before it, whatever the two clocks say: it is the
 // plan's version (updateIfUnchanged).

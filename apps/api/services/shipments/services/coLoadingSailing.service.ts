@@ -5,12 +5,13 @@ import { businessDay } from "../../../lib/businessDate";
 import { isUuid } from "../../../lib/uuid";
 import { hasEveryWord } from "../../../lib/mainSearch";
 import { capacityOf, containerCapacity } from "../../../lib/containerCapacity";
-import type { BoxCostChange, BoxUtilization, CoLoadingBoard, CoLoadingSailingItem, SailingEarnings, SailingProfit, SailingRemovedShipment, SearchCoLoadingItem, ShipmentSailing } from "../interfaces/interfaces";
+import type { BoxCostChange, BoxUtilization, CoLoadingBoard, CoLoadingSailingItem, SailingEarnings, SailingProfit, SailingPlanCargo, SailingRemovedShipment, SearchCoLoadingItem, ShipmentSailing } from "../interfaces/interfaces";
 import { boxCostsOf, checkBoxCosts, type BoxCostLineInput, type BoxCostStored, type BoxRates } from "../lib/coLoadingBoxCosts";
 import { canManageServices } from "../lib/coLoadingService";
 import { BoxCostsChangedMeanwhile, coLoadingBoxCostRepository as boxCostRepo } from "../repositories/coLoadingBoxCost.repository";
 import { sailingEarnings, sailingProfit, type ShipmentMoney } from "../lib/coLoadingEarnings";
 import { boxFillOf, boxUtilization } from "../lib/boxUtilization";
+import { planCargoOf, sailingReference } from "../lib/coLoadingPlanCargo";
 import { CANCELLED_STATUS } from "../lib/fieldDefaults";
 import { checkSailingInput, LINK_AT_ONCE_MAX, linkRefusal, moveRefusal, oddInBox, sailingEdit, sailingRemovalRefusal, type SailingDetails, type SailingInput } from "../lib/coLoadingSailing";
 import { userNameOf } from "../lib/userName";
@@ -363,6 +364,25 @@ class CoLoadingSailingService {
       }),
     ];
     return { items: found.slice(0, limit), total: found.length };
+  }
+
+  /**
+   * The sailing's box as the Loading Planner takes it (Council Outlay 14, C1): its counted shipments'
+   * cargo lines under their job numbers. Read by everyone; a closed service's sailing too.
+   */
+  async planCargo(id: string, companyId: string): Promise<SailingPlanCargo> {
+    const sailing = await this.get(id, companyId);
+    const service = await coLoadingServiceService.get(sailing.serviceId, companyId);
+    const linked = await repo.boxShipments(sailing.id, companyId);
+    return planCargoOf(sailing, service.name, linked.map((s) => ({ ...s, cancelled: s.status === CANCELLED_STATUS })));
+  }
+
+  /** What a loading plan linked to the sailing is to call it now; null when the company has no such live sailing. */
+  async referenceOf(id: string, companyId: string): Promise<string | null> {
+    const row = isUuid(id) ? await repo.get(id, companyId) : null;
+    if (!row) return null;
+    const service = await coLoadingServiceService.get(row.serviceId, companyId).catch(() => null);
+    return sailingReference(row, service?.name ?? "");
   }
 
   /** The sailing each of these shipments is on, by shipment, for the Shipments list's Sailing column: one read for the page. */

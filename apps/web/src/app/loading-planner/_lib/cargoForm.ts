@@ -14,6 +14,8 @@ export interface DraftLine {
   stackable: boolean;
   /** Dangerous goods, as the job the line came from says. */
   dg?: boolean;
+  /** The shipment the line belongs to in a plan of a sailing's box: its job number. */
+  group?: string;
 }
 
 /** The most a plan holds; the server refuses more. */
@@ -42,7 +44,7 @@ const positive = (value: number | null): value is number => value !== null && va
 export function completeLine(line: DraftLine): CargoLine | null {
   const { lengthMm, widthMm, heightMm, weightKg, colli } = line;
   if (!positive(lengthMm) || !positive(widthMm) || !positive(heightMm) || !positive(weightKg) || !positive(colli)) return null;
-  return { id: line.id, name: line.name.trim(), lengthMm, widthMm, heightMm, weightKg, colli, canTurn: line.canTurn, stackable: line.stackable, ...(line.dg ? { dg: true } : {}) };
+  return { id: line.id, name: line.name.trim(), lengthMm, widthMm, heightMm, weightKg, colli, canTurn: line.canTurn, stackable: line.stackable, ...(line.dg ? { dg: true } : {}), ...(line.group ? { group: line.group } : {}) };
 }
 
 /** The figures a typed line still lacks, in the cargo table's words; none for a complete or a blank line. */
@@ -81,7 +83,7 @@ export interface JobLink {
 export function planFingerprint(name: string, drafts: DraftLine[], nominated: string[] | null, link: JobLink | null): string {
   const lines = drafts
     .filter((line) => !isBlank(line))
-    .map((l) => [l.name.trim(), l.lengthMm, l.widthMm, l.heightMm, l.weightKg, l.colli, l.canTurn, l.stackable, l.dg === true]);
+    .map((l) => [l.name.trim(), l.lengthMm, l.widthMm, l.heightMm, l.weightKg, l.colli, l.canTurn, l.stackable, l.dg === true, l.group ?? ""]);
   return JSON.stringify([name.trim(), lines, nominated, link?.kind ?? null, link?.id ?? null]);
 }
 

@@ -3,7 +3,7 @@ import type { MaxLen } from "encore.dev/validate";
 import { getAuthData } from "~encore/auth";
 import { mainSearchInput } from "../../../lib/mainSearch";
 import { requireRole } from "../../../lib/rbac";
-import type { BoxCostChange, BoxUtilization, CoLoadingBoard, CoLoadingSailingItem, SearchCoLoadingItem, SearchMasterJobsRequest, SailingEarnings, SailingProfit, SailingCopyResult, SailingRemovedShipment, SailingShipmentFacts, ShipmentSailing } from "../interfaces/interfaces";
+import type { BoxCostChange, BoxUtilization, CoLoadingBoard, CoLoadingSailingItem, SearchCoLoadingItem, SearchMasterJobsRequest, SailingEarnings, SailingProfit, SailingCopyResult, SailingPlanCargo, SailingRemovedShipment, SailingShipmentFacts, ShipmentSailing } from "../interfaces/interfaces";
 import { coLoadingCopyService } from "../services/coLoadingCopy.service";
 import { coLoadingSailingService as service } from "../services/coLoadingSailing.service";
 
@@ -260,5 +260,22 @@ export const coLoadingSailingCopyToShipments = api(
   { expose: true, auth: true, method: "POST", path: "/co-loading/sailings/:id/copy-to-shipments" },
   async ({ id, shipmentIds }: { id: string; shipmentIds: string[] & MaxLen<200> }): Promise<SailingCopyResult> => {
     return coLoadingCopyService.copy(id, shipmentIds, getAuthData()!);
+  },
+);
+
+// The sailing's box as the Loading Planner takes it: its shipments' cargo lines, by job number (Council Outlay 14, C1).
+export const coLoadingSailingPlanCargo = api(
+  { expose: true, auth: true, method: "GET", path: "/co-loading/sailings/:id/plan-cargo" },
+  async ({ id }: { id: string }): Promise<SailingPlanCargo> => {
+    return service.planCargo(id, getAuthData()!.companyID);
+  },
+);
+
+// Internal only (the Loading Planner, before it saves a plan linked to a sailing): whether the sailing exists in the
+// caller's company, and what it is called now. Company from the caller's auth.
+export const _internalSailingRef = api(
+  { expose: false, auth: true, method: "POST", path: "/internal/co-loading/sailing-ref" },
+  async ({ sailingId }: { sailingId: string }): Promise<{ reference: string | null }> => {
+    return { reference: await service.referenceOf(sailingId, getAuthData()!.companyID) };
   },
 );

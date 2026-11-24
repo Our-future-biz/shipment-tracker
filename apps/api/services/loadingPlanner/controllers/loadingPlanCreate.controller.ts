@@ -1,7 +1,7 @@
 import { api } from "encore.dev/api";
 import type { MaxLen } from "encore.dev/validate";
 import { getAuthData } from "~encore/auth";
-import type { LoadingPlanItem, PlanCargoLine, PlanLinkKind } from "../interfaces/interfaces";
+import type { LoadingPlanItem, PlanCargoLine, PlanLinkKind, PlanResult } from "../interfaces/interfaces";
 import { loadingPlanService } from "../services/loadingPlan.service";
 
 interface LoadingPlanCreateRequest {
@@ -14,6 +14,8 @@ interface LoadingPlanCreateRequest {
   lines: PlanCargoLine[] & MaxLen<200>;
   /** Ids of the nominated container types; null lets the planner choose. */
   nominated: string[] | null;
+  /** What the plan came to, as the browser worked it out: for the lists. Left out by a screen from before it was kept. */
+  result?: PlanResult | null;
 }
 
 interface LoadingPlanCreateResponse {

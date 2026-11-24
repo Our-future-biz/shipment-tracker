@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { PlanCargoLine, PlanInput } from "../interfaces/interfaces";
-import { changedSinceMessage, cleanPlan, linkNeedsCheck } from "../lib/planInput";
+import { changedSinceMessage, cleanPlan, cleanResult, linkNeedsCheck } from "../lib/planInput";
 
 const line = (more: Partial<PlanCargoLine> = {}): PlanCargoLine => ({
   id: "line-1",
@@ -24,7 +24,7 @@ const SHIPMENT = "3f1c2b0a-1111-4222-8333-444455556666";
 describe("cleanPlan", () => {
   it("trims the names and keeps the cargo as sent", () => {
     const result = cleanPlan(input());
-    expect(result).toEqual({ plan: { name: "Machines to Nhava Sheva", linkKind: null, linkId: null, linkRef: "", lines: [line({ name: "Pallet" })], nominated: null } });
+    expect(result).toEqual({ plan: { name: "Machines to Nhava Sheva", linkKind: null, linkId: null, linkRef: "", lines: [line({ name: "Pallet" })], nominated: null, result: null } });
   });
 
   it("keeps the dangerous goods mark of a line that has one, and adds none", () => {
@@ -57,8 +57,8 @@ describe("cleanPlan", () => {
   });
 
   it("keeps a link only when it is whole", () => {
-    expect(problemOf({ linkKind: "shipment", linkId: null })).toBe("The linked shipment or quote is missing");
-    expect(problemOf({ linkKind: "quote", linkId: "not-an-id" })).toBe("The linked shipment or quote is missing");
+    expect(problemOf({ linkKind: "shipment", linkId: null })).toBe("The linked shipment, quote or sailing is missing");
+    expect(problemOf({ linkKind: "quote", linkId: "not-an-id" })).toBe("The linked shipment, quote or sailing is missing");
 
     const linked = cleanPlan(input({ linkKind: "shipment", linkId: SHIPMENT, linkRef: " CZ00000053 " }));
     expect(linked).toMatchObject({ plan: { linkKind: "shipment", linkId: SHIPMENT, linkRef: "CZ00000053" } });
@@ -99,5 +99,34 @@ describe("linkNeedsCheck", () => {
     expect(linkNeedsCheck(link(SHIPMENT), link(SHIPMENT))).toBe(false);
     expect(linkNeedsCheck(link(null, null), link(SHIPMENT))).toBe(false);
     expect(linkNeedsCheck(link(null, null), null)).toBe(false);
+  });
+});
+
+describe("a box plan's lines and a plan's result (Council Outlay 14, C1 and P4)", () => {
+  const SAILING = "3f1c2b0a-1111-4222-8333-444455557777";
+
+  it("links to a sailing as it does to a shipment", () => {
+    const result = cleanPlan(input({ linkKind: "sailing", linkId: SAILING, linkRef: " WEEK 51 · Import from Shanghai " }));
+    expect(result).toMatchObject({ plan: { linkKind: "sailing", linkId: SAILING, linkRef: "WEEK 51 · Import from Shanghai" } });
+    expect(problemOf({ linkKind: "sailing", linkId: null })).toBe("The linked shipment, quote or sailing is missing");
+  });
+
+  it("keeps the shipment a line belongs to, trimmed, and leaves a line without one as it is", () => {
+    const result = cleanPlan(input({ lines: [line({ group: " CZLCL00000053 " }), line({ id: "line-2", group: "  " }), line({ id: "line-3" })] }));
+    expect("plan" in result && result.plan.lines.map((l) => l.group)).toEqual(["CZLCL00000053", undefined, undefined]);
+    expect(problemOf({ lines: [line({ group: "x".repeat(61) })] })).toBe("Cargo line 1: the shipment it belongs to is not valid");
+  });
+
+  it("keeps what the plan came to, cleaned, and drops anything that is not that", () => {
+    expect(cleanResult({ equipment: [{ name: " 40' HC ", count: 2 }], notLoaded: 3 })).toEqual({ equipment: [{ name: "40' HC", count: 2 }], notLoaded: 3 });
+    expect(cleanResult({ equipment: [], notLoaded: 0 })).toEqual({ equipment: [], notLoaded: 0 });
+    expect(cleanResult(null)).toBeNull();
+    expect(cleanResult(undefined)).toBeNull();
+    expect(cleanResult({ equipment: [{ name: "40' HC", count: 0 }], notLoaded: 0 })).toBeNull();
+    expect(cleanResult({ equipment: [{ name: "", count: 1 }], notLoaded: 0 })).toBeNull();
+    expect(cleanResult({ equipment: [{ name: "40' HC", count: 1.5 }], notLoaded: 0 })).toBeNull();
+    expect(cleanResult({ equipment: [], notLoaded: -1 })).toBeNull();
+    // A result that is not what it should be does not stop the plan from being saved.
+    expect(cleanPlan(input({ result: { equipment: [], notLoaded: -1 } }))).toMatchObject({ plan: { result: null } });
   });
 });

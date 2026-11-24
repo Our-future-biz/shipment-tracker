@@ -3433,6 +3433,7 @@ export namespace shipments {
             this.coLoadingSailingBoxCostsSave = this.coLoadingSailingBoxCostsSave.bind(this)
             this.coLoadingSailingDetails = this.coLoadingSailingDetails.bind(this)
             this.coLoadingSailingRemove = this.coLoadingSailingRemove.bind(this)
+            this.coLoadingSailingPlanCargo = this.coLoadingSailingPlanCargo.bind(this)
             this.coLoadingSailingShipmentFacts = this.coLoadingSailingShipmentFacts.bind(this)
             this.coLoadingSailingCopyToShipments = this.coLoadingSailingCopyToShipments.bind(this)
             this.coLoadingBoard = this.coLoadingBoard.bind(this)
@@ -3850,6 +3851,15 @@ export namespace shipments {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("POST", `/co-loading/sailings/${encodeURIComponent(id)}/copy-to-shipments`, JSON.stringify(params))
             return await resp.json() as interfaces.SailingCopyResult
+        }
+
+        /**
+         * The sailing's box as the Loading Planner takes it: its shipments' cargo lines, by job number.
+         */
+        public async coLoadingSailingPlanCargo(id: string): Promise<interfaces.SailingPlanCargo> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/co-loading/sailings/${encodeURIComponent(id)}/plan-cargo`)
+            return await resp.json() as interfaces.SailingPlanCargo
         }
 
         /**
@@ -10973,6 +10983,11 @@ export namespace controllers {
          * Ids of the nominated container types; null lets the planner choose.
          */
         nominated: string[] | null
+
+        /**
+         * What the plan came to, as the browser worked it out: for the lists.
+         */
+        result?: interfaces.PlanResult | null
     }
 
     export interface LoadingPlanCreateResponse {
@@ -16640,6 +16655,49 @@ export namespace interfaces {
     }
 
     /**
+     * One cargo line of a shipment in a sailing's box, for the Loading Planner. Sizes in cm, weight in kg per piece.
+     */
+    export interface SailingPlanLine {
+        packageType: string
+        pieces: number
+        lengthCm: number
+        widthCm: number
+        heightCm: number
+        weightPerPcKg: number
+        stackable: boolean
+        dangerous: boolean
+    }
+
+    /**
+     * A shipment of a sailing's box with its cargo lines, for the Loading Planner.
+     */
+    export interface SailingPlanShipment {
+        shipmentId: string
+        jobNumber: string
+        lines: SailingPlanLine[]
+        /**
+         * It has no Dimensions rows: its one line carries the typed totals, without sizes.
+         */
+        totalsOnly: boolean
+    }
+
+    /**
+     * A sailing's box as the Loading Planner takes it (Council Outlay 14, C1).
+     */
+    export interface SailingPlanCargo {
+        sailingId: string
+        serviceId: string
+        /**
+         * "WEEK 51 · Import from Shanghai": what a plan linked to it shows.
+         */
+        reference: string
+
+        containerType: string
+        containerCount: number
+        shipments: SailingPlanShipment[]
+    }
+
+    /**
      * A Co-Loading Concept service's sailing, as its page lists it (lib/coLoadingSailing).
      */
     export interface CoLoadingSailingItem {
@@ -21127,7 +21185,22 @@ export namespace interfaces {
     /**
      * What a plan can be linked to. A plan without a link is a what-if plan.
      */
-    export type PlanLinkKind = "shipment" | "quote"
+    export type PlanLinkKind = "shipment" | "quote" | "sailing"
+
+    /**
+     * What a plan came to when it was last saved, as the browser worked it out: for the lists, which hold no loads.
+     */
+    export interface PlanResult {
+        /**
+         * The containers the plan takes, by type: "40' HC" × 2.
+         */
+        equipment: { name: string; count: number }[]
+
+        /**
+         * Colli the plan found no place for.
+         */
+        notLoaded: number
+    }
 
     /**
      * Out-of-gauge cargo on an open top or flat rack is warned about above these, in whole mm.
@@ -21224,6 +21297,11 @@ export namespace interfaces {
          * Dangerous goods, as the linked job marks the cargo. The planner only shows it.
          */
         dg?: boolean
+
+        /**
+         * The shipment the line belongs to in a box plan (its job number): what its pieces are coloured and named by.
+         */
+        group?: string
     }
 
     export interface LoadingPlanItem {
@@ -21243,6 +21321,12 @@ export namespace interfaces {
          * Ids of the nominated container types; null lets the planner choose.
          */
         nominated: string[] | null
+
+        /**
+         * What the plan came to when it was last saved; null when not kept.
+         */
+        result?: PlanResult | null
+
         /**
          * E-mail of the user who made the plan, and of the one who saved it last.
          */
@@ -21271,6 +21355,11 @@ export namespace interfaces {
         linkRef: string
         colli: number
         weightKg: number
+        /**
+         * What the plan came to when it was last saved; null for one saved before this was kept.
+         */
+        result: PlanResult | null
+
         createdBy: string
         updatedBy: string
         createdAt: string

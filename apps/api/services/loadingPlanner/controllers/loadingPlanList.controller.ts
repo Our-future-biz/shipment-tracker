@@ -4,10 +4,10 @@ import { isUuid } from "../../../lib/uuid";
 import type { LoadingPlanSummary, PlanLinkKind } from "../interfaces/interfaces";
 import { loadingPlanService } from "../services/loadingPlan.service";
 
-const LINK_KINDS: PlanLinkKind[] = ["shipment", "quote"];
+const LINK_KINDS: PlanLinkKind[] = ["shipment", "quote", "sailing"];
 
 interface LoadingPlanListRequest {
-  /** "shipment" or "quote"; with linkId: only the plans linked to that job. */
+  /** "shipment", "quote" or "sailing"; with linkId: only the plans linked to that job. */
   linkKind?: Query<string>;
   linkId?: Query<string>;
 }
@@ -23,7 +23,7 @@ export const loadingPlanList = api(
   { expose: true, auth: true, method: "GET", path: "/loading-plans" },
   async (req: LoadingPlanListRequest): Promise<LoadingPlanListResponse> => {
     const kind = LINK_KINDS.find((k) => k === req.linkKind);
-    if (req.linkKind && !kind) throw APIError.invalidArgument("The kind of the linked job is shipment or quote");
+    if (req.linkKind && !kind) throw APIError.invalidArgument("The kind of the linked job is shipment, quote or sailing");
     if (!kind !== !req.linkId) throw APIError.invalidArgument("Give both the kind and the id of the linked job, or neither");
     if (req.linkId && !isUuid(req.linkId)) throw APIError.invalidArgument("The id of the linked job is not valid");
     const link = kind && req.linkId ? { kind, id: req.linkId } : undefined;

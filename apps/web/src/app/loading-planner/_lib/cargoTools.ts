@@ -111,3 +111,60 @@ export function cargoDiffers(planLines: readonly DraftLine[], jobLines: readonly
   const key = (lines: readonly DraftLine[]) => lines.filter((l) => !isBlank(l)).map(figuresOf).sort().join("\n");
   return key(planLines) !== key(jobLines);
 }
+
+/**
+ * The colour each cargo line is drawn in, as a place in the palette (Council Outlay 14, C1): by its
+ * row in the cargo table, or - `byShipment`, in a plan of a sailing's box - by the shipment it
+ * belongs to, so all of a shipment's pieces share one colour. A line with no shipment keeps a
+ * colour of its own after the shipments'.
+ */
+export function colourIndexes(lines: readonly { id: string; group?: string }[], byShipment: boolean): Map<string, number> {
+  if (!byShipment) return new Map(lines.map((line, index) => [line.id, index]));
+  const groups: string[] = [];
+  for (const line of lines) if (line.group && !groups.includes(line.group)) groups.push(line.group);
+  let loose = groups.length;
+  return new Map(lines.map((line) => [line.id, line.group ? groups.indexOf(line.group) : loose++]));
+}
+
+/** The shipments a box plan holds, in the order of the cargo table: what "Colour by shipment" colours by. */
+export const shipmentsOf = (lines: readonly { group?: string }[]): string[] => [...new Set(lines.flatMap((line) => line.group ?? []))];
+
+/** What a plan came to, for the lists: "2 × 40' HC · 3 colli not loaded"; "" when nothing is loaded and nothing left out. */
+export function resultWords(result: { equipment: { name: string; count: number }[]; notLoaded: number } | null | undefined): string {
+  if (!result) return "";
+  return [result.equipment.map((e) => `${e.count} × ${e.name}`).join(" + "), result.notLoaded > 0 ? `${result.notLoaded} colli not loaded` : ""].filter(Boolean).join(" · ");
+}
+
+/**
+ * What a plan of a sailing's box says about the sailing's containers: null while the plan needs no
+ * more than the sailing has (or holds no cargo), else the sentence. `nominatedType` is the
+ * planner's name of the sailing's container type; null when the planner has no such type.
+ */
+export function boxVerdict(loads: readonly { container: { name: string } }[], notLoaded: number, sailing: { containerType: string; containerCount: number }): string | null {
+  const has = `${sailing.containerCount} × ${sailing.containerType}`;
+  const needs = loads.length;
+  if (needs === 0 && notLoaded === 0) return null;
+  const other = loads.filter((l) => l.container.name !== sailing.containerType).length;
+  if (other > 0) return `This plan uses other equipment than the sailing's ${has}: nominate the sailing's container type to judge its box.`;
+  if (needs > sailing.containerCount) return `The cargo needs ${needs} × ${sailing.containerType}; the sailing has ${has}.`;
+  if (notLoaded > 0) return `${notLoaded} colli found no place in the sailing's ${has}.`;
+  return null;
+}
+
+/**
+ * Whether a plan of a sailing's box no longer holds the box's cargo (Council Outlay 14, C1): a
+ * shipment joined or left the sailing, or the lines of a shipment that has its sizes changed. A
+ * shipment with no sizes on its job is judged by its being there only: its sizes are typed in the
+ * plan, which is no difference.
+ */
+export function boxCargoDiffers(planLines: readonly DraftLine[], jobLines: readonly DraftLine[]): boolean {
+  const plan = planLines.filter((l) => !isBlank(l));
+  const jobs = shipmentsOf(jobLines);
+  const inPlan = shipmentsOf(plan);
+  if (jobs.length !== inPlan.length || jobs.some((job) => !inPlan.includes(job))) return true;
+  return jobs.some((job) => {
+    const ofJob = jobLines.filter((l) => l.group === job);
+    const sized = ofJob.every((l) => l.lengthMm !== null && l.widthMm !== null && l.heightMm !== null && l.weightKg !== null && l.colli !== null);
+    return sized && cargoDiffers(plan.filter((l) => l.group === job), ofJob);
+  });
+}

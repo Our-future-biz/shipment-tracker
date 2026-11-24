@@ -2419,6 +2419,40 @@ export interface SailingCopyResult {
   refused: { jobNumber: string; reason: string }[];
 }
 
+/** One cargo line of a shipment in a sailing's box, for the Loading Planner: a Dimensions row, or the shipment's totals where it has none. Sizes in cm, weight in kg per piece. */
+export interface SailingPlanLine {
+  /** The package type ("Pallet"); "" when not given. */
+  packageType: string;
+  pieces: number;
+  lengthCm: number;
+  widthCm: number;
+  heightCm: number;
+  weightPerPcKg: number;
+  stackable: boolean;
+  dangerous: boolean;
+}
+
+/** A shipment of a sailing's box with its cargo lines, for the Loading Planner. */
+export interface SailingPlanShipment {
+  shipmentId: string;
+  jobNumber: string;
+  /** Its cargo lines; one line with no sizes when the shipment has totals only: a line to finish, never a guessed size. */
+  lines: SailingPlanLine[];
+  /** It has no Dimensions rows: its one line carries the typed totals, without sizes. */
+  totalsOnly: boolean;
+}
+
+/** A sailing's box as the Loading Planner takes it (Council Outlay 14, C1): what it is called, its containers, and its counted shipments' cargo. */
+export interface SailingPlanCargo {
+  sailingId: string;
+  serviceId: string;
+  /** "WEEK 51 · Import from Shanghai": what a plan linked to it shows. */
+  reference: string;
+  containerType: string;
+  containerCount: number;
+  shipments: SailingPlanShipment[];
+}
+
 /** A shipment taken off a sailing: who took it off, when and why. */
 export interface SailingRemovedShipment {
   shipmentId: string;

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { newDraftLine, type DraftLine } from "./cargoForm";
-import { cargoDiffers, duplicateLine, moveLine, pastedLines, sheetNumber, STANDARD_UNITS, withStandardUnit } from "./cargoTools";
+import { boxCargoDiffers, boxVerdict, cargoDiffers, colourIndexes, duplicateLine, moveLine, pastedLines, resultWords, sheetNumber, shipmentsOf, STANDARD_UNITS, withStandardUnit } from "./cargoTools";
 
 let n = 0;
 const newId = () => `id${++n}`;
@@ -85,5 +85,49 @@ describe("whether a plan's cargo is still the job's (P3)", () => {
     expect(cargoDiffers([line({ colli: 3 }), line({ lengthMm: 3000 })], job)).toBe(true);
     expect(cargoDiffers([line()], job)).toBe(true);
     expect(cargoDiffers([], [])).toBe(false);
+  });
+});
+
+describe("a plan of a sailing's box (Council Outlay 14, C1)", () => {
+  const lines = [{ id: "a", group: "CZ1" }, { id: "b", group: "CZ2" }, { id: "c", group: "CZ1" }, { id: "d" }, { id: "e" }];
+
+  it("colours a line by its row, or by its shipment so a shipment's pieces share one colour", () => {
+    expect([...colourIndexes(lines, false).values()]).toEqual([0, 1, 2, 3, 4]);
+    expect([...colourIndexes(lines, true).entries()]).toEqual([["a", 0], ["b", 1], ["c", 0], ["d", 2], ["e", 3]]);
+    expect(shipmentsOf(lines)).toEqual(["CZ1", "CZ2"]);
+  });
+
+  it("says what a plan came to, for the lists", () => {
+    expect(resultWords({ equipment: [{ name: "40' HC", count: 2 }, { name: "20' FR", count: 1 }], notLoaded: 3 })).toBe("2 × 40' HC + 1 × 20' FR · 3 colli not loaded");
+    expect(resultWords({ equipment: [{ name: "40' HC", count: 1 }], notLoaded: 0 })).toBe("1 × 40' HC");
+    expect(resultWords({ equipment: [], notLoaded: 0 })).toBe("");
+    expect(resultWords(null)).toBe("");
+  });
+
+  it("says when the cargo needs more than the sailing has", () => {
+    const hc = { container: { name: "40' HC" } };
+    const sailing = { containerType: "40' HC", containerCount: 1 };
+    expect(boxVerdict([hc], 0, sailing)).toBeNull();
+    expect(boxVerdict([], 0, sailing)).toBeNull();
+    expect(boxVerdict([hc, hc], 0, sailing)).toBe("The cargo needs 2 × 40' HC; the sailing has 1 × 40' HC.");
+    expect(boxVerdict([hc], 4, sailing)).toBe("4 colli found no place in the sailing's 1 × 40' HC.");
+    expect(boxVerdict([{ container: { name: "40' FR" } }], 0, sailing)).toMatch(/^This plan uses other equipment than the sailing's 1 × 40' HC/);
+    expect(boxVerdict([hc, hc], 0, { containerType: "40' HC", containerCount: 2 })).toBeNull();
+  });
+});
+
+describe("a box plan against its sailing's cargo", () => {
+  const draft = (id: string, group: string, over: Partial<DraftLine> = {}): DraftLine => ({ ...newDraftLine(id), name: group, lengthMm: 1200, widthMm: 800, heightMm: 1000, weightKg: 300, colli: 2, group, ...over });
+  const job = [draft("a", "CZ1"), draft("b", "CZ2", { lengthMm: null, widthMm: null, heightMm: null })];
+
+  it("does not mind sizes typed for a shipment that has none", () => {
+    expect(boxCargoDiffers(job, job)).toBe(false);
+    expect(boxCargoDiffers([job[0]!, draft("b", "CZ2", { lengthMm: 500, widthMm: 400, heightMm: 300 })], job)).toBe(false);
+  });
+
+  it("says when a shipment joined or left, or a sized shipment's lines changed", () => {
+    expect(boxCargoDiffers([job[0]!], job)).toBe(true);
+    expect(boxCargoDiffers([...job, draft("c", "CZ3")], job)).toBe(true);
+    expect(boxCargoDiffers([draft("a", "CZ1", { colli: 3 }), job[1]!], job)).toBe(true);
   });
 });

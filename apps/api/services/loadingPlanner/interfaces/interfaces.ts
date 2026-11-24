@@ -1,8 +1,16 @@
 // Plain API types of the Loading Planner. Never import Drizzle table types here — Encore's parser
 // cannot resolve the $inferSelect generic chain.
 
-/** What a plan can be linked to. A plan without a link is a what-if plan. */
-export type PlanLinkKind = "shipment" | "quote";
+/** What a plan can be linked to: a shipment, a quote, or a Co-Loading Concept sailing (its box). A plan without a link is a what-if plan. */
+export type PlanLinkKind = "shipment" | "quote" | "sailing";
+
+/** What a plan came to when it was last saved, as the browser worked it out: for the lists, which hold no loads. */
+export interface PlanResult {
+  /** The containers the plan takes, by type: "40' HC" × 2. */
+  equipment: { name: string; count: number }[];
+  /** Colli the plan found no place for. */
+  notLoaded: number;
+}
 
 /** One line of a plan's cargo list. Sizes in mm, weight in kg per colli. */
 export interface PlanCargoLine {
@@ -18,19 +26,23 @@ export interface PlanCargoLine {
   stackable: boolean;
   /** Dangerous goods, as the linked job marks the cargo. The planner only shows it. */
   dg?: boolean;
+  /** The shipment the line belongs to in a box plan (its job number): what its pieces are coloured and named by. */
+  group?: string;
 }
 
 /** What a user sends to save a plan. The loads themselves are worked out from this in the browser. */
 export interface PlanInput {
   name: string;
   linkKind: PlanLinkKind | null;
-  /** Id of the linked shipment or quote; null without a link. */
+  /** Id of the linked shipment, quote or sailing; null without a link. */
   linkId: string | null;
   /** The job number or quote reference, as shown to the user. */
   linkRef: string;
   lines: PlanCargoLine[];
   /** Ids of the nominated container types; null lets the planner choose. */
   nominated: string[] | null;
+  /** What the plan came to, as the browser worked it out; left out or null when not sent. Shown in the lists only. */
+  result?: PlanResult | null;
 }
 
 export interface LoadingPlanItem extends PlanInput {
@@ -57,6 +69,8 @@ export interface LoadingPlanSummary {
   linkRef: string;
   colli: number;
   weightKg: number;
+  /** What the plan came to when it was last saved; null for one saved before this was kept. */
+  result: PlanResult | null;
   createdBy: string;
   updatedBy: string;
   createdAt: string;

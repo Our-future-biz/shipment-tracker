@@ -18,6 +18,7 @@ const toItem = (r: LoadingPlanRecord, linkGone = false): LoadingPlanItem => ({
   linkRef: r.linkRef,
   lines: r.lines,
   nominated: r.nominated,
+  result: r.result,
   createdBy: r.createdBy,
   updatedBy: r.updatedBy,
   createdAt: iso(r.createdAt),
@@ -43,6 +44,7 @@ const cleaned = (input: PlanInput): CleanPlan => {
  */
 async function linkRefNow(kind: PlanLinkKind, id: string, reference: string): Promise<string | null> {
   if (kind === "shipment") return (await shipments._internalShipmentJobRef({ shipmentId: id })).jobNumber;
+  if (kind === "sailing") return (await shipments._internalSailingRef({ sailingId: id })).reference;
   return (await quotes._internalQuoteLinkRef({ quoteId: id, reference })).quoteNumber;
 }
 

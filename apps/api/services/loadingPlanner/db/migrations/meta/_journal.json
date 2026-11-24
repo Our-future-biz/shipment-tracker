@@ -29,6 +29,13 @@
       "when": 1795527562113,
       "tag": "0003_road_weight",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1795528212575,
+      "tag": "0004_plan_sailing_result",
+      "breakpoints": true
     }
   ]
 }

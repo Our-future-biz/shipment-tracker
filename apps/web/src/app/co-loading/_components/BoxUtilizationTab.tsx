@@ -6,6 +6,7 @@ import { WarningOutlined } from "@ant-design/icons";
 import { EMPTY_CELL } from "@/components/EmptyCell";
 import { KPI_GRID_CLASS, KpiTile } from "@/components/KpiTile";
 import { Pill } from "@/components/Pill";
+import { LoadingPlansCard } from "@/components/LoadingPlansCard";
 import { CountChip, SectionCard } from "@/components/SectionCard";
 import { useSailingEarnings, useSailingUtilization } from "@/hooks/useCoLoadingServices";
 import { useAuth } from "@/lib/auth/AuthContext";
@@ -289,6 +290,9 @@ export function BoxUtilizationTab({ sailingId, onOpenShipments }: BoxUtilization
           </div>
         )}
       </SectionCard>
+
+      {/* "Plan this box" (Council Outlay 14, C1): the sum above is no stowage check; the Loading Planner is, with every shipment's cargo lines. */}
+      <LoadingPlansCard kind="sailing" id={sailingId} newPlanKey={sailingId} title="Loading plans of this box" newLabel="Plan this box" jobWord="sailing's shipments" />
 
       <p className={`${HINT} m-0`}>
         The figures are each shipment&apos;s own: its cargo lines, or its typed totals where it has none. This is a sum, not a stowage check: cargo that cannot be stacked or is long

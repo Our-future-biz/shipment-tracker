@@ -402,6 +402,8 @@ class CoLoadingSailingRepository {
         // The dangerous goods a line names, for the box's dangerous-cargo card.
         adrUn: dimensions.adrUn,
         adrClass: dimensions.adrClass,
+        // What the line is called in a plan of the box.
+        packageType: dimensions.packageType,
       })
       .from(dimensions)
       .where(and(eq(dimensions.companyId, companyId), inArray(dimensions.shipmentId, rows.map((r) => r.id)), isNull(dimensions.deletedAt)))

@@ -12,10 +12,11 @@ import type { interfaces } from "@/lib/api/client";
 import { formatDateTime } from "@/lib/date";
 import { useMessages } from "@/lib/toast";
 import { BTN, BTN_PRIMARY, CARD, EMPTY, EMPTY_STATE, HINT, ICON_BTN_DANGER, LINK, PAGE_SUBTITLE, PAGE_TITLE, REF, TD, TH } from "@/styles/ui";
+import { resultWords } from "../_lib/cargoTools";
 import { formatKg } from "../_lib/units";
 import { PlannerSettingsModal } from "./PlannerSettingsModal";
 
-const LINK_KIND_LABEL: Record<interfaces.PlanLinkKind, string> = { shipment: "Shipment", quote: "Quote" };
+const LINK_KIND_LABEL: Record<interfaces.PlanLinkKind, string> = { shipment: "Shipment", quote: "Quote", sailing: "Sailing" };
 
 // The Loading Planner's own page: every saved plan of the company, last saved first, a search over
 // their names and linked jobs, and New plan. Every user sees and may change all plans.
@@ -113,6 +114,8 @@ export function LoadingPlannerOverview() {
                       <Link href={`/loading-planner/${plan.id}`} className={`${LINK} font-medium`}>
                         {plan.name}
                       </Link>
+                      {/* What the plan came to when it was last saved: the list holds no loads of its own (Council Outlay 14, P4). */}
+                      {resultWords(plan.result) && <span className="block text-[12px] text-slate-500">{resultWords(plan.result)}</span>}
                     </td>
                     <td className={TD}>
                       {plan.linkKind ? (

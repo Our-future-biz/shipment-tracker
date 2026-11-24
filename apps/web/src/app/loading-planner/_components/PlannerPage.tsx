@@ -3,8 +3,8 @@
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
-import { App, Input } from "antd";
-import { DeleteOutlined, DisconnectOutlined, FilePdfOutlined, LinkOutlined, ReloadOutlined, SaveOutlined } from "@ant-design/icons";
+import { App, Checkbox, Input } from "antd";
+import { CopyOutlined, DeleteOutlined, DisconnectOutlined, FilePdfOutlined, LinkOutlined, ReloadOutlined, SaveOutlined } from "@ant-design/icons";
 import { BackLink } from "@/components/BackLink";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { Pill } from "@/components/Pill";
@@ -33,13 +33,13 @@ import {
   type JobLink,
 } from "../_lib/cargoForm";
 import { CONTAINERS } from "../_lib/containers";
-import { JOB_KIND_LABEL, jobHref } from "../_lib/jobCargo";
-import { lineColour } from "../_lib/loadStats";
+import { JOB_KIND_LABEL, jobHref, plannerTypeOf } from "../_lib/jobCargo";
+import { lineColour, planTotals } from "../_lib/loadStats";
 import { planLoad, type LoadPlan } from "../_lib/plan";
 import { linkAfterSave, linkOf, newerVersionStep, rememberedUnit, rememberUnit } from "../_lib/plannerScreen";
 import type { DimUnit } from "../_lib/units";
 import { CargoCard } from "./CargoCard";
-import { cargoDiffers } from "../_lib/cargoTools";
+import { boxCargoDiffers, boxVerdict, cargoDiffers, colourIndexes, shipmentsOf } from "../_lib/cargoTools";
 import { EquipmentCard } from "./EquipmentCard";
 import { LinkJobModal } from "./LinkJobModal";
 import { PlannerSettingsModal } from "./PlannerSettingsModal";
@@ -48,10 +48,13 @@ import { ResultPanel } from "./ResultPanel";
 
 const newId = uuid;
 const NO_PLAN: LoadPlan = { loads: [], notLoaded: [] };
+/** What a linked job is read by: a quote by its reference, a shipment or a sailing by its id. */
+const jobKeyOf = (link: JobLink) => (link.kind === "quote" ? link.ref : link.id);
 
 // A loading plan's page, new (/loading-planner/new) or saved (/loading-planner/<id>). A new plan
-// opened from a job (/loading-planner/new?shipment=<id> or ?quote=<reference>) starts linked to it,
-// with the job's cargo.
+// opened from a job (/loading-planner/new?shipment=<id>, ?quote=<reference> or ?sailing=<id>) starts
+// linked to it, with the job's cargo. From a Co-Loading sailing that is its whole box (Council Outlay
+// 14, C1): every counted shipment's cargo, coloured by shipment, in the sailing's own container type.
 export function PlannerPage() {
   const { planId } = useParams<{ planId?: string }>();
   const { plan, isLoading, error } = useLoadingPlan(planId ?? null);
@@ -127,8 +130,11 @@ function PlanEditor({ saved }: { saved: interfaces.LoadingPlanItem | null }) {
   // The linked job's cargo as it is now (Council Outlay 14, P3): read when a linked plan opens and whenever
   // the job is read, to say when the plan's cargo is no longer the job's. Null until it is known.
   const [jobCargo, setJobCargo] = useState<{ id: string; lines: DraftLine[] } | null>(null);
+  // A sailing's containers, to judge the plan against: known once the sailing is read.
+  const [sailingBox, setSailingBox] = useState<{ id: string; containerType: string; containerCount: number } | null>(null);
   const takeJob = (job: PlanJob, loadCargo: boolean) => {
     setJobCargo({ id: job.id, lines: job.lines });
+    if (job.box) setSailingBox({ id: job.id, ...job.box });
     setLink({ kind: job.kind, id: job.id, ref: job.ref });
     if (!loadCargo) return;
     const jobName = `${JOB_KIND_LABEL[job.kind]} ${job.ref}`;
@@ -147,8 +153,9 @@ function PlanEditor({ saved }: { saved: interfaces.LoadingPlanItem | null }) {
   const search = useSearchParams();
   const fromJob = useRef(false);
   const startJob = useMemo(() => {
-    const [shipment, quote] = [search.get("shipment"), search.get("quote")];
-    return saved ? null : shipment ? { kind: "shipment" as const, key: shipment } : quote ? { kind: "quote" as const, key: quote } : null;
+    const [shipment, quote, sailing] = [search.get("shipment"), search.get("quote"), search.get("sailing")];
+    if (saved) return null;
+    return shipment ? { kind: "shipment" as const, key: shipment } : quote ? { kind: "quote" as const, key: quote } : sailing ? { kind: "sailing" as const, key: sailing } : null;
   }, [saved, search]);
   const [readingJob, setReadingJob] = useState(startJob !== null);
   useEffect(() => {
@@ -156,7 +163,12 @@ function PlanEditor({ saved }: { saved: interfaces.LoadingPlanItem | null }) {
     fromJob.current = true;
     readJob(startJob)
       .then(
-        (found) => takeJob(found, true),
+        (found) => {
+          takeJob(found, true);
+          // A sailing's box is planned in the sailing's own container type, where the planner knows it.
+          const type = found.box ? plannerTypeOf(found.box.containerType, CONTAINERS) : null;
+          if (type) setNominated([type]);
+        },
         (err) => message.error(err instanceof JobNotFound ? err.message : apiErrorMessage(err)),
       )
       .finally(() => setReadingJob(false));
@@ -170,21 +182,24 @@ function PlanEditor({ saved }: { saved: interfaces.LoadingPlanItem | null }) {
     const linked = linkOf(saved);
     if (!linked || askedJob.current || saved?.linkGone) return;
     askedJob.current = true;
-    readJob({ kind: linked.kind, key: linked.kind === "shipment" ? linked.id : linked.ref }).then(
-      (job) => setJobCargo({ id: job.id, lines: job.lines }),
+    readJob({ kind: linked.kind, key: jobKeyOf(linked) }).then(
+      (job) => {
+        setJobCargo({ id: job.id, lines: job.lines });
+        if (job.box) setSailingBox({ id: job.id, ...job.box });
+      },
       () => undefined,
     );
     // Once, for the plan as it was opened.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   // Only for the job the plan is linked to now, and only once that job has cargo lines to compare.
-  const differsFromJob = link !== null && jobCargo !== null && jobCargo.id === link.id && jobCargo.lines.length > 0 && cargoDiffers(lines, jobCargo.lines);
+  const differsFromJob = link !== null && jobCargo !== null && jobCargo.id === link.id && jobCargo.lines.length > 0 && (link.kind === "sailing" ? boxCargoDiffers(lines, jobCargo.lines) : cargoDiffers(lines, jobCargo.lines));
 
   const handleReload = () => {
     if (!link) return;
     const reload = async () => {
       try {
-        takeJob(await readJob({ kind: link.kind, key: link.kind === "shipment" ? link.id : link.ref }), true);
+        takeJob(await readJob({ kind: link.kind, key: jobKeyOf(link) }), true);
       } catch (err) {
         message.error(err instanceof JobNotFound ? err.message : apiErrorMessage(err));
       }
@@ -213,7 +228,15 @@ function PlanEditor({ saved }: { saved: interfaces.LoadingPlanItem | null }) {
   const with45 = nominated?.some((id) => CONTAINERS.some((c) => c.id === id && c.group === "standard" && c.onRequest)) ?? false;
   const numbers = useMemo(() => lineNumbers(lines), [lines]);
   const numberOf = (lineId: string) => numbers.get(lineId) ?? 0;
-  const colourOf = (lineId: string) => lineColour(numberOf(lineId) - 1);
+  // A plan of a sailing's box is coloured by shipment, so each shipment's pieces are seen together; a tick turns it off.
+  const shipments = useMemo(() => shipmentsOf(lines), [lines]);
+  const [byShipment, setByShipment] = useState(true);
+  const colours = useMemo(() => colourIndexes(lines, byShipment && shipments.length > 0), [lines, byShipment, shipments]);
+  const colourOf = (lineId: string) => lineColour(colours.get(lineId) ?? 0);
+  // What the plan says about the sailing's containers: only once every line is planned.
+  const leftOut = loadPlan.notLoaded.reduce((n, entry) => n + entry.colli, 0);
+  const boxOf = sailingBox && link?.kind === "sailing" && link.id === sailingBox.id && tooMuch === null && unplanned === 0 && loadPlan.loads.length > 0 ? sailingBox : null;
+  const verdict = boxOf ? boxVerdict(loadPlan.loads, leftOut, boxOf) : null;
 
   // Leaving with unsaved work asks first: a link, the side menu, the Back button, closing or
   // reloading the page. A new plan nothing was typed into has nothing to lose.
@@ -239,6 +262,7 @@ function PlanEditor({ saved }: { saved: interfaces.LoadingPlanItem | null }) {
         madeBy: user?.displayName || user?.email || "",
         lines: cargo,
         numberOf,
+        colourIndexOf: (lineId) => colours.get(lineId) ?? 0,
         plan: planLoad(cargo, nominated ?? undefined, rules),
         rules,
         with45,
@@ -277,14 +301,43 @@ function PlanEditor({ saved }: { saved: interfaces.LoadingPlanItem | null }) {
     });
   };
 
+  // The plan as it is saved, with what it came to (Council Outlay 14, P4): the lists show the equipment
+  // and the colli left out without working every plan out again.
+  const planInput = () => {
+    const planned = cargoLinesOf(lines);
+    const totals = limitProblem(planned) ? null : planTotals(planLoad(planned, nominated ?? undefined, rules));
+    return {
+      name,
+      linkKind: link?.kind ?? null,
+      linkId: link?.id ?? null,
+      linkRef: link?.ref ?? "",
+      lines: planned,
+      nominated,
+      result: totals ? { equipment: totals.equipment, notLoaded: totals.notLoaded } : null,
+    };
+  };
+
+  // "Save as copy": what is on screen becomes a new plan and the page moves to it; the plan it was made from stays as it was last saved.
+  const handleCopy = async () => {
+    const problem = saveProblem(name, lines);
+    if (problem) return void message.warning(problem);
+    try {
+      const created = await createPlan({ ...planInput(), name: `${name.trim().slice(0, 113)} (copy)` });
+      message.success(`Saved as "${created.name}": you are in the copy now`);
+      setGoTo(`/loading-planner/${created.id}`);
+    } catch (err) {
+      message.error(apiErrorMessage(err));
+    }
+  };
+
   const handleSave = async () => {
     const problem = saveProblem(name, lines);
     if (problem) {
       message.warning(problem);
       return;
     }
-    const input = { name, linkKind: link?.kind ?? null, linkId: link?.id ?? null, linkRef: link?.ref ?? "", lines: cargoLinesOf(lines), nominated };
     try {
+      const input = planInput();
       if (stored) {
         // The server refuses the save when a colleague saved the plan after this version was opened.
         const savedNow = await updatePlan({ id: stored.id, updatedAt: stored.updatedAt, ...input });
@@ -339,6 +392,12 @@ function PlanEditor({ saved }: { saved: interfaces.LoadingPlanItem | null }) {
             <button type="button" className={BTN} onClick={() => setDeleting(true)} disabled={leaving}>
               <DeleteOutlined />
               Delete plan
+            </button>
+          )}
+          {stored && (
+            <button type="button" className={BTN} onClick={handleCopy} disabled={isSaving || leaving} title="Saves what is on screen as a new plan and opens it. This plan stays as it was last saved.">
+              <CopyOutlined />
+              Save as copy
             </button>
           )}
           <button type="button" className={BTN} onClick={handlePdf} disabled={printing || cargo.length === 0 || tooMuch !== null}>
@@ -409,6 +468,33 @@ function PlanEditor({ saved }: { saved: interfaces.LoadingPlanItem | null }) {
           )}
         </div>
 
+        {/* A sailing's box: does the cargo go into the containers the sailing has, and whose piece is whose. */}
+        {(boxOf || shipments.length > 0) && (
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+            {boxOf &&
+              (verdict ? (
+                <Pill tone="amber">{verdict}</Pill>
+              ) : (
+                <Pill tone="green">
+                  The cargo goes into the sailing&apos;s {boxOf.containerCount} × {boxOf.containerType}
+                </Pill>
+              ))}
+            {shipments.length > 0 && (
+              <Checkbox checked={byShipment} onChange={(e) => setByShipment(e.target.checked)}>
+                Colour by shipment
+              </Checkbox>
+            )}
+            {shipments.length > 0 &&
+              byShipment &&
+              shipments.map((job, index) => (
+                <span key={job} className="inline-flex items-center gap-1.5 text-[12px] text-slate-700">
+                  <span className={`h-3 w-3 shrink-0 rounded-sm border border-slate-700 ${lineColour(index).dot}`} aria-hidden />
+                  {job}
+                </span>
+              ))}
+          </div>
+        )}
+
         <CargoCard
           lines={lines}
           unit={unit}
@@ -420,6 +506,7 @@ function PlanEditor({ saved }: { saved: interfaces.LoadingPlanItem | null }) {
           busy={readingJob}
           rules={rules}
           with45={with45}
+          colourOf={colourOf}
         />
         <EquipmentCard nominated={nominated} unit={unit} onChange={setNominated} rules={rules} onSettings={() => setSettingsOpen(true)} />
         <ResultPanel

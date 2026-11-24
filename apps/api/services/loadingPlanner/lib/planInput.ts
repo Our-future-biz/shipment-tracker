@@ -1,6 +1,6 @@
 import { BUSINESS_TZ } from "../../../lib/businessDate";
 import { isUuid } from "../../../lib/uuid";
-import type { PlanCargoLine, PlanInput } from "../interfaces/interfaces";
+import type { PlanCargoLine, PlanInput, PlanResult } from "../interfaces/interfaces";
 
 // The limits of one plan. They keep a plan a browser can work out in a moment.
 export const MAX_LINES = 200;
@@ -19,12 +19,30 @@ function lineProblem(line: PlanCargoLine, n: number): string | null {
   const name = line.name.trim() || `line ${n}`;
   if (!line.id.trim() || line.id.length > 60) return `Cargo line ${n}: its id is missing`;
   if (line.name.length > 120) return `Cargo line ${n}: the name is longer than 120 characters`;
+  if (line.group !== undefined && (typeof line.group !== "string" || line.group.length > 60)) return `Cargo line ${n}: the shipment it belongs to is not valid`;
   for (const [label, value] of [["length", line.lengthMm], ["width", line.widthMm], ["height", line.heightMm]] as const) {
     if (!wholeIn(value, MAX_SIZE_MM)) return `Cargo "${name}": the ${label} must be between 1 mm and 100 m`;
   }
   if (!(line.weightKg > 0 && line.weightKg <= MAX_WEIGHT_KG)) return `Cargo "${name}": the weight must be more than 0 and at most 1,000 t`;
   if (!wholeIn(line.colli, MAX_COLLI)) return `Cargo "${name}": the colli must be a whole number from 1 to ${count(MAX_COLLI)}`;
   return null;
+}
+
+/**
+ * What a plan came to, as the browser sent it, kept only when it is what it should be: a short list
+ * of container types with whole counts, and a whole number of colli not loaded. Anything else is
+ * dropped, never refused: it is a caption for the lists, not part of the plan.
+ */
+export function cleanResult(result: PlanResult | null | undefined): PlanResult | null {
+  if (!result || !Array.isArray(result.equipment) || result.equipment.length > 30) return null;
+  const whole = (n: unknown): n is number => typeof n === "number" && Number.isInteger(n) && n >= 0 && n <= 100_000;
+  if (!whole(result.notLoaded)) return null;
+  const equipment: PlanResult["equipment"] = [];
+  for (const e of result.equipment) {
+    if (!e || typeof e.name !== "string" || !e.name.trim() || e.name.length > 30 || !whole(e.count) || e.count < 1) return null;
+    equipment.push({ name: e.name.trim(), count: e.count });
+  }
+  return { equipment, notLoaded: result.notLoaded };
 }
 
 /**
@@ -46,7 +64,7 @@ export function cleanPlan(input: PlanInput): { plan: CleanPlan } | { problem: st
   if (colli > MAX_COLLI) return { problem: `A plan holds at most ${count(MAX_COLLI)} colli; this one has ${count(colli)}` };
 
   const linked = input.linkKind !== null;
-  if (linked && !(input.linkId && isUuid(input.linkId))) return { problem: "The linked shipment or quote is missing" };
+  if (linked && !(input.linkId && isUuid(input.linkId))) return { problem: "The linked shipment, quote or sailing is missing" };
   const linkRef = input.linkRef.trim();
   if (linkRef.length > 60) return { problem: "The reference of the linked job is longer than 60 characters" };
 
@@ -71,8 +89,10 @@ export function cleanPlan(input: PlanInput): { plan: CleanPlan } | { problem: st
         stackable: line.stackable,
         // Kept only when sent: a line without the mark is stored without one.
         ...(line.dg === undefined ? {} : { dg: line.dg }),
+        ...(line.group?.trim() ? { group: line.group.trim() } : {}),
       })),
       nominated,
+      result: cleanResult(input.result),
     },
   };
 }

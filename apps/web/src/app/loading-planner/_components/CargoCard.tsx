@@ -30,6 +30,8 @@ interface CargoCardProps {
   rules: PlanRules;
   /** A 45' is nominated: "Fits" is then judged against its length. */
   with45: boolean;
+  /** The colour of a line's mark; by default its row's. A sailing's box is coloured by shipment. */
+  colourOf?: (lineId: string) => { dot: string };
 }
 
 const UNIT_TABS = DIM_UNITS.map((unit) => ({ key: unit, label: unit }));
@@ -38,7 +40,7 @@ const UNIT_TABS = DIM_UNITS.map((unit) => ({ key: unit, label: unit }));
 // chosen unit and kept in millimetres. A line is planned as soon as all its figures are in; until
 // then its last column says which figure is missing. Each line has a number, which every drawing
 // and table of the plan uses for it.
-export function CargoCard({ lines, unit, onUnitChange, onChange, onAdd, newId, onRead, busy = false, rules, with45 }: CargoCardProps) {
+export function CargoCard({ lines, unit, onUnitChange, onChange, onAdd, newId, onRead, busy = false, rules, with45, colourOf }: CargoCardProps) {
   const patch = (id: string, change: Partial<DraftLine>) => onChange(lines.map((line) => (line.id === id ? { ...line, ...change } : line)));
 
   // The line last removed, with its place: one click puts it back (Council Outlay 14, P5). Forgotten once the list changes otherwise.
@@ -131,7 +133,7 @@ export function CargoCard({ lines, unit, onUnitChange, onChange, onAdd, newId, o
                 <tr key={line.id}>
                   <td className={`${TD} !pl-4`}>
                     <span className="flex items-center gap-2 font-semibold tabular-nums text-slate-900">
-                      <span className={`h-3 w-3 shrink-0 rounded-sm border border-slate-700 ${lineColour(index).dot}`} aria-hidden />
+                      <span className={`h-3 w-3 shrink-0 rounded-sm border border-slate-700 ${(colourOf ? colourOf(line.id) : lineColour(index)).dot}`} aria-hidden />
                       {index + 1}
                     </span>
                   </td>

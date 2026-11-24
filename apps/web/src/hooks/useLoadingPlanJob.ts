@@ -5,13 +5,13 @@ import { api, isNotFound } from "@/lib/api";
 import type { interfaces } from "@/lib/api/client";
 import { uuid } from "@/lib/uuid";
 import type { DraftLine } from "@/app/loading-planner/_lib/cargoForm";
-import { linesFromQuote, quotePackages } from "@/app/loading-planner/_lib/jobCargo";
+import { linesFromQuote, linesFromSailing, quotePackages } from "@/app/loading-planner/_lib/jobCargo";
 import { shipmentLines, shipmentLookup, shipmentWithJobNumber } from "@/app/loading-planner/_lib/plannerScreen";
 
 /** How a job is named when it is looked up: a shipment by its id or its job number, a quote by its reference. */
 export interface JobKey {
   kind: interfaces.PlanLinkKind;
-  /** A shipment's id, its job number, or a quote's reference. */
+  /** A shipment's id, its job number, a quote's reference, or a sailing's id. */
   key: string;
 }
 
@@ -21,6 +21,8 @@ export interface PlanJob {
   id: string;
   ref: string;
   lines: DraftLine[];
+  /** For a sailing: the containers it has, to nominate and to judge the plan against. */
+  box?: { containerType: string; containerCount: number };
 }
 
 /** There is no such shipment or quote; its message says which. */
@@ -51,8 +53,19 @@ async function readQuote(key: string): Promise<PlanJob> {
   }
 }
 
+/** A Co-Loading sailing's box: every counted shipment's cargo, each line under its job number (Council Outlay 14, C1). */
+async function readSailing(key: string): Promise<PlanJob> {
+  try {
+    const box = await api.shipments.coLoadingSailingPlanCargo(key.trim());
+    return { kind: "sailing", id: box.sailingId, ref: box.reference, lines: linesFromSailing(box, newId), box: { containerType: box.containerType, containerCount: box.containerCount } };
+  } catch (err) {
+    if (isNotFound(err)) throw new JobNotFound("This sailing was not found.");
+    throw err;
+  }
+}
+
 /** Reads a shipment or a quote for a loading plan: what to link to, and its cargo. */
 export const useLoadingPlanJob = () => {
-  const read = useMutation({ mutationFn: ({ kind, key }: JobKey) => (kind === "shipment" ? readShipment(key) : readQuote(key)) });
+  const read = useMutation({ mutationFn: ({ kind, key }: JobKey) => (kind === "shipment" ? readShipment(key) : kind === "sailing" ? readSailing(key) : readQuote(key)) });
   return { readJob: read.mutateAsync, isReading: read.isPending };
 };

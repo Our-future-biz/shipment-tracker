@@ -100,8 +100,40 @@ export function quotePackages(data: unknown): QuotePackage[] {
   return Array.isArray(packages) ? (packages as QuotePackage[]) : [];
 }
 
-/** Where a linked job opens. */
-export const jobHref = (kind: interfaces.PlanLinkKind, id: string, ref: string): string =>
-  kind === "shipment" ? `/shipments/${id}` : `/sales/quote/${encodeURIComponent(ref)}`;
+/**
+ * The cargo of a sailing's box as planner lines (Council Outlay 14, C1): each shipment's lines under
+ * its job number, named "CZLCL00000053 · Pallet" so a piece says whose it is on every drawing and
+ * table. A shipment with totals only brings one line with no sizes: a line to finish.
+ */
+export function linesFromSailing(box: interfaces.SailingPlanCargo, newId: () => string): DraftLine[] {
+  return box.shipments.flatMap((s) => {
+    const lines = s.lines.map(
+      (l): Unnamed => ({
+        name: l.packageType,
+        lengthMm: mm(l.lengthCm),
+        widthMm: mm(l.widthCm),
+        heightMm: mm(l.heightCm),
+        weightKg: positive(l.weightPerPcKg),
+        colli: colliOf(l.pieces),
+        canTurn: true,
+        stackable: l.stackable,
+        ...(l.dangerous ? { dg: true } : {}),
+      }),
+    );
+    const job = s.jobNumber || "(no job number)";
+    // "Pallet", or "Pallet 2" where a shipment has several lines of one type; then the job number in front.
+    return named(lines, newId).map((line) => ({ ...line, name: `${job} · ${s.totalsOnly ? "no sizes yet" : line.name}`.slice(0, 120), group: job }));
+  });
+}
 
-export const JOB_KIND_LABEL: Record<interfaces.PlanLinkKind, string> = { shipment: "Shipment", quote: "Quote" };
+/** The planner's container type of a sailing's ("40' HC"), by its name; null for a type the planner has no sizes for (a reefer). */
+export const plannerTypeOf = (containerType: string, types: readonly { id: string; name: string }[]): string | null => types.find((t) => t.name === containerType.trim())?.id ?? null;
+
+/**
+ * Where a linked job opens. A sailing's page stands under its service; the page reads the sailing
+ * by its own id, so the service's place in the address may be a dash.
+ */
+export const jobHref = (kind: interfaces.PlanLinkKind, id: string, ref: string): string =>
+  kind === "shipment" ? `/shipments/${id}` : kind === "sailing" ? `/co-loading/-/sailings/${id}` : `/sales/quote/${encodeURIComponent(ref)}`;
+
+export const JOB_KIND_LABEL: Record<interfaces.PlanLinkKind, string> = { shipment: "Shipment", quote: "Quote", sailing: "Sailing" };

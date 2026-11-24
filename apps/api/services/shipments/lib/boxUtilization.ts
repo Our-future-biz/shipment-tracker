@@ -31,7 +31,7 @@ export interface BoxShipment {
   pcs: string | null;
   totalWeightTons: string | null;
   totalVolumeCbm: string | null;
-  cargoDimensions: { pieces: string; lengthCm: string; widthCm: string; heightCm: string; weightPerPcKg: string; volumePerPcM3: string | null; stackable: string; adrUn?: string | null; adrClass?: string | null }[];
+  cargoDimensions: { pieces: string; lengthCm: string; widthCm: string; heightCm: string; weightPerPcKg: string; volumePerPcM3: string | null; stackable: string; adrUn?: string | null; adrClass?: string | null; packageType?: string }[];
 }
 
 /**

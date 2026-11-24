@@ -22,6 +22,8 @@ export interface PlanPdfInput {
   lines: CargoLine[];
   /** The number a cargo line carries in the cargo table of the screen; by default its place in `lines`. */
   numberOf?: (lineId: string) => number;
+  /** The place in the palette a cargo line is drawn in; by default its number, as on the screen. A sailing's box is coloured by shipment. */
+  colourIndexOf?: (lineId: string) => number;
   plan: LoadPlan;
   /** The names of the nominated container types; null when the planner chose. */
   nominated: string[] | null;
@@ -540,7 +542,7 @@ function loadPage(doc: jsPDF, input: PlanPdfInput, load: ContainerLoad, number: 
  */
 export function buildPlanPdf(input: PlanPdfInput, fonts?: PdfFonts): jsPDF {
   const numberOf = input.numberOf ?? ((lineId: string) => input.lines.findIndex((line) => line.id === lineId) + 1);
-  const colourOf = (lineId: string) => lineColour(numberOf(lineId) - 1).hex;
+  const colourOf = (lineId: string) => lineColour(input.colourIndexOf ? input.colourIndexOf(lineId) : numberOf(lineId) - 1).hex;
   const doc = new jsPDF({ unit: "mm", format: "a4", orientation: "landscape", compress: true });
   face = "helvetica";
   if (fonts) {

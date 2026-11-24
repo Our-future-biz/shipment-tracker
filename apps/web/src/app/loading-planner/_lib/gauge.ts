@@ -14,6 +14,8 @@ export interface CargoLine {
   stackable: boolean;
   /** Dangerous goods, as the job says. Shown beside the line; it changes nothing in the plan. */
   dg?: boolean;
+  /** The shipment the line belongs to in a box plan (its job number): what its pieces may be coloured by. It changes nothing in the plan. */
+  group?: string;
 }
 
 /** How a piece sits on the floor: `length` runs along the container. */
