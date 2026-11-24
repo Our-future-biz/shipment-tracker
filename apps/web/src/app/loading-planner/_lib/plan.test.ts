@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { balanceOf, centreLoad, floorOverloads } from "./balance";
+import { balanceOf, centreLoad, floorHolds, floorOverloads } from "./balance";
 import { CONTAINERS, containersWith, DEFAULT_RULES, maxWeightOn, restingNeeded } from "./containers";
 import { findSpot, newFloor, occupy } from "./floor";
 import { fitIn, fitLabel, footprints, gaugeOf, standardLabel, type CargoLine } from "./gauge";
 import { floorOverloadText, ruleWarnings } from "./loadStats";
-import { isOutOfGauge, overhang, planLoad, type LoadPlan } from "./plan";
+import { isOutOfGauge, overhang, planLoad, type ContainerLoad, type LoadPlan } from "./plan";
 
 let nextId = 0;
 const line = (name: string, lengthMm: number, widthMm: number, heightMm: number, weightKg: number, more: Partial<CargoLine> = {}): CargoLine => ({
@@ -24,6 +24,8 @@ const names = (plan: LoadPlan) => plan.loads.map((load) => load.container.name);
 const load = (plan: LoadPlan, index = 0) => plan.loads[index]!;
 const piece = (plan: LoadPlan, index = 0) => load(plan, index).pieces[0]!;
 const loadedCount = (plan: LoadPlan) => plan.loads.reduce((n, load) => n + load.pieces.length, 0);
+/** The free floor between the cargo and the doors, in mm. */
+const doorGap = (load: ContainerLoad) => load.container.internalL - Math.max(...load.pieces.map((p) => p.z + p.length));
 
 /** No two pieces of a load share floor, and none leaves the floor except by flat-rack overhang. */
 const expectSoundFloors = (plan: LoadPlan) => {
@@ -117,6 +119,14 @@ describe("planLoad", () => {
     expectSoundFloors(plan);
 
     expect(names(planLoad([line("pallet", 1200, 800, 1000, 400, { colli: 35 })]))).toEqual(["40' DC", "20' DC"]);
+  });
+
+  it("never puts a piece where another stands when it packs a load again around its heaviest piece", () => {
+    // Laid out the textbook way first, then again around the heavy blocks: the places worked out for
+    // the pallets must not be handed to the blocks once pallets stand there.
+    const plan = planLoad([line("Euro pallet", 1200, 800, 1000, 500, { colli: 10 }), line("Steel block", 700, 600, 1000, 2600, { colli: 4 })]);
+    expect(loadedCount(plan)).toBe(14);
+    expectSoundFloors(plan);
   });
 
   it("lays standard pallets out the textbook way: ten 1,200 x 1,000 in a 20', eleven euro pallets", () => {
@@ -242,6 +252,17 @@ describe("planLoad", () => {
     expect(performance.now() - started).toBeLessThan(2000);
   });
 
+  it("plans the most a plan may hold quickly also when it must choose among flat racks and open tops", () => {
+    // A wide machine and a tall column make the planner try every flat-rack and open-top type, each
+    // filled with the rest of the 2,000 colli: about half a second on a developer's machine.
+    const boxes = Array.from({ length: 198 }, (_, i) => line(`box ${i}`, 300 + 7 * i, 200 + 3 * i, 300 + (i % 7) * 100, 10 + i, { colli: 10 }));
+    const cargo = [line("wide", 5000, 3000, 2000, 9000), line("tall", 3000, 2000, 3000, 3000), ...boxes];
+    const started = performance.now();
+    const plan = planLoad(cargo, CONTAINERS.map((c) => c.id), DEFAULT_RULES);
+    expect(loadedCount(plan)).toBe(1982);
+    expect(performance.now() - started).toBeLessThan(3000);
+  });
+
   describe("nominated equipment", () => {
     it("uses only the nominated types", () => {
       const plan = planLoad([line("pallet", 1200, 800, 1000, 600, { colli: 10 })], ["40hc"]);
@@ -261,6 +282,12 @@ describe("planLoad", () => {
       const plan = planLoad([line("pallet", 1200, 800, 1000, 600, { colli: 3 })], ["40fr"]);
       expect(names(plan)).toEqual(["40' FR"]);
       expect(loadedCount(plan)).toBe(3);
+    });
+
+    it("names the type that would take a piece when its kind of equipment is nominated in another size", () => {
+      // An 8 m tank too high for a standard container: a 20' open top is nominated, a 40' would take it.
+      const plan = planLoad([line("tank", 8000, 2200, 3000, 5000)], ["20ot"]);
+      expect(plan.notLoaded.map((n) => n.reason)).toEqual(["Does not fit the nominated equipment. A 40' OT would take it."]);
     });
 
     it("loads nothing when no equipment is nominated", () => {
@@ -408,15 +435,51 @@ describe("planLoad", () => {
 
     it("counts pieces standing side by side together: the floor is rated across its whole width", () => {
       // Two 7 t pieces abreast: each alone is 2.8 t per metre, together 5.6 on a floor rated for 3.
-      const abreast = planLoad([line("block", 2500, 1100, 1000, 7000, { colli: 2, canTurn: false })], ["40dc"]);
-      expect(floorOverloads(load(abreast))).toEqual([expect.objectContaining({ names: ["block"], lengthMm: 2500, weightKg: 14000, spreadMm: 4667 })]);
-      expect(floorOverloads(load(abreast))[0]?.tonnesPerMetre).toBeCloseTo(5.6, 5);
-
-      // Eight coils two abreast in touching rows make one overloaded stretch; a 40' carries 23.2 t on 8,067 mm.
-      const coils = planLoad([line("coil", 1100, 1100, 1100, 2900, { colli: 8 })], ["40dc"]);
-      const [stretch, ...more] = floorOverloads(load(coils));
+      const block = (x: number) => ({ lineId: "b", name: "block", x, y: 0, z: 4000, length: 2500, width: 1100, height: 1000, weightKg: 7000, crosswise: false });
+      const abreast = { container: spec("40dc"), pieces: [block(0), block(1100)], totalWeightKg: 14000 };
+      const [overload, ...more] = floorOverloads(abreast);
       expect(more).toEqual([]);
-      expect(stretch).toMatchObject({ lengthMm: 4400, weightKg: 23200, spreadMm: 8067 });
+      expect(overload).toMatchObject({ names: ["block"], lengthMm: 2500, weightKg: 14000, spreadMm: 4667 });
+      expect(overload?.tonnesPerMetre).toBeCloseTo(5.6, 5);
+      // Beams 1 m beyond each end give 4,500 mm at most: the advice is not a length nobody can lay.
+      expect(floorOverloadText(overload!, spec("40dc"), "mm")).toContain(
+        "It cannot be bedded there: it needs 4,667 mm of floor, and beams reaching no more than 1,000 mm beyond each end give 4,500 mm. Take a piece off this stretch.",
+      );
+    });
+
+    it("stands pieces end to end where side by side the floor would not carry them", () => {
+      // Abreast, the two blocks would need 4,667 mm of floor; end to end each rests on its own 2.5 m.
+      const plan = planLoad([line("block", 2500, 1100, 1000, 7000, { colli: 2, canTurn: false })], ["40dc"]);
+      expect(names(plan)).toEqual(["40' DC"]);
+      const [a, b] = load(plan).pieces;
+      expect(a!.z + a!.length <= b!.z || b!.z + b!.length <= a!.z).toBe(true);
+      expect(floorOverloads(load(plan))).toEqual([]);
+    });
+
+    it("weighs cargo standing end to end by what the floor carries on that length", () => {
+      // Four 6.75 t cases end to end: 27 t on 9 m of a 40' floor, which carries 26 t there (3 t per metre is no more than allowed).
+      const plan = planLoad([line("case", 2250, 2200, 1500, 6750, { colli: 4, canTurn: false })]);
+      expect(names(plan)).toEqual(["40' DC"]);
+      const [overload, ...more] = floorOverloads(load(plan));
+      expect(more).toEqual([]);
+      expect(overload).toMatchObject({ names: ["case"], lengthMm: 9000, weightKg: 27000, allowedKg: 26000, spreadMm: 9001 });
+      expect(floorOverloadText(overload!, load(plan).container, "mm")).toBe(
+        "case: 27,000 kg resting on 9,000 mm (this floor carries 26,000 kg on that length). Spread the weight over at least 9,001 mm with beams under the cargo, along the container, reaching no more than 1,000 mm beyond each end of a piece.",
+      );
+    });
+
+    it("refuses cargo standing together that the floor cannot carry even with beams, as it refuses a single piece", () => {
+      // One 14 t coil on 1 m of a 20' is carried with beams (14.4 t on 3 m); two together, abreast or end to end, are not.
+      const plan = planLoad([line("coil", 1000, 1000, 1000, 14000, { colli: 2 })], ["20dc"]);
+      expect(names(plan)).toEqual(["20' DC", "20' DC"]);
+      for (const l of plan.loads) expect(floorHolds(l.pieces, l.container)).toBe(true);
+    });
+
+    it("weighs a flat rack's lone piece together with what stands beside it on the same length", () => {
+      // A 16 t coil and a 3 t crate on the same metre of a 20' flat rack: 19 t rest there, not 16.
+      const at = (name: string, x: number, weightKg: number) => ({ lineId: name, name, x, y: 0, z: 2000, length: 1000, width: 1000, height: 1000, weightKg, crosswise: false });
+      const rack = { container: spec("20fr"), pieces: [at("coil", 0, 16000), at("crate", 1100, 3000)], totalWeightKg: 19000 };
+      expect(floorOverloads(rack)).toEqual([{ names: ["coil", "crate"], fromMm: 2000, lengthMm: 1000, weightKg: 19000, tonnesPerMetre: 19, spreadMm: 2128, allowedKg: 15600 }]);
     });
 
     it("reads what a floor carries from the carrier's table, by the length the cargo rests on", () => {
@@ -521,7 +584,17 @@ describe("the company's rules", () => {
     expect(planLoad(rows, ["40dc"]).loads).toHaveLength(1);
     const plan = planLoad(rows, ["40dc"], DEFAULT_RULES);
     expect(plan.loads.map((load) => load.pieces.length)).toEqual([22, 2]);
-    for (const load of plan.loads) expect(Math.max(...load.pieces.map((p) => p.z + p.length)) - Math.min(...load.pieces.map((p) => p.z))).toBeLessThanOrEqual(12032 - 100);
+    for (const load of plan.loads) expect(doorGap(load)).toBeGreaterThanOrEqual(100);
+  });
+
+  it("keeps the clearance at the doors when it centres a load", () => {
+    // The heavy machine at the front pulls the load towards the doors; it may come no closer than 100 mm.
+    const plan = planLoad([line("Machine", 3000, 2200, 2000, 9000, { canTurn: false }), line("Crate", 2798, 2200, 2000, 500, { canTurn: false })], ["20dc"], DEFAULT_RULES);
+    expect(loadedCount(plan)).toBe(2);
+    expect(doorGap(load(plan))).toBe(100);
+    // Cartons filling the floor, slid to balance them.
+    const cartons = planLoad([line("Carton", 400, 300, 300, 12, { colli: 2000, stackable: true })], undefined, DEFAULT_RULES);
+    for (const load of cartons.loads) expect(doorGap(load)).toBeGreaterThanOrEqual(100);
   });
 
   it("says what a standard container takes with the clearance", () => {
@@ -557,7 +630,7 @@ describe("the company's rules", () => {
     // 8 t on a 40' floor (3 t/m) needs 2,667 mm of bedding: more than twice a 1,000 mm coil, not twice a 1,500 mm case.
     expect(fitIn(ruled("40dc"), line("Coil", 1000, 1000, 1000, 8000))).toEqual([]);
     expect(fitIn(ruled("40dc"), line("Case", 1500, 1000, 1000, 8000)).length).toBeGreaterThan(0);
-    // A 20' floor (4.5 t/m) needs 1,778 mm: the coil stays.
+    // A 20' floor (4.8 t/m) needs 1,667 mm: the coil stays.
     expect(fitIn(ruled("20dc"), line("Coil", 1000, 1000, 1000, 8000)).length).toBeGreaterThan(0);
     // A piece not heavy enough to be warned about is never moved for its bedding.
     expect(fitIn(ruled("40dc"), line("Block", 500, 500, 500, 4000)).length).toBeGreaterThan(0);
@@ -583,5 +656,13 @@ describe("the company's rules", () => {
     expect(texts(line("Silo", 4000, 2200, 3300, 9000))).toEqual([expect.stringContaining("3,300 mm high, over the 3,200 mm")]);
     // 14 m on an 11,652 mm deck, centred: 1,174 mm over each end.
     expect(texts(line("Girder", 14000, 1000, 1000, 9000))).toEqual([expect.stringContaining("1,174 mm over one end, over the 1,000 mm")]);
+  });
+
+  it("says nothing about out-of-gauge cargo just at the limits set", () => {
+    const texts = (cargo: CargoLine) => ruleWarnings(planLoad([cargo], undefined, DEFAULT_RULES).loads[0]!, "mm");
+    // 13,652 mm on an 11,652 mm deck: exactly 1,000 mm over each end.
+    expect(texts(line("Girder", 13652, 1000, 1000, 9000))).toEqual([]);
+    expect(texts(line("Silo", 4000, 2200, 3200, 9000))).toEqual([]);
+    expect(texts(line("Tank", 6000, 3500, 2000, 9000, { canTurn: false }))).toEqual([]);
   });
 });

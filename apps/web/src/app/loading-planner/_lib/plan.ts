@@ -1,7 +1,7 @@
 import { balanceOf, centreLoad } from "./balance";
 import { BEDDING_END_MM, containersWith, GROUP_LABEL, GROUP_ORDER, maxCargoKg, maxWeightWithBedding, usableLength, type ContainerGroup, type ContainerSpec, type PlanRules } from "./containers";
-import { findSpot, mirroredSlots, newFloor, occupy, PLACE_RULES, type Floor, type PlaceRule, type Slot } from "./floor";
-import { fitIn, type CargoLine } from "./gauge";
+import { findSpot, isFree, mirroredSlots, newFloor, occupy, PLACE_RULES, type Floor, type PlaceRule, type Slot } from "./floor";
+import { fitIn, type CargoLine, type Footprint } from "./gauge";
 
 /** One piece as loaded. x runs across the container, z along it, y up from the floor; all in mm. */
 export interface PlacedPiece {
@@ -59,9 +59,20 @@ interface OpenStack {
   carried: number;
 }
 
+/** A stretch of floor under cargo standing end to end, and the weight resting on it. */
+interface Stretch {
+  from: number;
+  to: number;
+  weightKg: number;
+}
+
 interface Bin {
   container: ContainerSpec;
+  /** The most cargo the container takes (maxCargoKg). */
+  maxKg: number;
   floor: Floor;
+  /** The cargo on the floor as stretches standing apart from each other (see `floorCarries`). */
+  stretches: Stretch[];
   /** How free places are chosen on this floor. */
   rule: PlaceRule;
   lines: CargoLine[];
@@ -86,7 +97,9 @@ interface Bin {
 
 const newBin = (container: ContainerSpec, rule: PlaceRule): Bin => ({
   container,
+  maxKg: maxCargoKg(container),
   floor: newFloor(usableLength(container), container.internalW),
+  stretches: [],
   rule,
   lines: [],
   pieces: [],
@@ -104,10 +117,55 @@ const sum = (values: number[]) => values.reduce((total, value) => total + value,
 /** A piece longer than the deck it lies on: only a flat rack takes one, with its end walls folded down. */
 const isOverLength = (piece: { length: number }, container: ContainerSpec) => piece.length > container.internalL;
 
+// The ways each cargo line may sit in each container (fitIn), worked out once: a plan tries the
+// same lines in many containers of the same types.
+const fitted = new WeakMap<ContainerSpec, WeakMap<CargoLine, Footprint[]>>();
+
+/** The ways a cargo line may sit in the container. */
+function waysOf(container: ContainerSpec, line: CargoLine): Footprint[] {
+  let known = fitted.get(container);
+  if (!known) {
+    known = new WeakMap();
+    fitted.set(container, known);
+  }
+  let ways = known.get(line);
+  if (!ways) {
+    ways = fitIn(container, line);
+    known.set(line, ways);
+  }
+  return ways;
+}
+
+/** The stretch a piece of `weightKg` on z..z+length would rest in: it joins every stretch of cargo it touches end to end or beside it. */
+function stretchWith(bin: Bin, z: number, length: number, weightKg: number): Stretch {
+  const [from, to] = [Math.max(0, z), Math.min(bin.container.internalL, z + length)];
+  return bin.stretches
+    .filter((s) => s.from <= to && s.to >= from)
+    .reduce((joined, s) => ({ from: Math.min(joined.from, s.from), to: Math.max(joined.to, s.to), weightKg: joined.weightKg + s.weightKg }), { from, to, weightKg });
+}
+
+/**
+ * Whether the floor carries a piece of `weightKg` more on z..z+length. Cargo standing end to end or
+ * side by side rests on the floor as one stretch, and the stretch, with beams 1 m beyond its ends,
+ * must carry all of it: the rule for a single piece (fitIn), for the cargo that stands together.
+ */
+function floorCarries(bin: Bin, z: number, length: number, weightKg: number): boolean {
+  // The stretch is at least this piece long: when the whole load would be carried on that, any stretch is.
+  if (bin.weightKg + weightKg <= maxWeightWithBedding(bin.container, length)) return true;
+  const stretch = stretchWith(bin, z, length, weightKg);
+  return stretch.weightKg <= maxWeightWithBedding(bin.container, stretch.to - stretch.from);
+}
+
+/** Records a piece of `weightKg` on z..z+length in the bin's stretches. */
+function rest(bin: Bin, z: number, length: number, weightKg: number): void {
+  const joined = stretchWith(bin, z, length, weightKg);
+  bin.stretches = [...bin.stretches.filter((s) => s.from > joined.to || s.to < joined.from), joined];
+}
+
 /**
  * Stacks one piece on pieces of its own line. A piece carries no more than its own weight, the
  * stack stays under the roof (or the top of the walls), and the floor carries the whole stack on
- * the length it stands on.
+ * the length it stands on, and the stretch of cargo it stands in.
  */
 function stack(bin: Bin, line: CargoLine): boolean {
   const open = bin.stacks.get(line.id);
@@ -118,9 +176,11 @@ function stack(bin: Bin, line: CargoLine): boolean {
     // Pieces of a line are alike: a stack that cannot take this one cannot take the next either.
     if (carried > on.base.weightKg || on.top + line.heightMm > bin.container.internalH) continue;
     if (on.base.weightKg + carried > maxWeightWithBedding(bin.container, on.base.length)) continue;
+    if (!floorCarries(bin, on.base.z, on.base.length, line.weightKg)) continue;
     bin.lines.push(line);
     bin.pieces.push({ ...on.base, y: on.top });
     bin.weightKg += line.weightKg;
+    rest(bin, on.base.z, on.base.length, line.weightKg);
     on.top += line.heightMm;
     on.carried = carried;
     return true;
@@ -128,24 +188,31 @@ function stack(bin: Bin, line: CargoLine): boolean {
   return false;
 }
 
-/** The next place worked out in advance for this line (the "mirror" rule), if one is left. */
-function nextSlot(bin: Bin, line: CargoLine): Slot | null {
-  if (bin.rule !== "mirror") return null;
-  if (bin.pieces.length === 0 && fitIn(bin.container, line).length === 2) {
+/**
+ * The next place worked out in advance for this line (the "mirror" rule), if one is left and still
+ * free: once other cargo is on the floor (a load packed again around its heaviest piece), a place
+ * may be taken, and the piece then goes where the floor has room. A piece asked into the middle
+ * takes no such place.
+ */
+function nextSlot(bin: Bin, line: CargoLine, inMiddle: boolean): Slot | null {
+  if (bin.rule !== "mirror" || inMiddle) return null;
+  if (bin.pieces.length === 0 && waysOf(bin.container, line).length === 2) {
     const [long, short] = [Math.max(line.lengthMm, line.widthMm), Math.min(line.lengthMm, line.widthMm)];
     bin.slots = { lineId: line.id, items: mirroredSlots(bin.floor, long, short), at: 0 };
   }
   const slots = bin.slots;
-  return slots && slots.lineId === line.id && slots.at < slots.items.length ? slots.items[slots.at++]! : null;
+  if (!slots || slots.lineId !== line.id || slots.at >= slots.items.length) return null;
+  const slot = slots.items[slots.at++]!;
+  return isFree(bin.floor, slot) && floorCarries(bin, slot.z, slot.length, line.weightKg) ? slot : null;
 }
 
 /** Puts one piece on the floor, in the way it fits best by the bin's rule. `inMiddle` centres the first piece of a load. */
 function placeOnFloor(bin: Bin, line: CargoLine, inMiddle: boolean): boolean {
-  const slot = nextSlot(bin, line);
+  const slot = nextSlot(bin, line, inMiddle);
   const ways = slot
     ? [{ fp: { length: slot.length, width: slot.width, crosswise: slot.crosswise }, spot: { x: slot.x, z: slot.z, score: 0 } }]
-    : fitIn(bin.container, line)
-    .map((fp) => ({ fp, spot: findSpot(bin.floor, fp.length, fp.width, bin.rule) }))
+    : waysOf(bin.container, line)
+    .map((fp) => ({ fp, spot: findSpot(bin.floor, fp.length, fp.width, bin.rule, (_x, z) => floorCarries(bin, z, fp.length, line.weightKg)) }))
     .filter((way) => way.spot !== null)
     .sort((a, b) => a.spot!.score - b.spot!.score);
   const best = ways[0];
@@ -176,6 +243,7 @@ function placeOnFloor(bin: Bin, line: CargoLine, inMiddle: boolean): boolean {
   };
   bin.lines.push(line);
   bin.pieces.push(piece);
+  rest(bin, piece.z, piece.length, line.weightKg);
   bin.weightKg += line.weightKg;
   if (line.stackable) {
     const open = bin.stacks.get(line.id) ?? { items: [], at: 0 };
@@ -194,7 +262,7 @@ function place(bin: Bin, line: CargoLine, inMiddle = false): boolean {
   const first = bin.pieces[0];
   const longOnes = first !== undefined && isOverLength(first, bin.container);
   const isLong = Math.max(line.lengthMm, line.widthMm) > bin.container.internalL;
-  const fits = bin.weightKg + line.weightKg <= maxCargoKg(bin.container) && (first === undefined || longOnes === isLong);
+  const fits = bin.weightKg + line.weightKg <= bin.maxKg && (first === undefined || longOnes === isLong);
   if (fits && (placeOnFloor(bin, line, inMiddle) || stack(bin, line))) return true;
   bin.full.add(line.id);
   return false;
@@ -247,8 +315,14 @@ function fill(bins: Bin[], lines: CargoLine[]): CargoLine[] {
   });
 }
 
-/** Loads the pieces into as many containers of one type as they need. */
-function packInto(container: ContainerSpec, lines: CargoLine[], rule: PlaceRule): { bins: Bin[]; left: CargoLine[] } {
+/** Pieces loaded into containers, and the pieces they did not take. */
+interface Packing {
+  bins: Bin[];
+  left: CargoLine[];
+}
+
+/** Loads the pieces into as many containers of one type as they need, or null as soon as that is more than `maxBins`. */
+function packInto(container: ContainerSpec, lines: CargoLine[], rule: PlaceRule, maxBins: number): Packing | null {
   const bins: Bin[] = [];
   const left: CargoLine[] = [];
   // A line that did not go into an empty container never will.
@@ -260,8 +334,10 @@ function packInto(container: ContainerSpec, lines: CargoLine[], rule: PlaceRule)
     }
     if (placeInOne(bins, line)) continue;
     const fresh = newBin(container, rule);
-    if (place(fresh, line)) bins.push(fresh);
-    else {
+    if (place(fresh, line)) {
+      if (bins.length === maxBins) return null;
+      bins.push(fresh);
+    } else {
       never.add(line.id);
       left.push(line);
     }
@@ -300,14 +376,22 @@ const cheaper = (a: number[], b: number[]) => {
   return false;
 };
 
-/** The pieces loaded into one type by each way of laying out a floor; the best result is kept. */
-function bestPacking(container: ContainerSpec, lines: CargoLine[]): { bins: Bin[]; left: CargoLine[] } {
-  let best: { bins: Bin[]; left: CargoLine[] } | null = null;
+/**
+ * The pieces loaded into one type by each way of laying out a floor; the best result is kept. Null
+ * when every way takes more than `maxBins` containers.
+ *
+ * Every way leaves out the same pieces (those no empty container of the type takes), and only a flat
+ * rack has overhang beyond the ends, so on other equipment a way taking more containers than the
+ * best so far cannot be better (see `cost`) and is given up as soon as it does.
+ */
+function bestPacking(container: ContainerSpec, lines: CargoLine[], maxBins = Infinity): Packing | null {
+  let best: Packing | null = null;
   for (const rule of PLACE_RULES) {
-    const packed = packInto(container, lines, rule);
-    if (!best || cheaper(cost(packed.bins, packed.left.length), cost(best.bins, best.left.length))) best = packed;
+    const limit = best && container.group !== "flat-rack" ? Math.min(maxBins, best.bins.length) : maxBins;
+    const packed = packInto(container, lines, rule, limit);
+    if (packed && (!best || cheaper(cost(packed.bins, packed.left.length), cost(best.bins, best.left.length)))) best = packed;
   }
-  return best ?? { bins: [], left: lines };
+  return best;
 }
 
 /** Moves a load into a smaller or lower container when all of it fits there just as well. */
@@ -317,25 +401,40 @@ function shrink(bin: Bin, candidates: ContainerSpec[]): Bin {
     .filter((c) => c.feet < bin.container.feet || (c.feet === bin.container.feet && c.internalH < bin.container.internalH))
     .sort((a, b) => a.feet - b.feet || a.internalH - b.internalH);
   for (const container of smaller) {
-    const packed = bestPacking(container, bin.lines);
-    const [only, ...others] = packed.bins;
-    if (packed.left.length > 0 || !only || others.length > 0) continue;
+    const packed = bestPacking(container, bin.lines, 1);
+    const only = packed?.bins[0];
+    if (!packed || packed.left.length > 0 || !only) continue;
     const [before, after] = [overhangOf([bin]), overhangOf([only])];
     if (after.ends <= before.ends && after.sidesAndTop <= before.sidesAndTop) return only;
   }
   return bin;
 }
 
-/** Loads the pieces into the best of the candidate types; returns what none of them took. */
-function loadGroup(candidates: ContainerSpec[], lines: CargoLine[]): { bins: Bin[]; left: CargoLine[] } {
+/**
+ * How many containers of this type may be taken before the packing cannot beat the best so far:
+ * fewer pieces left out wins outright, more loses outright, and with as many left out the fewer
+ * containers win (unless on flat racks, where overhang beyond the ends counts first).
+ */
+function binsToBeat(container: ContainerSpec, lines: CargoLine[], best: Packing | null): number {
+  if (!best || container.group === "flat-rack") return Infinity;
+  const leftOut = lines.filter((line) => waysOf(container, line).length === 0).length;
+  if (leftOut === best.left.length) return best.bins.length;
+  return leftOut < best.left.length ? Infinity : 0;
+}
+
+/**
+ * Loads the pieces into the best of the candidate types; returns what none of them took. The
+ * largest type is tried first: its packing is the one to beat, so smaller types give up early.
+ */
+function loadGroup(candidates: ContainerSpec[], lines: CargoLine[]): Packing {
   const bins: Bin[] = [];
   let left = lines;
-  let types = candidates;
+  let types = [...candidates].sort((a, b) => b.internalL * b.internalW - a.internalL * a.internalW || b.internalH - a.internalH);
   while (left.length > 0 && types.length > 0) {
-    let best: { container: ContainerSpec; bins: Bin[]; left: CargoLine[] } | null = null;
+    let best: (Packing & { container: ContainerSpec }) | null = null;
     for (const container of types) {
-      const packed = bestPacking(container, left);
-      if (packed.bins.length === 0) continue;
+      const packed = bestPacking(container, left, binsToBeat(container, left, best));
+      if (!packed || packed.bins.length === 0) continue;
       if (!best || cheaper(cost(packed.bins, packed.left.length), cost(best.bins, best.left.length))) best = { container, ...packed };
     }
     if (!best) break;
@@ -418,16 +517,21 @@ function sortedPieces(lines: CargoLine[], allowed: ContainerSpec[]): { waiting: 
  *
  * @param flatRacks the flat-rack types this plan may open
  * @param openTops the open-top types this plan may open
+ * @param packStandard loads the pieces left for standard containers, each load centred
  */
-function buildPlan(sorted: { waiting: Waiting; refused: CargoLine[] }, allowed: ContainerSpec[], all: ContainerSpec[], flatRacks: ContainerSpec[], openTops: ContainerSpec[]): LoadPlan {
+function buildPlan(
+  sorted: { waiting: Waiting; refused: CargoLine[] },
+  allowed: ContainerSpec[],
+  all: ContainerSpec[],
+  flatRacks: ContainerSpec[],
+  openTops: ContainerSpec[],
+  packStandard: (lines: CargoLine[]) => Packing,
+): LoadPlan {
   const flat = loadGroup(flatRacks, sorted.waiting["flat-rack"]);
   const afterFlat = { open: fill(flat.bins, sorted.waiting["open-top"]), standard: fill(flat.bins, sorted.waiting.standard) };
 
   const open = loadGroup(openTops, afterFlat.open);
-  const standard = loadGroup(
-    allowed.filter((c) => c.group === "standard"),
-    fill(open.bins, afterFlat.standard),
-  );
+  const standard = packStandard(fill(open.bins, afterFlat.standard));
 
   const notLoaded = new Map<string, NotLoaded>();
   const note = (line: CargoLine, reason: string) => {
@@ -438,7 +542,8 @@ function buildPlan(sorted: { waiting: Waiting; refused: CargoLine[] }, allowed: 
   for (const line of sorted.refused) note(line, refusal(line, allowed, all));
   for (const line of [...flat.left, ...open.left, ...standard.left]) note(line, "No room was found for it in the allowed equipment.");
 
-  const loads = [...standard.bins, ...open.bins, ...flat.bins].map(balanced).map((bin) => ({
+  // The standard containers come centred with their share; the rest is centred here.
+  const loads = [...standard.bins, ...[...open.bins, ...flat.bins].map(balanced)].map((bin) => ({
     container: bin.container,
     pieces: bin.pieces,
     totalWeightKg: bin.weightKg,
@@ -468,11 +573,24 @@ export function planLoad(lines: CargoLine[], nominated?: string[], rules?: PlanR
     return types.length > 1 && sorted.waiting[group].length > 0 ? [types, ...types.map((type) => [type])] : [types];
   };
   const planCost = (plan: LoadPlan) => cost(plan.loads, sum(plan.notLoaded.map((n) => n.colli)));
+  // Plans that leave the same pieces to standard containers load them alike: each such share is packed once.
+  const standardTypes = allowed.filter((c) => c.group === "standard");
+  const shares = new Map<string, Packing>();
+  const packStandard = (left: CargoLine[]): Packing => {
+    const key = left.map((line) => line.id).join(" ");
+    let share = shares.get(key);
+    if (!share) {
+      const packed = loadGroup(standardTypes, left);
+      share = { bins: packed.bins.map(balanced), left: packed.left };
+      shares.set(key, share);
+    }
+    return share;
+  };
 
   let best: LoadPlan | null = null;
   for (const flatRacks of choices("flat-rack")) {
     for (const openTops of choices("open-top")) {
-      const plan = buildPlan(sorted, allowed, all, flatRacks, openTops);
+      const plan = buildPlan(sorted, allowed, all, flatRacks, openTops, packStandard);
       if (!best || cheaper(planCost(plan), planCost(best))) best = plan;
     }
   }

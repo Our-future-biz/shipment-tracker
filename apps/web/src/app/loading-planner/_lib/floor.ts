@@ -73,9 +73,10 @@ export const newFloor = (length: number, width: number): Floor => ({ length, wid
 /**
  * The best free place for a piece of this size, or null when there is none. A piece wider or longer
  * than the floor (flat racks only) needs the floor's whole width or length and is centred on it,
- * so its x or z comes out negative. Places are whole millimetres.
+ * so its x or z comes out negative. Places are whole millimetres. `allowed`, when given, turns
+ * down places for other reasons than room (the planner's floor-load rule).
  */
-export function findSpot(floor: Floor, length: number, width: number, rule: PlaceRule = "snug"): Spot | null {
+export function findSpot(floor: Floor, length: number, width: number, rule: PlaceRule = "snug", allowed?: (x: number, z: number) => boolean): Spot | null {
   const needLength = Math.min(length, floor.length);
   const needWidth = Math.min(width, floor.width);
   let best: (Spot & { rect: Rect }) | null = null;
@@ -87,11 +88,16 @@ export function findSpot(floor: Floor, length: number, width: number, rule: Plac
     if (rule === "front") score = rect.z * 100_000 + rect.x;
     if (rule === "area") score = rect.width * rect.length - needWidth * needLength;
     const better = !best || score < best.score || (score === best.score && (rect.z < best.rect.z || (rect.z === best.rect.z && rect.x < best.rect.x)));
-    if (better) best = { x: rect.x, z: rect.z, score, rect };
+    if (!better) continue;
+    const [x, z] = [Math.round(rect.x + (needWidth - width) / 2), Math.round(rect.z + (needLength - length) / 2)];
+    if (!allowed || allowed(x, z)) best = { x, z, score, rect };
   }
-  if (!best) return null;
-  return { x: Math.round(best.x + (needWidth - width) / 2), z: Math.round(best.z + (needLength - length) / 2), score: best.score };
+  return best && { x: best.x, z: best.z, score: best.score };
 }
+
+/** Whether a place on the floor is still free: some free rectangle holds it whole. */
+export const isFree = (floor: Floor, place: Rect): boolean =>
+  floor.free.some((r) => place.x >= r.x && place.z >= r.z && place.x + place.width <= r.x + r.width && place.z + place.length <= r.z + r.length);
 
 /** Marks the part of the floor under a piece as used. */
 export function occupy(floor: Floor, spot: Spot, length: number, width: number): void {
@@ -100,21 +106,26 @@ export function occupy(floor: Floor, spot: Spot, length: number, width: number):
   const x1 = Math.min(floor.width, spot.x + width);
   const z1 = Math.min(floor.length, spot.z + length);
 
-  const next: Rect[] = [];
+  // The free rectangles the piece does not touch, and the parts of those it cuts (`cut`).
+  const next: { rect: Rect; cut: boolean }[] = [];
   for (const rect of floor.free) {
     const rx1 = rect.x + rect.width;
     const rz1 = rect.z + rect.length;
     const apart = x0 >= rx1 || x1 <= rect.x || z0 >= rz1 || z1 <= rect.z;
     if (apart) {
-      next.push(rect);
+      next.push({ rect, cut: false });
       continue;
     }
-    if (x0 > rect.x) next.push({ x: rect.x, z: rect.z, width: x0 - rect.x, length: rect.length });
-    if (x1 < rx1) next.push({ x: x1, z: rect.z, width: rx1 - x1, length: rect.length });
-    if (z0 > rect.z) next.push({ x: rect.x, z: rect.z, width: rect.width, length: z0 - rect.z });
-    if (z1 < rz1) next.push({ x: rect.x, z: z1, width: rect.width, length: rz1 - z1 });
+    if (x0 > rect.x) next.push({ rect: { x: rect.x, z: rect.z, width: x0 - rect.x, length: rect.length }, cut: true });
+    if (x1 < rx1) next.push({ rect: { x: x1, z: rect.z, width: rx1 - x1, length: rect.length }, cut: true });
+    if (z0 > rect.z) next.push({ rect: { x: rect.x, z: rect.z, width: rect.width, length: z0 - rect.z }, cut: true });
+    if (z1 < rz1) next.push({ rect: { x: rect.x, z: z1, width: rect.width, length: rz1 - z1 }, cut: true });
   }
-  // Keep only the rectangles no other rectangle contains.
+  // Keep only the rectangles no other rectangle contains. Only a cut part can be contained: the
+  // untouched ones contained none of each other before, and a cut part lies inside a rectangle that
+  // is gone, so none of them lies inside a cut part either.
   const inside = (a: Rect, b: Rect) => a.x >= b.x && a.z >= b.z && a.x + a.width <= b.x + b.width && a.z + a.length <= b.z + b.length;
-  floor.free = next.filter((a, i) => !next.some((b, j) => i !== j && inside(a, b) && (!inside(b, a) || j < i)));
+  floor.free = next
+    .filter((a, i) => !a.cut || !next.some((b, j) => i !== j && inside(a.rect, b.rect) && (!inside(b.rect, a.rect) || j < i)))
+    .map((a) => a.rect);
 }

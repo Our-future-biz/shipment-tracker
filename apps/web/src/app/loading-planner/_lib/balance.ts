@@ -1,4 +1,4 @@
-import { maxWeightOn, restingNeeded, tonnesPerMetre, type ContainerSpec } from "./containers";
+import { maxWeightOn, maxWeightWithBedding, restingNeeded, tonnesPerMetre, usableLength, type ContainerSpec } from "./containers";
 import type { ContainerLoad, PlacedPiece } from "./plan";
 
 /** Across the container the centre of gravity must lie within this share of the half-width of the floor. */
@@ -113,7 +113,8 @@ function heavyBandsToMiddle(pieces: PlacedPiece[], container: ContainerSpec): vo
 
 /**
  * Among stacks that cover the same floor area (so they can change places without colliding), puts
- * the heavier ones nearer the middle of the floor. Kept only when the balance is better for it.
+ * the heavier ones nearer the middle of the floor. Kept only when the balance is better for it and
+ * the floor still carries every stretch of cargo (a heavy stack may move into a loaded stretch).
  */
 function heavyStacksToMiddle(pieces: PlacedPiece[], container: ContainerSpec, offCentre: () => number): void {
   const groups = new Map<string, PlacedPiece[][]>();
@@ -139,7 +140,7 @@ function heavyStacksToMiddle(pieces: PlacedPiece[], container: ContainerSpec, of
       for (const piece of stack) [piece.x, piece.z] = [x, z];
     });
   }
-  if (offCentre() < before - 0.01) return;
+  if (offCentre() < before - 0.01 && floorHolds(pieces, container)) return;
   pieces.forEach((piece, index) => ([piece.x, piece.z] = was[index]!));
 }
 
@@ -159,10 +160,13 @@ function bandsToMiddleAcross(pieces: PlacedPiece[], container: ContainerSpec): v
   }
 }
 
-/** Slides the whole load along the container towards the middle, as far as the free floor allows. */
+/**
+ * Slides the whole load along the container towards the middle, as far as the free floor allows:
+ * in a standard container no further than the clearance left free at the doors.
+ */
 function slideToMiddleAlong(pieces: PlacedPiece[], container: ContainerSpec): void {
   const least = -Math.min(...pieces.map((p) => p.z));
-  const most = container.internalL - Math.max(...pieces.map((p) => p.z + p.length));
+  const most = usableLength(container) - Math.max(...pieces.map((p) => p.z + p.length));
   const dz = clamp(container.internalL / 2 - balanceOf(pieces, container).cogZ, least, most);
   for (const piece of pieces) piece.z += dz;
 }
@@ -172,7 +176,8 @@ function slideToMiddleAlong(pieces: PlacedPiece[], container: ContainerSpec): vo
  * tried and the better one kept: the load as it was packed, and the load with its heavy part moved
  * to the middle of its length. Either way the load slides to the middle of the length, equal-sized
  * stacks change places so the heavier ones stand nearer the middle, and each band of the load
- * moves to the middle of the width.
+ * moves to the middle of the width. Moving the heavy part closes the gaps between the bands, so
+ * that way is taken only when the floor still carries the cargo that then stands end to end.
  */
 export function centreLoad(pieces: PlacedPiece[], container: ContainerSpec): void {
   if (pieces.length === 0) return;
@@ -192,14 +197,14 @@ export function centreLoad(pieces: PlacedPiece[], container: ContainerSpec): voi
     return { copy, off: offCentre() };
   };
   const [asPacked, reordered] = [settle(false), settle(true)];
-  const best = reordered.off < asPacked.off - 0.01 ? reordered.copy : asPacked.copy;
+  const best = reordered.off < asPacked.off - 0.01 && floorHolds(reordered.copy, container) ? reordered.copy : asPacked.copy;
   pieces.forEach((piece, index) => {
     piece.x = best[index]?.x ?? piece.x;
     piece.z = best[index]?.z ?? piece.z;
   });
 }
 
-/** A stretch of floor that carries more per metre than the container's floor is rated for. */
+/** A stretch of floor that carries more than the container's floor is rated for. */
 export interface FloorOverload {
   /** The cargo lines standing on the stretch, by name. */
   names: string[];
@@ -208,41 +213,90 @@ export interface FloorOverload {
   lengthMm: number;
   /** The weight resting on the stretch, in kg. */
   weightKg: number;
-  /** The heaviest cross-section of the stretch, in tonnes per running metre. */
+  /** In tonnes per running metre: the heaviest cross-section of a stretch judged per metre, the average of one weighed by its length. */
   tonnesPerMetre: number;
   /** The length of floor that weight must be spread over to stay within the limit, in mm; 0 when no length of this floor carries it. */
   spreadMm: number;
-  /** On a flat rack: what its floor carries on the length of the stretch, in kg. */
+  /** For cargo weighed by the length it rests on: what the floor carries on the length of the stretch, in kg. */
   allowedKg?: number;
 }
 
+interface Stretch {
+  from: number;
+  to: number;
+  weightKg: number;
+  names: Set<string>;
+}
+
+/** Each stack as the stretch of floor it rests on (the part on the floor), with its weight, from the front wall on. */
+const restsOf = (pieces: PlacedPiece[], container: ContainerSpec): Stretch[] =>
+  stacksOf(pieces)
+    .flatMap((stack) => {
+      const base = stack.find((p) => p.y === 0);
+      if (!base) return [];
+      const [from, to] = [Math.max(0, base.z), Math.min(container.internalL, base.z + base.length)];
+      return to > from ? [{ from, to, weightKg: weightOf(stack), names: new Set([base.name || "Cargo"]) }] : [];
+    })
+    .sort((a, b) => a.from - b.from);
+
+/** Cargo standing end to end or side by side rests on the floor as one: the unbroken stretches of cargo, from the front wall on. */
+function stretchesOf(pieces: PlacedPiece[], container: ContainerSpec): Stretch[] {
+  const stretches: Stretch[] = [];
+  for (const rest of restsOf(pieces, container)) {
+    const last = stretches[stretches.length - 1];
+    if (last && rest.from <= last.to) {
+      last.to = Math.max(last.to, rest.to);
+      last.weightKg += rest.weightKg;
+      for (const name of rest.names) last.names.add(name);
+    } else stretches.push(rest);
+  }
+  return stretches;
+}
+
 /**
- * Where the floor is overloaded. The floor is rated in tonnes per running metre across its whole
- * width, so pieces standing side by side count together: at every cross-section the weight per
- * metre of each stack standing there is added up (a stack spreads its weight evenly over its own
- * length). Neighbouring cross-sections over the limit make one stretch. The cargo of a stretch
- * needs bedding (timber under it, along the container) or more floor: `spreadMm` in all.
+ * Whether the floor carries every stretch of cargo with beams 1 m beyond its ends: the most the
+ * planner loads on a floor, the rule for a single piece applied to the cargo that stands together.
+ */
+export const floorHolds = (pieces: PlacedPiece[], container: ContainerSpec): boolean =>
+  stretchesOf(pieces, container).every((s) => s.weightKg <= maxWeightWithBedding(container, s.to - s.from));
+
+/** An overloaded stretch as reported. `perMetre` is the heaviest cross-section of a stretch judged per metre, which has no `allowedKg`. */
+const overloadOf = (s: Stretch, container: ContainerSpec, perMetre?: number): FloorOverload => ({
+  names: [...s.names],
+  fromMm: s.from,
+  lengthMm: s.to - s.from,
+  weightKg: Math.round(s.weightKg),
+  tonnesPerMetre: perMetre ?? s.weightKg / (s.to - s.from),
+  spreadMm: restingNeeded(container, s.weightKg) ?? 0,
+  ...(perMetre === undefined ? { allowedKg: maxWeightOn(container, s.to - s.from) } : {}),
+});
+
+const sameExtent = (a: { from: number; to: number }, b: { from: number; to: number }) => a.from === b.from && a.to === b.to;
+
+/**
+ * Where the floor is overloaded. A wooden or steel floor is rated in tonnes per running metre across
+ * its whole width, so pieces standing side by side count together: at every cross-section the
+ * weight per metre of each stack standing there is added up (a stack spreads its weight evenly over
+ * its own length). Neighbouring cross-sections over the limit make one stretch. Over a longer
+ * length a floor carries less than its rating per metre (the carrier's table), so every unbroken
+ * stretch of cargo is also weighed against what the floor carries on that length. The cargo of an
+ * overloaded stretch needs bedding (timber under it, along the container) or more floor: `spreadMm`
+ * in all.
  *
- * A flat rack is not rated per metre but by the length the cargo rests on: there every unbroken
- * stretch of cargo is weighed against what the rack carries on that length.
+ * A flat rack is not rated per metre but by the length the cargo rests on: there every piece (or
+ * stack) and every unbroken stretch of cargo is weighed against what the rack carries on that length.
  */
 export function floorOverloads(load: ContainerLoad): FloorOverload[] {
   const { container } = load;
   if (container.group === "flat-rack") return rackOverloads(load);
   const limit = tonnesPerMetre(container); // 1 t/m is 1 kg/mm
   // Each stack as the stretch of floor it rests on and the weight it puts on every mm of it.
-  const rests = stacksOf(load.pieces).flatMap((stack) => {
-    const base = stack.find((p) => p.y === 0);
-    if (!base) return [];
-    const from = Math.max(0, base.z);
-    const to = Math.min(container.internalL, base.z + base.length);
-    return to > from ? [{ from, to, perMm: weightOf(stack) / (to - from), name: base.name }] : [];
-  });
+  const rests = restsOf(load.pieces, container).map((r) => ({ ...r, perMm: r.weightKg / (r.to - r.from) }));
   const cuts = [...new Set(rests.flatMap((r) => [r.from, r.to]))].sort((a, b) => a - b);
 
-  type Open = FloorOverload & { nameSet: Set<string> };
-  const overloads: Open[] = [];
-  let open: Open | null = null;
+  // The stretches over the rating per metre, each with its heaviest cross-section in kg per mm.
+  const perMetre: (Stretch & { heaviest: number })[] = [];
+  let open: (typeof perMetre)[number] | null = null;
   for (let i = 0; i + 1 < cuts.length; i++) {
     const [from, to] = [cuts[i]!, cuts[i + 1]!];
     const here = rests.filter((r) => r.from <= from && r.to >= to);
@@ -252,56 +306,26 @@ export function floorOverloads(load: ContainerLoad): FloorOverload[] {
       continue;
     }
     if (!open) {
-      open = { names: [], nameSet: new Set(), fromMm: from, lengthMm: 0, weightKg: 0, tonnesPerMetre: 0, spreadMm: 0 };
-      overloads.push(open);
+      open = { from, to, weightKg: 0, names: new Set(), heaviest: 0 };
+      perMetre.push(open);
     }
-    open.lengthMm += to - from;
+    open.to = to;
     open.weightKg += perMm * (to - from);
-    open.tonnesPerMetre = Math.max(open.tonnesPerMetre, perMm);
-    for (const r of here) open.nameSet.add(r.name || "Cargo");
+    open.heaviest = Math.max(open.heaviest, perMm);
+    for (const r of here) for (const name of r.names) open.names.add(name);
   }
-  return overloads.map(({ nameSet, ...overload }) => ({
-    ...overload,
-    names: [...nameSet],
-    weightKg: Math.round(overload.weightKg),
-    spreadMm: restingNeeded(container, overload.weightKg) ?? 0,
-  }));
+  // A whole stretch over the table, unless it is the very stretch already found over the rating per metre.
+  const long = stretchesOf(load.pieces, container).filter((s) => s.weightKg > maxWeightOn(container, s.to - s.from) && !perMetre.some((o) => sameExtent(o, s)));
+  return [...perMetre.map((s) => overloadOf(s, container, s.heaviest)), ...long.map((s) => overloadOf(s, container))].sort((a, b) => a.fromMm - b.fromMm);
 }
 
 function rackOverloads(load: ContainerLoad): FloorOverload[] {
   const { container } = load;
-  const rests = stacksOf(load.pieces)
-    .flatMap((stack) => {
-      const base = stack.find((p) => p.y === 0);
-      if (!base) return [];
-      const [from, to] = [Math.max(0, base.z), Math.min(container.internalL, base.z + base.length)];
-      return to > from ? [{ from, to, weightKg: weightOf(stack), name: base.name || "Cargo" }] : [];
-    })
-    .sort((a, b) => a.from - b.from);
-  // A piece (or stack) too heavy for its own length is a point load, whatever stands beside it.
-  const alone = rests.map((r) => ({ from: r.from, to: r.to, weightKg: r.weightKg, names: new Set([r.name]) })).filter((s) => s.weightKg > maxWeightOn(container, s.to - s.from));
-  // Cargo standing end to end also rests on the rack as one.
-  const together: typeof alone = [];
-  let parts = 0;
-  for (const rest of rests) {
-    const last = together[together.length - 1];
-    if (last && rest.from <= last.to) {
-      last.to = Math.max(last.to, rest.to);
-      last.weightKg += rest.weightKg;
-      last.names.add(rest.name);
-      parts++;
-    } else together.push({ from: rest.from, to: rest.to, weightKg: rest.weightKg, names: new Set([rest.name]) });
-  }
-  const joined = parts === 0 ? [] : together.filter((s) => s.weightKg > maxWeightOn(container, s.to - s.from) && !alone.some((a) => a.from === s.from && a.to === s.to));
-  return [...alone, ...joined]
-    .sort((a, b) => a.from - b.from)
-    .map((s) => ({
-      names: [...s.names],
-      fromMm: s.from,
-      lengthMm: s.to - s.from,
-      weightKg: Math.round(s.weightKg),
-      tonnesPerMetre: s.weightKg / (s.to - s.from),
-      spreadMm: restingNeeded(container, s.weightKg) ?? 0,
-      allowedKg: maxWeightOn(container, s.to - s.from),
-    }));
+  const over = (s: Stretch) => s.weightKg > maxWeightOn(container, s.to - s.from);
+  // Cargo standing end to end rests on the rack as one.
+  const together = stretchesOf(load.pieces, container).filter(over);
+  // A piece (or stack) too heavy for its own length is a point load, whatever stands beside it; when
+  // the cargo beside it stands on the very same length, that stretch says it, with the weight of both.
+  const alone = restsOf(load.pieces, container).filter((r) => over(r) && !together.some((s) => sameExtent(s, r)));
+  return [...alone, ...together].sort((a, b) => a.from - b.from).map((s) => overloadOf(s, container));
 }

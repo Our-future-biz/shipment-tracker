@@ -185,8 +185,9 @@ export const containersWith = (rules?: PlanRules): ContainerSpec[] =>
 export function tooHeavyToStuff(c: ContainerSpec, weightKg: number, longSideMm: number): boolean {
   if (!c.heavy) return false;
   if (weightKg > c.heavy.moveKg) return true;
+  if (weightKg <= c.heavy.warnKg) return false;
   const needed = restingNeeded(c, weightKg);
-  return weightKg > c.heavy.warnKg && (needed === null || needed > BEDDING_FACTOR * longSideMm);
+  return needed === null || needed > BEDDING_FACTOR * longSideMm;
 }
 
 /** The widest and the highest piece that passes into the container, and the length of floor cargo may take. */

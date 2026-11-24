@@ -1,7 +1,7 @@
 import { jsPDF } from "jspdf";
-import { NO_CLEARANCE, type PlanRules } from "./containers";
+import { NO_CLEARANCE, type ContainerSpec, type PlanRules } from "./containers";
 import { standardLabel, type CargoLine } from "./gauge";
-import { balanceLimitText, END_WALLS_NOTE, floorOverloadText, outOfBalanceText, ruleWarnings, hasDoors, lineColour, loadStats, planTotals, type PieceGroup } from "./loadStats";
+import { balanceLimitText, END_WALLS_NOTE, floorOverloadText, outOfBalanceText, ruleWarnings, hasDoors, lineColour, loadStats, planTotals, startText, type PieceGroup } from "./loadStats";
 import type { ContainerLoad, LoadPlan } from "./plan";
 import { formatDim, formatKg, formatSize, type DimUnit } from "./units";
 
@@ -187,11 +187,11 @@ function overText(group: PieceGroup, unit: DimUnit): string {
 }
 
 /** What the loader needs to know about a row: how it lies, how high it stands, where it starts, what sticks out. */
-function notesOf(group: PieceGroup, unit: DimUnit): string {
+function notesOf(group: PieceGroup, container: ContainerSpec, unit: DimUnit): string {
   return [
     group.crosswise && "crosswise",
     group.stacked > 0 && `${group.stacked} stacked, top at ${formatDim(group.topMm, unit)} ${unit}`,
-    group.count === 1 && `${formatDim(group.at.fromFront, unit)} ${unit} from the front wall`,
+    group.count === 1 && startText(group, container, unit),
     overText(group, unit),
   ]
     .filter(Boolean)
@@ -224,16 +224,7 @@ function drawFloor(doc: jsPDF, load: ContainerLoad, colourOf: (lineId: string) =
     doc.setFillColor(colourOf(piece.lineId));
     doc.setDrawColor(BODY);
     doc.setLineWidth(0.2);
-    const [w, h] = [piece.length * scale, piece.width * scale];
-    doc.rect(px(piece.z), py(piece.x), w, h, "FD");
-    // The number of the cargo line, and how many high a stack is: the colours alone do not print in black and white.
-    const high = pieces.filter((p) => p.x === piece.x && p.z === piece.z).length;
-    const text = clean(`${numberOf(piece.lineId)}${high > 1 ? ` ×${high}` : ""}`);
-    const size = Math.min(11, h * 1.6, (w / text.length) * 3.6);
-    if (size >= 3) {
-      setFont(doc, "bold", size, INK);
-      doc.text(text, px(piece.z + piece.length / 2), py(piece.x + piece.width / 2), { align: "center", baseline: "middle" });
-    }
+    doc.rect(px(piece.z), py(piece.x), piece.length * scale, piece.width * scale, "FD");
   }
 
   // The two ends by name: the door end is drawn heavy.
@@ -256,6 +247,7 @@ function drawFloor(doc: jsPDF, load: ContainerLoad, colourOf: (lineId: string) =
   // The middle of the floor (a cross) and the centre of gravity (a dot).
   const stats = loadStats(load);
   const midX = px(container.internalL / 2);
+  const cog = [px(stats.balance.cogZ), py(stats.balance.cogX)] as const;
   doc.setDrawColor(INK);
   doc.setLineWidth(0.3);
   doc.line(midX - 2.5, midY, midX + 2.5, midY);
@@ -263,7 +255,24 @@ function drawFloor(doc: jsPDF, load: ContainerLoad, colourOf: (lineId: string) =
   doc.setFillColor(stats.balance.ok ? GREEN : RED);
   doc.setDrawColor("#ffffff");
   doc.setLineWidth(0.25);
-  doc.circle(px(stats.balance.cogZ), py(stats.balance.cogX), 1.3, "FD");
+  doc.circle(cog[0], cog[1], 1.3, "FD");
+
+  // The number of the cargo line on each piece, and how many high a stack is: the colours alone do
+  // not print in black and white. A number the cross or the dot would cover moves along its piece.
+  const marks = [[midX, midY, 2.5], [cog[0], cog[1], 1.3]] as const;
+  const clear = (x: number, y: number, w: number, h: number) => marks.every(([mx, my, r]) => Math.abs(mx - x) > w / 2 + r || Math.abs(my - y) > h / 2 + r);
+  for (const piece of onFloor) {
+    const [w, h] = [piece.length * scale, piece.width * scale];
+    const high = pieces.filter((p) => p.x === piece.x && p.z === piece.z).length;
+    const text = clean(`${numberOf(piece.lineId)}${high > 1 ? ` ×${high}` : ""}`);
+    const size = Math.min(11, h * 1.6, (w / text.length) * 3.6);
+    if (size < 3) continue;
+    setFont(doc, "bold", size, INK);
+    const [textW, textH] = [doc.getTextWidth(text), size * 0.35];
+    const y = py(piece.x + piece.width / 2);
+    const x = [1 / 2, 1 / 4, 3 / 4].map((share) => px(piece.z + piece.length * share)).find((at) => clear(at, y, textW, textH)) ?? px(piece.z + piece.length / 2);
+    doc.text(text, x, y, { align: "center", baseline: "middle" });
+  }
 
   return (maxX - minX) * scale;
 }
@@ -373,19 +382,15 @@ function loadPage(doc: jsPDF, input: PlanPdfInput, load: ContainerLoad, number: 
   let y = MARGIN + 14;
   y += drawFloor(doc, load, colourOf, numberOf, y, 60) + 8;
 
-  // Six figures in one row, each as wide as it needs.
-  const widths = [20, 50, 26, 34, 88, 55];
+  // Five figures in one row, each as wide as its longest value, and the centre of gravity with its
+  // limit on a row of its own: together they would not fit across the page.
+  const widths = [22, 58, 32, 44, 117];
   const { balance } = stats;
   const figures: [string, string, string?][] = [
     ["Colli", String(stats.pieceCount)],
     ["Weight (of payload)", `${formatKg(load.totalWeightKg)}  (${pctText(stats.payloadPct)})`],
     ["Floor used", pctText(stats.floorPct)],
     ["Highest point", `${formatDim(stats.topMm, unit)} ${unit}`],
-    [
-      `Centre of gravity (limit ${balanceLimitText(container, unit)})`,
-      `${formatDim(Math.abs(balance.cogZ - container.internalL / 2), unit)} ${unit} off lengthwise, ${formatDim(Math.abs(balance.cogX - container.internalW / 2), unit)} ${unit} off sideways`,
-      balance.ok ? undefined : RED,
-    ],
     ["Check", [balance.ok ? "Balanced" : "OUT OF BALANCE", stats.outOfGauge ? "Out of gauge" : ""].filter(Boolean).join(" · "), balance.ok ? (stats.outOfGauge ? AMBER : GREEN) : RED],
   ];
   let x = MARGIN;
@@ -394,15 +399,19 @@ function loadPage(doc: jsPDF, input: PlanPdfInput, load: ContainerLoad, number: 
     value(doc, text, x, y + 5, (widths[index] ?? 40) - 3, colour);
     x += widths[index] ?? 40;
   });
+  y += 12;
+  label(doc, `Centre of gravity (limit ${balanceLimitText(container, unit)})`, MARGIN, y);
+  const off = `${formatDim(Math.abs(balance.cogZ - container.internalL / 2), unit)} ${unit} off lengthwise, ${formatDim(Math.abs(balance.cogX - container.internalW / 2), unit)} ${unit} off sideways`;
+  value(doc, off, MARGIN, y + 5, WIDTH, balance.ok ? undefined : RED);
   y += 13;
 
   const columns: Column[] = [
     { title: "No.", width: 12 },
-    { title: "Cargo", width: 68 },
+    { title: "Cargo", width: 58 },
     { title: "Colli", width: 16, right: true },
-    { title: `Loaded as L × W × H (${unit})`, width: 58 },
+    { title: `Loaded as L × W × H (${unit})`, width: 52 },
     { title: "Weight / pc", width: 28, right: true },
-    { title: "Notes", width: 91 },
+    { title: "Notes", width: 107 },
   ];
   const newPage = () => {
     doc.addPage();
@@ -421,7 +430,7 @@ function loadPage(doc: jsPDF, input: PlanPdfInput, load: ContainerLoad, number: 
         String(group.count),
         sizeText(group.length, group.width, group.height, unit),
         formatKg(group.weightKg),
-        notesOf(group, unit),
+        notesOf(group, container, unit),
       ],
       y,
     );
@@ -436,7 +445,7 @@ function loadPage(doc: jsPDF, input: PlanPdfInput, load: ContainerLoad, number: 
   if (!balance.ok) {
     y = paragraph(doc, outOfBalanceText(container, unit), y, "bold", RED, newPage);
   }
-  if (!hasDoors(container)) paragraph(doc, "A flat rack has no doors: positions are measured from the end wall on the left.", y, "normal", MUTED, newPage);
+  if (!hasDoors(container)) paragraph(doc, "A flat rack has no doors: positions are measured from the left end wall.", y, "normal", MUTED, newPage);
 }
 
 /**

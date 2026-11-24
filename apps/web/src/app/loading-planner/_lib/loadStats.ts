@@ -143,12 +143,16 @@ export function floorOverloadText(overload: FloorOverload, container: ContainerS
   const kg = (value: number) => `${value.toLocaleString("en-US")} kg`;
   const what =
     overload.allowedKg !== undefined
-      ? `${kg(overload.weightKg)} resting on ${size(overload.lengthMm)} (this flat rack carries ${kg(overload.allowedKg)} on that length)`
+      ? `${kg(overload.weightKg)} resting on ${size(overload.lengthMm)} (${container.group === "flat-rack" ? "this flat rack" : "this floor"} carries ${kg(overload.allowedKg)} on that length)`
       : `${overload.tonnesPerMetre.toFixed(1)} t per metre on ${size(overload.lengthMm)} of floor (the floor's limit is ${tonnesPerMetre(container).toFixed(1)} t per metre)`;
+  // Beams reach no further than 1 m beyond each end: a longer spread cannot be laid under this cargo.
+  const reach = overload.lengthMm + 2 * BEDDING_END_MM;
   const cure =
-    overload.spreadMm > 0
-      ? `Spread the weight over at least ${size(overload.spreadMm)} with beams under the cargo, along the container, reaching no more than ${size(BEDDING_END_MM)} beyond each end of a piece.`
-      : "No length of this floor carries that weight: take it off this container.";
+    overload.spreadMm === 0
+      ? "No length of this floor carries that weight: take it off this container."
+      : overload.spreadMm > reach
+        ? `It cannot be bedded there: it needs ${size(overload.spreadMm)} of floor, and beams reaching no more than ${size(BEDDING_END_MM)} beyond each end give ${size(reach)}. Take a piece off this stretch.`
+        : `Spread the weight over at least ${size(overload.spreadMm)} with beams under the cargo, along the container, reaching no more than ${size(BEDDING_END_MM)} beyond each end of a piece.`;
   return `${overload.names.join(", ")}: ${what}. ${cure}`;
 }
 
@@ -160,6 +164,13 @@ export const END_WALLS_NOTE = "A piece is longer than the flat rack's deck: the 
  * measured from the front wall, the closed end. A flat rack has no doors.
  */
 export const hasDoors = (container: ContainerSpec): boolean => container.group !== "flat-rack";
+
+/**
+ * Where a row of pieces starts, measured as the drawings are: from the front wall, or on a flat rack
+ * from the left end wall. Empty for pieces hanging over the ends, whose overhang says where they are.
+ */
+export const startText = (group: PieceGroup, container: ContainerSpec, unit: DimUnit): string =>
+  group.over.length > 0 ? "" : `${formatDim(group.at.fromFront, unit)} ${unit} from the ${hasDoors(container) ? "front wall" : "left end wall"}`;
 
 export interface PlanTotals {
   /** The equipment of the plan: "2 × 40' DC", in the order of the loads. */

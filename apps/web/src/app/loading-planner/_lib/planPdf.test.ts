@@ -1,6 +1,8 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import type { jsPDF } from "jspdf";
 import { describe, expect, it } from "vitest";
+import { DEFAULT_RULES } from "./containers";
 import type { CargoLine } from "./gauge";
 import { planLoad } from "./plan";
 import { buildPlanPdf, planPdfFileName, type PdfFonts, type PlanPdfInput } from "./planPdf";
@@ -73,6 +75,35 @@ describe("buildPlanPdf", () => {
     const many = Array.from({ length: 60 }, (_, i) => line(`m${i}`, `Case ${i + 1}`, 900 + i, 700, 600, 100, 1));
     const data = input(many, { unit: "cm", nominated: ["40' HC"] });
     expect(buildPlanPdf(data).getNumberOfPages()).toBeGreaterThan(1 + data.plan.loads.length);
+  });
+});
+
+/** The text a PDF shows, in the order it is written. jsPDF's own Helvetica keeps the text as it is in the page. */
+const textOf = (doc: jsPDF): string =>
+  (doc.internal as unknown as { pages: (string[] | undefined)[] }).pages
+    .flatMap((page) => page ?? [])
+    .flatMap((operator) => [...operator.matchAll(/\((.*)\) Tj/g)].map((match) => match[1]!.replace(/\\([()\\])/g, "$1")))
+    .join(" ");
+
+describe("the PDF's words", () => {
+  it("says the units, the balance limit, the clearance and the warnings, and never NaN", () => {
+    const press = [line("p", "Press", 3000, 2000, 2000, 6000, 1)];
+    const text = textOf(buildPlanPdf(input(press, { unit: "cm", rules: DEFAULT_RULES, plan: planLoad(press, undefined, DEFAULT_RULES) })));
+    expect(text).toContain("Sizes in cm, weights in kg.");
+    expect(text).toContain("300 x 200 x 200");
+    expect(text).toContain("CENTRE OF GRAVITY (LIMIT 60 CM LENGTHWISE, 11.8 CM SIDEWAYS)");
+    expect(text).toContain("clearance left free: 5 cm on door width, 5 cm on door height and 10 cm on length.");
+    expect(text).toContain("Press: 6,000 kg a piece, over the 5,000 kg set for a heavy piece in a standard container.");
+    expect(text).toContain("cm from the front wall");
+    expect(text).not.toContain("NaN");
+    expect(textOf(buildPlanPdf(input(LINES, { unit: "m", rules: DEFAULT_RULES })))).not.toContain("NaN");
+  });
+
+  it("measures a flat rack from its left end wall, in the notes as in the note under them", () => {
+    const text = textOf(buildPlanPdf(input([LINES[1]!])));
+    expect(text).toContain("mm from the left end wall");
+    expect(text).toContain("positions are measured from the left end wall.");
+    expect(text).not.toContain("front wall");
   });
 });
 
