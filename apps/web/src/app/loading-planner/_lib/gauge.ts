@@ -1,3 +1,4 @@
+import { hasGauge, openTopTakes } from "@/lib/oogGauge";
 import { CONTAINERS, containersWith, maxCargoKg, maxWeightWithBedding, NO_CLEARANCE, type PlanRules, passHeight, passWidth, tooHeavyToStuff, usableLength, type Clearance, type ContainerSpec } from "./containers";
 
 /** One line of the cargo list. Sizes in mm, weight in kg per piece. */
@@ -44,12 +45,18 @@ export function footprints(line: CargoLine): Footprint[] {
  * - A standard container is loaded through its door: the piece must pass the door and fit inside,
  *   with the clearance the container carries left free. A piece too heavy to be stuffed through a
  *   door (the company's rule) is not taken either.
- * - An open top is loaded from above: the height is free, the piece must fit the floor.
+ * - An open top is loaded from above: the height is free, the piece must fit the floor and pass the
+ *   roof opening, which is narrower and shorter than the floor - or pass the doors. The openings are
+ *   the app's one out-of-gauge table's (@/lib/oogGauge), the same a quote is judged by; a hard-top,
+ *   which that table does not hold, opens over its whole floor.
  * - A flat rack takes any piece lengthwise, overhanging its sides or ends; crosswise only when the
  *   piece stays on the platform.
  * - No container takes a piece heavier than its payload, or heavier than its floor carries on the
  *   length the piece rests on, counting the beams the carrier allows under it (maxWeightWithBedding).
  */
+const roofTakes = (container: ContainerSpec, fp: Footprint, heightMm: number): boolean =>
+  !hasGauge(container.name) || openTopTakes(container.name, { length: fp.length / 10, width: fp.width / 10, height: heightMm / 10 }) !== null;
+
 export function fitIn(container: ContainerSpec, line: CargoLine): Footprint[] {
   if (line.weightKg > maxCargoKg(container)) return [];
   const carried = (fp: Footprint) => line.weightKg <= maxWeightWithBedding(container, fp.length);
@@ -59,7 +66,7 @@ export function fitIn(container: ContainerSpec, line: CargoLine): Footprint[] {
     return footprints(line).filter((fp) => carried(fp) && (!fp.crosswise || onFloor(fp, container.internalW)));
   }
   const maxWidth = passWidth(container);
-  if (container.group === "open-top") return footprints(line).filter((fp) => onFloor(fp, maxWidth));
+  if (container.group === "open-top") return footprints(line).filter((fp) => onFloor(fp, maxWidth) && roofTakes(container, fp, line.heightMm));
 
   if (line.heightMm > passHeight(container)) return [];
   if (tooHeavyToStuff(container, line.weightKg, Math.max(line.lengthMm, line.widthMm))) return [];

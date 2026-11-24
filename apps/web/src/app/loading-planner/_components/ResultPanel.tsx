@@ -77,6 +77,7 @@ function LoadCard({ load, number, unit, colourOf, numberOf, onShow3D }: LoadCard
       extra={
         <>
           {stats.outOfGauge && <Pill tone="amber">Out of gauge</Pill>}
+          {stats.linerConfirm && <Pill tone="amber">Liner to confirm</Pill>}
           <Pill tone={balance.ok ? "green" : "red"}>{balance.ok ? "Balanced" : "Out of balance"}</Pill>
           <button type="button" className={BTN_BAR} onClick={onShow3D}>
             Show in 3D

@@ -30,11 +30,14 @@ interface LoadingPlansCardProps {
    * the job's cargo from the server. False when the save was refused (the page says why): no plan opens.
    */
   beforeNewPlan?: () => Promise<boolean>;
+  /** A button on every plan's row that hands the plan to the job's page, and what it is called: a quote takes a plan's equipment (Council Outlay 14, P7). */
+  onUsePlan?: (planId: string) => void;
+  useLabel?: string;
 }
 
 // The loading plans linked to a shipment, a quote or a Co-Loading sailing, on that job's page, and the way to a new one
 // that starts with the job's cargo. A plan never changes the job.
-export function LoadingPlansCard({ kind, id, newPlanKey, onlyWithPlans = false, beforeNewPlan, title = "Loading plans", newLabel = "New loading plan", jobWord = kind }: LoadingPlansCardProps) {
+export function LoadingPlansCard({ kind, id, newPlanKey, onlyWithPlans = false, beforeNewPlan, title = "Loading plans", newLabel = "New loading plan", jobWord = kind, onUsePlan, useLabel = "Use" }: LoadingPlansCardProps) {
   const { plans, isLoading, isError } = useLoadingPlans({ kind, id });
   const router = useRouter();
   const [saving, setSaving] = useState(false);
@@ -85,6 +88,7 @@ export function LoadingPlansCard({ kind, id, newPlanKey, onlyWithPlans = false, 
                 <th className={`${TH} !text-right`}>Colli</th>
                 <th className={`${TH} !text-right`}>Weight</th>
                 <th className={TH}>Last saved</th>
+                {onUsePlan && <th className={TH} aria-label={useLabel} />}
               </tr>
             </thead>
             <tbody>
@@ -102,6 +106,13 @@ export function LoadingPlansCard({ kind, id, newPlanKey, onlyWithPlans = false, 
                     {formatDateTime(plan.updatedAt)}
                     <span className="text-slate-500"> · {plan.updatedBy}</span>
                   </td>
+                  {onUsePlan && (
+                    <td className={`${TD} text-right`}>
+                      <button type="button" className={BTN_BAR} onClick={() => onUsePlan(plan.id)}>
+                        {useLabel}
+                      </button>
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>

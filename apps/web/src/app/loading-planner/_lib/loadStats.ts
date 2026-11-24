@@ -1,5 +1,6 @@
 import { balanceLimits, balanceOf, floorOverloads, type Balance, type FloorOverload } from "./balance";
 import { BEDDING_END_MM, tonnesPerMetre, type ContainerSpec } from "./containers";
+import { checkOog, type OogCheck } from "@/lib/oogGauge";
 import { isOutOfGauge, overhang, type ContainerLoad, type LoadPlan, type PlacedPiece } from "./plan";
 import { formatDim, type DimUnit } from "./units";
 
@@ -33,6 +34,8 @@ export interface LoadStats {
   floorPct: number;
   balance: Balance;
   outOfGauge: boolean;
+  /** A flat rack's cargo is within the liner's limit but past the in-gauge figure: it needs the liner's confirmation. */
+  linerConfirm: boolean;
   /** The highest point of the cargo above the floor, in mm. */
   topMm: number;
   /** A piece is longer than the flat rack's deck, so its end walls are folded down. */
@@ -80,8 +83,72 @@ export function pieceGroups(load: ContainerLoad): PieceGroup[] {
   return [...groups.values()];
 }
 
+/**
+ * A load on an open top or a flat rack against the app's one out-of-gauge table (@/lib/oogGauge,
+ * Council Outlay 14, P12): the verdict a quote with the same cargo on the same box gets. Null for a
+ * standard container, an empty one, and a type the table does not hold (the hard-tops).
+ *
+ * A flat rack is judged as the quote asks: the cargo's overall length on the deck, its widest and
+ * its highest point. An open top is loaded piece by piece through its roof or its doors, so each
+ * piece is judged by itself and the one that costs the most stands for the load.
+ */
+export function gaugeCheckOf(load: ContainerLoad): OogCheck | null {
+  const { container, pieces } = load;
+  if (container.group === "standard" || pieces.length === 0) return null;
+  if (container.group === "flat-rack") return checkOog(container.name, cargoMeasures(load));
+  let worst: OogCheck | null = null;
+  for (const p of pieces) {
+    const check = checkOog(container.name, { length: cm(p.length), width: cm(p.width), height: cm(p.y + p.height) });
+    if (!check) return null;
+    if (!worst || check.lost.total > worst.lost.total || (check.lost.total === worst.lost.total && check.overHeight > worst.overHeight) || (check.doesNotFit && !worst.doesNotFit)) worst = check;
+  }
+  return worst;
+}
+
+const cm = (mm: number) => Math.ceil(mm / 10);
+
+/**
+ * A load's cargo as a quote's out-of-gauge block asks for it, in whole cm: its overall length along
+ * the container (all pieces together), its widest and its highest point above the floor.
+ */
+export function cargoMeasures(load: ContainerLoad): { length: number; width: number; height: number } {
+  const { pieces } = load;
+  if (pieces.length === 0) return { length: 0, width: 0, height: 0 };
+  return {
+    length: cm(Math.max(...pieces.map((p) => p.z + p.length)) - Math.min(...pieces.map((p) => p.z))),
+    width: cm(Math.max(...pieces.map((p) => p.width))),
+    height: cm(Math.max(...pieces.map((p) => p.y + p.height))),
+  };
+}
+
+/** Whether the table calls the cargo out of gauge: it stands out of the box, or does not go on it at all. */
+export const isOog = (check: OogCheck): boolean => check.overWidthPerSide > 0 || check.overHeight > 0 || check.overLengthPerEnd > 0 || check.doesNotFit !== null;
+
+/** The table's verdict on a load in a sentence, in cm as the quote says it; null when the cargo is in gauge with nothing to add. */
+export function gaugeText(check: OogCheck | null): string | null {
+  if (!check) return null;
+  if (check.doesNotFit) return `${check.doesNotFit}.`;
+  const cm = (v: number) => `${v.toLocaleString("en-US")} cm`;
+  if (isOog(check)) {
+    const over = [
+      check.overWidthPerSide > 0 ? `${cm(check.overWidthPerSide)} over each side` : "",
+      check.overHeight > 0 ? `${cm(check.overHeight)} over height` : "",
+      check.overLengthPerEnd > 0 ? `${cm(check.overLengthPerEnd)} over each end` : "",
+    ].filter(Boolean);
+    const slots = check.lost.total > 0 ? ` About ${check.lost.total} lost slot${check.lost.total === 1 ? "" : "s"} (counted as 20' slots).` : "";
+    return `Out of gauge, by the same table as the quote: ${over.join(", ")} with the cargo centred.${slots} The carrier's own figures decide.`;
+  }
+  if (check.liner.length > 0) {
+    const what = check.liner.map((l) => `${l.measure} ${cm(l.value)} (in gauge up to ${cm(l.inGauge)}, with the liner up to ${cm(l.limit)})`).join(", ");
+    return `In gauge only with the liner's confirmation: ${what}.`;
+  }
+  if (check.loading === "doors") return "Too long for the roof opening: loaded through the doors.";
+  return null;
+}
+
 export function loadStats(load: ContainerLoad): LoadStats {
   const { container, pieces } = load;
+  const gauge = gaugeCheckOf(load);
   const onFloor = pieces.filter((piece) => piece.y === 0);
   return {
     pieceCount: pieces.length,
@@ -90,7 +157,9 @@ export function loadStats(load: ContainerLoad): LoadStats {
     grossKg: Math.round(load.totalWeightKg + container.tareKg),
     floorPct: pct(onFloor.reduce((total, piece) => total + floorArea(piece, load), 0), container.internalL * container.internalW),
     balance: balanceOf(pieces, container),
-    outOfGauge: pieces.some((piece) => isOutOfGauge(piece, container)),
+    // By the one table where it holds the type; a hard-top by what sticks out of it.
+    outOfGauge: gauge ? isOog(gauge) : pieces.some((piece) => isOutOfGauge(piece, container)),
+    linerConfirm: gauge !== null && !isOog(gauge) && gauge.liner.length > 0,
     topMm: Math.max(0, ...pieces.map((piece) => piece.y + piece.height)),
     endWallsFolded: container.group === "flat-rack" && pieces.some((piece) => piece.length > container.internalL),
     floorOverloads: floorOverloads(load),
@@ -127,6 +196,10 @@ export function ruleWarnings(load: ContainerLoad, unit: DimUnit): string[] {
       `About ${kg(gross)} gross (cargo ${kg(Math.round(load.totalWeightKg))} with the container's ${kg(container.tareKg)}), over the ${kg(container.roadGrossKg)} set for the road. Check the inland leg: the truck, the route and the permits.`,
     );
   }
+
+  // The out-of-gauge table's verdict, the same the quote gives this cargo on this box (Council Outlay 14, P12).
+  const verdict = gaugeText(gaugeCheckOf(load));
+  if (verdict) warnings.push(verdict);
 
   const { heavy, oog } = container;
   if (heavy) {

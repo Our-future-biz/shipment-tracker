@@ -444,7 +444,7 @@ function loadPage(doc: jsPDF, input: PlanPdfInput, load: ContainerLoad, number: 
     ["Gross, estimated (tare)", `${formatKg(stats.grossKg)}  (${formatKg(stats.tareKg)})`],
     ["Floor used", pctText(stats.floorPct)],
     ["Highest point", `${formatDim(stats.topMm, unit)} ${unit}`],
-    ["Check", [balance.ok ? "Balanced" : "OUT OF BALANCE", stats.outOfGauge ? "Out of gauge" : ""].filter(Boolean).join(" · "), balance.ok ? (stats.outOfGauge ? AMBER : GREEN) : RED],
+    ["Check", [balance.ok ? "Balanced" : "OUT OF BALANCE", stats.outOfGauge ? "Out of gauge" : stats.linerConfirm ? "Liner to confirm" : ""].filter(Boolean).join(" · "), balance.ok ? (stats.outOfGauge || stats.linerConfirm ? AMBER : GREEN) : RED],
   ];
   let x = MARGIN;
   figures.forEach(([name, text, colour], index) => {

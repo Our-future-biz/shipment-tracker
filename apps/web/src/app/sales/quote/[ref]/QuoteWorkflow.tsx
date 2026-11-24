@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Alert, Badge, Button, Checkbox, ConfigProvider, DatePicker, Dropdown, Input, InputNumber, Select, Spin, Tooltip } from "antd";
 import type { MenuProps } from "antd";
@@ -28,6 +29,8 @@ import { EMPTY_CELL } from "@/components/EmptyCell";
 import { InfoRow } from "@/components/InfoRow";
 import { KPI_TONE_CLASS, KpiTile, type KpiTone } from "@/components/KpiTile";
 import { LoadingPlansCard } from "@/components/LoadingPlansCard";
+// The planner's engine comes with this dialog: fetched only when a plan is put on the quote.
+const PlanToQuoteModal = dynamic(() => import("./_components/PlanToQuoteModal"), { ssr: false });
 import { Pill } from "@/components/Pill";
 import { LINK_CLASS } from "@/components/linkClass";
 import { PillTabs } from "@/components/SectionCard";
@@ -576,11 +579,24 @@ export function QuoteWorkflow() {
   // edit, as with the packages above.
   const containerQuote = isContainerQuote(draft);
   const containers = draft.containers ?? [];
-  const updateContainers = (lines: QuoteContainerLine[]) => {
+  // `more`: what goes onto the quote in the same change as the lines (a plan's out-of-gauge figures).
+  const updateContainers = (lines: QuoteContainerLine[], more: Partial<SalesQuoteData> = {}) => {
     const sums = computeCargo({ containers });
     const copyOfSums = sums.weightFromContainers && draft.weight === sums.grossWeight;
-    set(copyOfSums ? { containers: lines, weight: undefined } : { containers: lines });
+    set(copyOfSums ? { containers: lines, weight: undefined, ...more } : { containers: lines, ...more });
   };
+  // "Put the plan on the quote" (Council Outlay 14, P7): the plan whose equipment is offered, from its
+  // row in Loading plans or from the plan's own page (?plan=<id>). Written only when confirmed.
+  const [planToUse, setPlanToUse] = useState<string | null>(null);
+  useEffect(() => {
+    const plan = searchParams.get("plan");
+    if (!plan) return;
+    setPlanToUse(plan);
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete("plan");
+    const qs = params.toString();
+    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+  }, [searchParams, router, pathname]);
 
   // Sibling variants of the same enquiry (base ref + its -2/-3 duplicates).
   // The active quote uses the live draft so the preview always shows fresh data.
@@ -1534,6 +1550,9 @@ export function QuoteWorkflow() {
               onlyWithPlans={packages.length === 0}
               // The plan reads the package lines from the server: what was typed is saved first, and a refused save (the hook says why) stops there.
               beforeNewPlan={async () => !(await saveNow()).problem}
+              // A full-container quote takes a plan's equipment as its container lines, asked first.
+              onUsePlan={containerQuote && !quoteClosed ? setPlanToUse : undefined}
+              useLabel="Put on the quote"
             />
           )}
 
@@ -2295,6 +2314,21 @@ export function QuoteWorkflow() {
       <ImportInquiryModal open={modal === "import"} onClose={() => setModal(null)} onApply={set} />
       <CopyFromModal open={modal === "copyQuote"} mode="quote" currentRef={ref} onClose={() => setModal(null)} onApply={set} />
       <CopyFromModal open={modal === "copyShipment"} mode="shipment" currentRef={ref} onClose={() => setModal(null)} onApply={set} />
+      {/* Outside the sections: the plan's own page opens it whichever section the quote stands on. Confirmed, the quote shows its Cargo Details. */}
+      {planToUse && (
+        <PlanToQuoteModal
+          planId={planToUse}
+          onClose={() => setPlanToUse(null)}
+          containers={containers}
+          oog={draft.oog}
+          containerQuote={containerQuote}
+          closed={quoteClosed}
+          onConfirm={(lines, gauge) => {
+            updateContainers(lines, gauge ? { oog: gauge } : {});
+            setActiveSection("cargo");
+          }}
+        />
+      )}
       <DuplicateWizardModal
         open={modal === "duplicate"}
         baseRef={ref}

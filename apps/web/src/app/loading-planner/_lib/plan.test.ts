@@ -3,7 +3,7 @@ import { balanceOf, centreLoad, floorHolds, floorOverloads } from "./balance";
 import { CONTAINERS, containersWith, DEFAULT_RULES, maxWeightOn, restingNeeded } from "./containers";
 import { findSpot, newFloor, occupy } from "./floor";
 import { fitIn, fitLabel, footprints, gaugeOf, standardLabel, type CargoLine } from "./gauge";
-import { floorOverloadText, ruleWarnings } from "./loadStats";
+import { floorOverloadText, gaugeCheckOf, gaugeText, loadStats, ruleWarnings } from "./loadStats";
 import { isOutOfGauge, overhang, planLoad, type ContainerLoad, type LoadPlan } from "./plan";
 
 let nextId = 0;
@@ -155,6 +155,16 @@ describe("planLoad", () => {
     ]);
   });
 
+  it("loads an open top only with what passes its roof opening or its doors, as the quote's table says (P12)", () => {
+    // 2,300 mm wide and too high for any door: wider than every roof opening, so it needs a flat rack.
+    const wide = planLoad([line("frame", 4000, 2300, 2800, 3000)]);
+    expect(load(wide).container.group).toBe("flat-rack");
+    // 5,700 mm long: too long for a 20' OT's roof opening (5,300), low and narrow enough for its doors. Among open tops only, it stays in the 20'.
+    expect(names(planLoad([line("beam", 5700, 1000, 2200, 3000)], ["20ot", "40ot"]))).toEqual(["20' OT"]);
+    // The same beam too high for those doors goes into the 40' OT, from the top.
+    expect(names(planLoad([line("beam", 5700, 1000, 2600, 3000)], ["20ot", "40ot"]))).toEqual(["40' OT"]);
+  });
+
   it("sends over-height cargo to an open top, the one it sticks out of least", () => {
     // A hard-top would stick out less, but a plain open top comes first.
     const tall = planLoad([line("column", 1000, 1000, 3000, 2000)]);
@@ -162,8 +172,8 @@ describe("planLoad", () => {
     expect(names(planLoad([line("column", 1000, 1000, 3000, 2000)], ["20ht", "40dc"]))).toEqual(["20' Hard-Top"]);
     expect(overhang(piece(tall), load(tall).container).height).toBe(623);
 
-    // 2,650 mm: too high for a standard door, in gauge in a 40' HOT.
-    const plan = planLoad([line("tank", 8000, 2200, 2650, 8000)]);
+    // 2,650 mm: too high for a standard door, in gauge in a 40' HOT, whose roof opening takes 2,160 mm of width.
+    const plan = planLoad([line("tank", 8000, 2100, 2650, 8000)]);
     expect(names(plan)).toEqual(["40' HOT"]);
     expect(isOutOfGauge(piece(plan), load(plan).container)).toBe(false);
   });
@@ -645,11 +655,36 @@ describe("the company's rules", () => {
     expect(ruleWarnings(planLoad([line("Press", 3000, 2000, 2000, 6000)]).loads[0]!, "mm")).toEqual([]);
   });
 
+  // The company's own limits are one thing, the out-of-gauge table's verdict another: these are about the first.
+  const ownLimit = (text: string) => !/^(Out of gauge, by the same table|In gauge only with|Too long for the roof)/.test(text);
+
+  it("gives a load the verdict the quote's out-of-gauge table gives the same cargo (P12)", () => {
+    const stats = (cargo: CargoLine, nominated?: string[]) => {
+      const plan = planLoad([cargo], nominated, DEFAULT_RULES);
+      return { ...loadStats(plan.loads[0]!), text: gaugeText(gaugeCheckOf(plan.loads[0]!)), type: plan.loads[0]!.container.name };
+    };
+    // 2,400 mm wide on a 40' FR: wider than its deck, within the 244 cm slot, so in gauge.
+    expect(stats(line("Frame", 6000, 2400, 1500, 9000, { canTurn: false }), ["40fr"])).toMatchObject({ outOfGauge: false, linerConfirm: false, text: null });
+    // 3,000 mm wide: 28 cm over each side, the slot on each side lost (a 40' slot is two 20' slots).
+    const wide = stats(line("Tank", 6000, 3000, 1500, 9000, { canTurn: false }), ["40fr"]);
+    expect(wide.outOfGauge).toBe(true);
+    expect(wide.text).toContain("28 cm over each side");
+    expect(wide.text).toContain("About 4 lost slots");
+    // 1,960 mm high on a 40' FR: over the in-gauge 194 cm, within the liner's 198 cm.
+    const liner = stats(line("Case", 6000, 2000, 1960, 9000), ["40fr"]);
+    expect(liner).toMatchObject({ outOfGauge: false, linerConfirm: true });
+    expect(liner.text).toContain("liner's confirmation");
+    // Over height in an open top: out of gauge by what stands out of the roof.
+    expect(stats(line("Silo", 4000, 2000, 3000, 9000), ["40ot"]).text).toContain("66 cm over height");
+    // A standard container is never out of gauge.
+    expect(stats(line("Box", 1000, 1000, 1000, 500))).toMatchObject({ outOfGauge: false, linerConfirm: false, text: null });
+  });
+
   it("warns about out-of-gauge cargo beyond the limits set, and loads it all the same", () => {
     const texts = (cargo: CargoLine) => {
       const plan = planLoad([cargo], undefined, DEFAULT_RULES);
       expect(plan.notLoaded).toEqual([]);
-      return ruleWarnings(plan.loads[0]!, "mm");
+      return ruleWarnings(plan.loads[0]!, "mm").filter(ownLimit);
     };
     expect(texts(line("Tank", 6000, 3600, 2000, 9000, { canTurn: false }))).toEqual([expect.stringContaining("3,600 mm wide, over the 3,500 mm")]);
     expect(texts(line("Tank", 6000, 3500, 2000, 9000, { canTurn: false }))).toEqual([]);
@@ -659,7 +694,7 @@ describe("the company's rules", () => {
   });
 
   it("says nothing about out-of-gauge cargo just at the limits set", () => {
-    const texts = (cargo: CargoLine) => ruleWarnings(planLoad([cargo], undefined, DEFAULT_RULES).loads[0]!, "mm");
+    const texts = (cargo: CargoLine) => ruleWarnings(planLoad([cargo], undefined, DEFAULT_RULES).loads[0]!, "mm").filter(ownLimit);
     // 13,652 mm on an 11,652 mm deck: exactly 1,000 mm over each end.
     expect(texts(line("Girder", 13652, 1000, 1000, 9000))).toEqual([]);
     expect(texts(line("Silo", 4000, 2200, 3200, 9000))).toEqual([]);

@@ -4,7 +4,7 @@ import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { App, Checkbox, Input } from "antd";
-import { CopyOutlined, DeleteOutlined, DisconnectOutlined, FilePdfOutlined, LinkOutlined, ReloadOutlined, SaveOutlined } from "@ant-design/icons";
+import { CopyOutlined, DeleteOutlined, DisconnectOutlined, ExportOutlined, FilePdfOutlined, LinkOutlined, ReloadOutlined, SaveOutlined } from "@ant-design/icons";
 import { BackLink } from "@/components/BackLink";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { Pill } from "@/components/Pill";
@@ -39,6 +39,7 @@ import { planLoad, type LoadPlan } from "../_lib/plan";
 import { linkAfterSave, linkOf, newerVersionStep, rememberedUnit, rememberUnit } from "../_lib/plannerScreen";
 import type { DimUnit } from "../_lib/units";
 import { CargoCard } from "./CargoCard";
+import { CompareCard } from "./CompareCard";
 import { boxCargoDiffers, boxVerdict, cargoDiffers, colourIndexes, shipmentsOf } from "../_lib/cargoTools";
 import { EquipmentCard } from "./EquipmentCard";
 import { LinkJobModal } from "./LinkJobModal";
@@ -452,6 +453,19 @@ function PlanEditor({ saved }: { saved: interfaces.LoadingPlanItem | null }) {
                   Reload cargo from the {jobWord}
                 </button>
               )}
+              {/* A plan linked to a quote offers its equipment to it (Council Outlay 14, P7): the quote's page shows old against new and asks. */}
+              {link.kind === "quote" &&
+                (stored && !dirty && loadPlan.loads.length > 0 ? (
+                  <Link href={`/sales/quote/${encodeURIComponent(link.ref)}?plan=${stored.id}`} className={`${BTN} no-underline`}>
+                    <ExportOutlined />
+                    Put on the quote
+                  </Link>
+                ) : (
+                  <button type="button" className={BTN} disabled title={loadPlan.loads.length === 0 ? "The plan loads no container yet." : "Save the plan first: the quote reads the saved plan."}>
+                    <ExportOutlined />
+                    Put on the quote
+                  </button>
+                ))}
               <button type="button" className={BTN} onClick={() => setLink(null)}>
                 <DisconnectOutlined />
                 Unlink
@@ -509,6 +523,7 @@ function PlanEditor({ saved }: { saved: interfaces.LoadingPlanItem | null }) {
           colourOf={colourOf}
         />
         <EquipmentCard nominated={nominated} unit={unit} onChange={setNominated} rules={rules} onSettings={() => setSettingsOpen(true)} />
+        {cargo.length > 0 && tooMuch === null && <CompareCard cargo={cargo} plan={loadPlan} nominated={nominated} rules={rules} onUse={setNominated} />}
         <ResultPanel
           plan={loadPlan}
           unit={unit}
