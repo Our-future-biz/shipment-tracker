@@ -17,6 +17,10 @@ export interface CargoLine {
   dg?: boolean;
   /** The shipment the line belongs to in a box plan (its job number): what its pieces may be coloured by. It changes nothing in the plan. */
   group?: string;
+  /** The line's dangerous goods as its UN number and class, and how it is to be lashed (Council Outlay 14, P11): shown and printed; the plan only warns when classes share a container. */
+  un?: string;
+  dgClass?: string;
+  lashing?: string;
 }
 
 /** How a piece sits on the floor: `length` runs along the container. */

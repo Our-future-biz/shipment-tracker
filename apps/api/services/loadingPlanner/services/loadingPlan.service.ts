@@ -19,6 +19,7 @@ const toItem = (r: LoadingPlanRecord, linkGone = false): LoadingPlanItem => ({
   lines: r.lines,
   nominated: r.nominated,
   result: r.result,
+  note: r.note,
   createdBy: r.createdBy,
   updatedBy: r.updatedBy,
   createdAt: iso(r.createdAt),

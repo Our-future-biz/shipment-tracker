@@ -2506,6 +2506,9 @@ export interface SailingPlanLine {
   weightPerPcKg: number;
   stackable: boolean;
   dangerous: boolean;
+  /** The UN number and class the line names; "" when it names none. */
+  adrUn: string;
+  adrClass: string;
 }
 
 /** A shipment of a sailing's box with its cargo lines, for the Loading Planner. */

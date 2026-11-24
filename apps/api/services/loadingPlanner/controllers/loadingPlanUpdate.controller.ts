@@ -17,6 +17,8 @@ interface LoadingPlanUpdateRequest {
   nominated: string[] | null;
   /** What the plan came to, as the browser worked it out: for the lists. Left out by a screen from before it was kept. */
   result?: PlanResult | null;
+  /** A free note for the stuffing gang, printed on the plan; left out, the stored one stays. */
+  note?: string & MaxLen<2000>;
   /**
    * The plan's `updatedAt` as the server gave it when the plan was opened or last saved. When
    * someone else saved the plan since, the save is refused (aborted) and the plan must be reloaded.

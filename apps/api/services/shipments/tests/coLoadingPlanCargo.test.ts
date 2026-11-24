@@ -16,24 +16,26 @@ describe("a sailing's box for the Loading Planner (Council Outlay 14, C1)", () =
   it("gives each Dimensions row as a line: type, pieces, sizes in cm, weight per piece", () => {
     expect(planLinesOf(job(1))).toEqual({
       totalsOnly: false,
-      lines: [{ packageType: "Pallet", pieces: 4, lengthCm: 120, widthCm: 80, heightCm: 150, weightPerPcKg: 450, stackable: true, dangerous: false }],
+      lines: [{ packageType: "Pallet", pieces: 4, lengthCm: 120, widthCm: 80, heightCm: 150, weightPerPcKg: 450, stackable: true, dangerous: false, adrUn: "", adrClass: "" }],
     });
   });
 
   it("marks a line dangerous when it names a UN number or a class, or the shipment is ticked so", () => {
     expect(planLinesOf(job(1, { cargoDimensions: [row({ adrUn: "1263" }), row()] })).lines.map((l) => l.dangerous)).toEqual([true, false]);
     expect(planLinesOf(job(1, { dangerous: "Yes" })).lines[0]!.dangerous).toBe(true);
+    // The line's own UN number and class go with it (P11).
+    expect(planLinesOf(job(1, { cargoDimensions: [row({ adrUn: " 1263 ", adrClass: "3" })] })).lines[0]).toMatchObject({ dangerous: true, adrUn: "1263", adrClass: "3" });
   });
 
   it("keeps a row with pieces but no sizes as a line to finish, and leaves an empty row out", () => {
     const { lines } = planLinesOf(job(1, { cargoDimensions: [row({ lengthCm: "", widthCm: "", heightCm: "", weightPerPcKg: "" }), row({ pieces: "", lengthCm: "", widthCm: "", heightCm: "", weightPerPcKg: "" })] }));
-    expect(lines).toEqual([{ packageType: "Pallet", pieces: 4, lengthCm: 0, widthCm: 0, heightCm: 0, weightPerPcKg: 0, stackable: true, dangerous: false }]);
+    expect(lines).toEqual([{ packageType: "Pallet", pieces: 4, lengthCm: 0, widthCm: 0, heightCm: 0, weightPerPcKg: 0, stackable: true, dangerous: false, adrUn: "", adrClass: "" }]);
   });
 
   it("gives a shipment with totals only one line with no sizes: its colli and its weight a piece, never a guessed size", () => {
     expect(planLinesOf(job(1, { cargoDimensions: [], pcs: "8", totalWeightTons: "1.95" }))).toEqual({
       totalsOnly: true,
-      lines: [{ packageType: "", pieces: 8, lengthCm: 0, widthCm: 0, heightCm: 0, weightPerPcKg: 243.8, stackable: false, dangerous: false }],
+      lines: [{ packageType: "", pieces: 8, lengthCm: 0, widthCm: 0, heightCm: 0, weightPerPcKg: 243.8, stackable: false, dangerous: false, adrUn: "", adrClass: "" }],
     });
     expect(planLinesOf(job(1, { cargoDimensions: [], pcs: "", totalWeightTons: null })).lines[0]).toMatchObject({ pieces: 1, weightPerPcKg: 0 });
   });

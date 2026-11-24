@@ -1,6 +1,7 @@
 import type { interfaces } from "@/lib/api/client";
 import { num, STACKABLE } from "@/lib/cargo";
 import type { DraftLine } from "./cargoForm";
+import { cleanClass, cleanUn } from "./dangerous";
 
 // A shipment's Dimensions rows and a quote's package lines as the planner's cargo lines. Both keep
 // sizes in cm and the weight per piece in kg; the planner keeps sizes in whole mm. A figure the job
@@ -59,6 +60,9 @@ export function linesFromShipment(rows: interfaces.CargoDimensionLine[] | null |
       canTurn: true,
       stackable: STACKABLE_WORDS.includes(row.stackable),
       ...(row.adrUn || row.adrClass ? { dg: true } : {}),
+      // Its UN number and class go with it where they read as such; anything else stays on the job.
+      ...(cleanUn(row.adrUn) ? { un: cleanUn(row.adrUn) } : {}),
+      ...(cleanClass(row.adrClass) ? { dgClass: cleanClass(row.adrClass) } : {}),
     };
     return isEmptyRow(line, line.colli !== null) ? [] : [line];
   });
@@ -118,6 +122,8 @@ export function linesFromSailing(box: interfaces.SailingPlanCargo, newId: () => 
         canTurn: true,
         stackable: l.stackable,
         ...(l.dangerous ? { dg: true } : {}),
+        ...(cleanUn(l.adrUn) ? { un: cleanUn(l.adrUn) } : {}),
+        ...(cleanClass(l.adrClass) ? { dgClass: cleanClass(l.adrClass) } : {}),
       }),
     );
     const job = s.jobNumber || "(no job number)";

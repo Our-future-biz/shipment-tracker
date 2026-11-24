@@ -28,6 +28,11 @@ export interface PlanCargoLine {
   dg?: boolean;
   /** The shipment the line belongs to in a box plan (its job number): what its pieces are coloured and named by. */
   group?: string;
+  /** The line's dangerous goods, as its UN number ("1263") and class ("3", "2.1", "1.4S"), carried from the job or typed (Council Outlay 14, P11). Printed; the planner only warns when classes share a container. */
+  un?: string;
+  dgClass?: string;
+  /** How the line is to be lashed or secured: a free note, printed on the plan. */
+  lashing?: string;
 }
 
 /** What a user sends to save a plan. The loads themselves are worked out from this in the browser. */
@@ -43,6 +48,8 @@ export interface PlanInput {
   nominated: string[] | null;
   /** What the plan came to, as the browser worked it out; left out or null when not sent. Shown in the lists only. */
   result?: PlanResult | null;
+  /** A free note for the stuffing gang and the surveyor (lashing, dunnage, what to mind), printed on the plan. Left out by a screen from before it was kept: the stored one then stays. */
+  note?: string;
 }
 
 export interface LoadingPlanItem extends PlanInput {

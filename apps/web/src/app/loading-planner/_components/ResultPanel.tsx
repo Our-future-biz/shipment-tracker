@@ -31,6 +31,8 @@ interface ResultPanelProps {
   nothingNominated: boolean;
   /** The plan's name, for the out-of-gauge request's first line; "" while it has none. */
   planName?: string;
+  /** What a container's dangerous goods are warned about (two classes in one container), or null; left out, nothing is said. */
+  dgWarningOf?: (load: ContainerLoad) => string | null;
 }
 
 const pctText = (value: number) => `${Math.round(value)}%`;
@@ -67,9 +69,10 @@ interface LoadCardProps {
   numberOf: ResultPanelProps["numberOf"];
   onShow3D: () => void;
   planName: string;
+  dgWarning: string | null;
 }
 
-function LoadCard({ load, number, unit, colourOf, numberOf, onShow3D, planName }: LoadCardProps) {
+function LoadCard({ load, number, unit, colourOf, numberOf, onShow3D, planName, dgWarning }: LoadCardProps) {
   const stats = loadStats(load);
   // What the carrier's out-of-gauge form asks about this container (Council Outlay 14, P10); null when there is nothing to request.
   const request = stats.outOfGauge ? oogRequestOf(load, number) : null;
@@ -169,6 +172,12 @@ function LoadCard({ load, number, unit, colourOf, numberOf, onShow3D, planName }
           <span>{END_WALLS_NOTE}</span>
         </p>
       )}
+      {dgWarning && (
+        <p className="m-0 flex items-start gap-2 text-[13px] text-red-600">
+          <WarningOutlined className="mt-0.5" />
+          <span>{dgWarning}</span>
+        </p>
+      )}
       {ruleWarnings(load, unit).map((warning, index) => (
         <p key={`rule-${index}`} className="m-0 flex items-start gap-2 text-[13px] text-amber-700">
           <WarningOutlined className="mt-0.5" />
@@ -195,7 +204,7 @@ function LoadCard({ load, number, unit, colourOf, numberOf, onShow3D, planName }
 
 // What the planner made of the cargo: the totals, the pieces it could not load with the reason, the
 // containers in 3D, and every container with its floor drawn from above, its figures and its pieces.
-export function ResultPanel({ plan, unit, colourOf, numberOf, unplanned, tooMuch, nothingNominated, planName = "" }: ResultPanelProps) {
+export function ResultPanel({ plan, unit, colourOf, numberOf, unplanned, tooMuch, nothingNominated, planName = "", dgWarningOf }: ResultPanelProps) {
   const [shown, setShown] = useState(0);
   // A plan worked out again may have fewer containers than the one being looked at.
   const inView = Math.min(shown, Math.max(0, plan.loads.length - 1));
@@ -284,6 +293,7 @@ export function ResultPanel({ plan, unit, colourOf, numberOf, unplanned, tooMuch
             colourOf={colourOf}
             numberOf={numberOf}
             planName={planName}
+            dgWarning={dgWarningOf ? dgWarningOf(load) : null}
             onShow3D={() => {
               setShown(index);
               document.getElementById("loading-plan-3d")?.scrollIntoView({ behavior: "smooth", block: "center" });

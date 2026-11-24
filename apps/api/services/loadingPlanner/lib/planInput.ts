@@ -8,6 +8,12 @@ export const MAX_COLLI = 2000;
 const MAX_SIZE_MM = 100_000;
 const MAX_WEIGHT_KG = 1_000_000;
 
+// A line's dangerous goods and lashing note (Council Outlay 14, P11). "" is none: stored without the field.
+export const UN_NUMBER = /^(\d{4})?$/;
+export const DG_CLASS = /^([1-9](\.\d)?[A-S]?)?$/;
+export const LASHING_MAX = 200;
+export const NOTE_MAX = 1000;
+
 /** A plan as it is stored: cleaned, with nothing the user did not mean. */
 export type CleanPlan = PlanInput;
 
@@ -20,6 +26,9 @@ function lineProblem(line: PlanCargoLine, n: number): string | null {
   if (!line.id.trim() || line.id.length > 60) return `Cargo line ${n}: its id is missing`;
   if (line.name.length > 120) return `Cargo line ${n}: the name is longer than 120 characters`;
   if (line.group !== undefined && (typeof line.group !== "string" || line.group.length > 60)) return `Cargo line ${n}: the shipment it belongs to is not valid`;
+  if (line.un !== undefined && !UN_NUMBER.test(String(line.un).trim())) return `Cargo "${name}": the UN number is four digits, like 1263`;
+  if (line.dgClass !== undefined && !DG_CLASS.test(String(line.dgClass).trim())) return `Cargo "${name}": the class is like 3, 2.1 or 1.4S`;
+  if (line.lashing !== undefined && (typeof line.lashing !== "string" || line.lashing.length > LASHING_MAX)) return `Cargo "${name}": keep the lashing note to ${LASHING_MAX} characters`;
   for (const [label, value] of [["length", line.lengthMm], ["width", line.widthMm], ["height", line.heightMm]] as const) {
     if (!wholeIn(value, MAX_SIZE_MM)) return `Cargo "${name}": the ${label} must be between 1 mm and 100 m`;
   }
@@ -68,6 +77,8 @@ export function cleanPlan(input: PlanInput): { plan: CleanPlan } | { problem: st
   const linkRef = input.linkRef.trim();
   if (linkRef.length > 60) return { problem: "The reference of the linked job is longer than 60 characters" };
 
+  if (input.note !== undefined && (typeof input.note !== "string" || input.note.trim().length > NOTE_MAX)) return { problem: `Keep the plan's note to ${NOTE_MAX.toLocaleString("en-US")} characters` };
+
   const nominated = input.nominated === null ? null : [...new Set(input.nominated)];
   if (nominated?.some((id) => !/^[0-9a-z]{2,10}$/.test(id)) || (nominated?.length ?? 0) > 30) return { problem: "The nominated equipment is not valid" };
 
@@ -90,9 +101,14 @@ export function cleanPlan(input: PlanInput): { plan: CleanPlan } | { problem: st
         // Kept only when sent: a line without the mark is stored without one.
         ...(line.dg === undefined ? {} : { dg: line.dg }),
         ...(line.group?.trim() ? { group: line.group.trim() } : {}),
+        ...(line.un?.trim() ? { un: line.un.trim() } : {}),
+        ...(line.dgClass?.trim() ? { dgClass: line.dgClass.trim() } : {}),
+        ...(line.lashing?.trim() ? { lashing: line.lashing.trim() } : {}),
       })),
       nominated,
       result: cleanResult(input.result),
+      // Not sent by an older screen: left out here, and the stored note stays.
+      ...(input.note === undefined ? {} : { note: input.note.trim() }),
     },
   };
 }

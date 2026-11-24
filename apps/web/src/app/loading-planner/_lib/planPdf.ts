@@ -1,5 +1,6 @@
 import { jsPDF } from "jspdf";
 import { NO_CLEARANCE, type ContainerSpec, type PlanRules } from "./containers";
+import { dgWarning, dgWords, isDangerous, lashingNotes } from "./dangerous";
 import { standardLabel, type CargoLine } from "./gauge";
 import { balanceLimitText, END_WALLS_NOTE, floorOverloadText, outOfBalanceText, ruleWarnings, hasDoors, lineColour, loadStats, planTotals, startText, type PieceGroup } from "./loadStats";
 import type { ContainerLoad, LoadPlan } from "./plan";
@@ -34,6 +35,8 @@ export interface PlanPdfInput {
   with45?: boolean;
   /** Typed cargo lines left out of the plan because a figure is missing. */
   unplanned?: number;
+  /** The plan's free note for the stuffing gang; printed on the first page. */
+  note?: string;
   /** False when the plan on screen has changes that are not saved. */
   saved?: boolean;
   /** The day the PDF is made, as the app writes dates. */
@@ -407,7 +410,7 @@ function summaryPage(doc: jsPDF, input: PlanPdfInput, colourOf: (lineId: string)
       columns,
       [
         String(numberOf(line.id)),
-        { swatch: colourOf(line.id), text: `${line.name || "Cargo"}${line.dg ? " (DG)" : ""}` },
+        { swatch: colourOf(line.id), text: `${line.name || "Cargo"}${isDangerous(line) ? ` (${dgWords(line)})` : ""}` },
         sizeText(line.lengthMm, line.widthMm, line.heightMm, unit),
         formatKg(line.weightKg),
         String(line.colli),
@@ -418,6 +421,14 @@ function summaryPage(doc: jsPDF, input: PlanPdfInput, colourOf: (lineId: string)
       y,
     );
     y += 5.5;
+  }
+
+  // What no figure says: the plan's note for the stuffing gang, and each line's lashing note (Council Outlay 14, P11).
+  const lashing = lashingNotes(input.lines, numberOf);
+  if (input.note?.trim() || lashing.length > 0) {
+    y += 5;
+    if (input.note?.trim()) y = paragraph(doc, `Note for the stuffing gang: ${input.note.trim()}`, y, "bold", INK, newPage);
+    for (const text of lashing) y = paragraph(doc, `Lashing, line ${text}`, y, "normal", BODY, newPage);
   }
 }
 
@@ -527,6 +538,9 @@ function loadPage(doc: jsPDF, input: PlanPdfInput, load: ContainerLoad, number: 
   // Every warning in full, over as many lines and pages as it needs.
   y += 2;
   if (stats.endWallsFolded) y = paragraph(doc, END_WALLS_NOTE, y, "bold", AMBER, newPage);
+  // Two classes of dangerous goods in the container: said first, in red (Council Outlay 14, P11).
+  const dg = dgWarning(load, (lineId) => input.lines.find((line) => line.id === lineId));
+  if (dg) y = paragraph(doc, dg, y, "bold", RED, newPage);
   for (const warning of ruleWarnings(load, unit)) y = paragraph(doc, warning, y, "bold", AMBER, newPage);
   for (const overload of stats.floorOverloads) y = paragraph(doc, floorOverloadText(overload, container, unit), y, "bold", AMBER, newPage);
   if (!balance.ok) {

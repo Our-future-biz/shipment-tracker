@@ -12,6 +12,8 @@ const line = (over: Partial<interfaces.SailingPlanLine> = {}): interfaces.Sailin
   weightPerPcKg: 300,
   stackable: true,
   dangerous: false,
+  adrUn: "",
+  adrClass: "",
   ...over,
 });
 
@@ -22,7 +24,7 @@ describe("a sailing's box as planner cargo (Council Outlay 14, C1)", () => {
     containerType: "40' HC",
     containerCount: 1,
     shipments: [
-      { shipmentId: "a", jobNumber: "CZLCL1", totalsOnly: false, lines: [line(), line({ packageType: "Crate", dangerous: true, stackable: false })] },
+      { shipmentId: "a", jobNumber: "CZLCL1", totalsOnly: false, lines: [line(), line({ packageType: "Crate", dangerous: true, stackable: false, adrUn: "UN 1263", adrClass: "3" })] },
       { shipmentId: "b", jobNumber: "CZLCL2", totalsOnly: true, lines: [line({ packageType: "", lengthCm: 0, widthCm: 0, heightCm: 0 })] },
     ],
   } as unknown as interfaces.SailingPlanCargo;
@@ -36,7 +38,9 @@ describe("a sailing's box as planner cargo (Council Outlay 14, C1)", () => {
       ["CZLCL2 · no sizes yet", "CZLCL2"],
     ]);
     expect(lines[0]).toMatchObject({ lengthMm: 1200, widthMm: 800, heightMm: 1000, weightKg: 300, colli: 2, stackable: true });
-    expect(lines[1]).toMatchObject({ dg: true, stackable: false });
+    // The line's UN number and class go with it, cleaned (P11).
+    expect(lines[1]).toMatchObject({ dg: true, stackable: false, un: "1263", dgClass: "3" });
+    expect(lines[0]).not.toHaveProperty("un");
     expect(new Set(lines.map((l) => l.id)).size).toBe(3);
   });
 

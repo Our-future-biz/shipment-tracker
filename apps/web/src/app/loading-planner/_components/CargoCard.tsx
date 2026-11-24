@@ -2,7 +2,7 @@
 
 import { useState, type ClipboardEvent } from "react";
 import { Checkbox, Dropdown, Input, InputNumber } from "antd";
-import { ArrowDownOutlined, ArrowUpOutlined, CopyOutlined, DeleteOutlined, EllipsisOutlined, FileSearchOutlined, PlusOutlined } from "@ant-design/icons";
+import { ArrowDownOutlined, ArrowUpOutlined, CopyOutlined, DeleteOutlined, EllipsisOutlined, FileSearchOutlined, PlusOutlined, WarningOutlined } from "@ant-design/icons";
 import { DecimalInput } from "@/components/DecimalInput";
 import { Pill } from "@/components/Pill";
 import { PillTabs, SectionCard } from "@/components/SectionCard";
@@ -11,7 +11,9 @@ import { completeLine, isBlank, lineLabel, MAX_COLLI, missingFigures, type Draft
 import { duplicateLine, moveLine, pastedLines, STANDARD_UNITS, withStandardUnit } from "../_lib/cargoTools";
 import type { PlanRules } from "../_lib/containers";
 import { standardLabel } from "../_lib/gauge";
+import { dgWords, isDangerous } from "../_lib/dangerous";
 import { lineColour } from "../_lib/loadStats";
+import { LineNotesModal } from "./LineNotesModal";
 import { DIM_DECIMALS, DIM_UNITS, fromMm, toMm, type DimUnit } from "../_lib/units";
 
 interface CargoCardProps {
@@ -41,6 +43,8 @@ const UNIT_TABS = DIM_UNITS.map((unit) => ({ key: unit, label: unit }));
 // then its last column says which figure is missing. Each line has a number, which every drawing
 // and table of the plan uses for it.
 export function CargoCard({ lines, unit, onUnitChange, onChange, onAdd, newId, onRead, busy = false, rules, with45, colourOf }: CargoCardProps) {
+  // The line whose dangerous goods and lashing note are being edited.
+  const [notesOf, setNotesOf] = useState<string | null>(null);
   const patch = (id: string, change: Partial<DraftLine>) => onChange(lines.map((line) => (line.id === id ? { ...line, ...change } : line)));
 
   // The line last removed, with its place: one click puts it back (Council Outlay 14, P5). Forgotten once the list changes otherwise.
@@ -148,12 +152,14 @@ export function CargoCard({ lines, unit, onUnitChange, onChange, onAdd, newId, o
                         onChange={(e) => patch(line.id, { name: e.target.value })}
                         className="!w-[200px]"
                       />
-                      {line.dg && (
-                        <Pill tone="red" title="Dangerous goods, as the job says. The planner does not plan by it.">
-                          DG
+                      {isDangerous(line) && (
+                        <Pill tone="red" title="Dangerous goods. The planner does not plan by it: it warns when two classes share a container.">
+                          {dgWords(line)}
                         </Pill>
                       )}
                     </span>
+                    {/* How the line is to be lashed, as typed in its "Dangerous goods and lashing" dialog (Council Outlay 14, P11). */}
+                    {line.lashing?.trim() && <span className="mt-0.5 block max-w-[320px] truncate text-[11px] text-slate-500" title={line.lashing}>Lashing: {line.lashing}</span>}
                   </td>
                   {sizeCell(line, "lengthMm", "Length")}
                   {sizeCell(line, "widthMm", "Width")}
@@ -202,6 +208,7 @@ export function CargoCard({ lines, unit, onUnitChange, onChange, onAdd, newId, o
                             { key: "copy", icon: <CopyOutlined />, label: "Duplicate line" },
                             { key: "up", icon: <ArrowUpOutlined />, label: "Move up", disabled: index === 0 },
                             { key: "down", icon: <ArrowDownOutlined />, label: "Move down", disabled: index === lines.length - 1 },
+                            { key: "notes", icon: <WarningOutlined />, label: "Dangerous goods and lashing…" },
                             { type: "divider" },
                             { key: "units", type: "group", label: "Standard unit: fills the sizes", children: STANDARD_UNITS.map((u) => ({ key: `unit:${u.key}`, label: u.label })) },
                           ],
@@ -209,6 +216,7 @@ export function CargoCard({ lines, unit, onUnitChange, onChange, onAdd, newId, o
                             if (key === "copy") change(duplicateLine(lines, line.id, newId));
                             else if (key === "up") change(moveLine(lines, line.id, -1));
                             else if (key === "down") change(moveLine(lines, line.id, 1));
+                            else if (key === "notes") setNotesOf(line.id);
                             else {
                               const standard = STANDARD_UNITS.find((u) => `unit:${u.key}` === key);
                               if (standard) change(lines.map((l) => (l.id === line.id ? withStandardUnit(l, standard) : l)));
@@ -216,7 +224,7 @@ export function CargoCard({ lines, unit, onUnitChange, onChange, onAdd, newId, o
                           },
                         }}
                       >
-                        <button type="button" className="flex h-7 w-7 cursor-pointer items-center justify-center rounded border-0 bg-transparent text-slate-500 hover:bg-slate-100 hover:text-slate-900" aria-label={`More for ${lineLabel(line, index)}: duplicate, move, standard unit`}>
+                        <button type="button" className="flex h-7 w-7 cursor-pointer items-center justify-center rounded border-0 bg-transparent text-slate-500 hover:bg-slate-100 hover:text-slate-900" aria-label={`More for ${lineLabel(line, index)}: duplicate, move, dangerous goods and lashing, standard unit`}>
                           <EllipsisOutlined />
                         </button>
                       </Dropdown>
@@ -250,6 +258,12 @@ export function CargoCard({ lines, unit, onUnitChange, onChange, onAdd, newId, o
         the piece goes into a standard container through its doors and its floor carries it; otherwise the plan takes an open top or a flat rack. “Too heavy” is a piece
         whose weight is too much for the length of floor it rests on, or over the weight set for standard containers.
       </p>
+      <LineNotesModal
+        line={lines.find((l) => l.id === notesOf) ?? null}
+        label={lineLabel(lines.find((l) => l.id === notesOf) ?? { name: "" }, lines.findIndex((l) => l.id === notesOf))}
+        onClose={() => setNotesOf(null)}
+        onSave={(notes) => notesOf && patch(notesOf, notes)}
+      />
     </SectionCard>
   );
 }

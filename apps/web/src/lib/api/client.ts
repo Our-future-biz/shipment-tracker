@@ -11093,6 +11093,11 @@ export namespace controllers {
          * What the plan came to, as the browser worked it out: for the lists.
          */
         result?: interfaces.PlanResult | null
+
+        /**
+         * A free note for the stuffing gang, printed on the plan; left out, the stored one stays.
+         */
+        note?: string
     }
 
     export interface LoadingPlanCreateResponse {
@@ -16781,6 +16786,11 @@ export namespace interfaces {
         weightPerPcKg: number
         stackable: boolean
         dangerous: boolean
+        /**
+         * The UN number and class the line names; "" when it names none.
+         */
+        adrUn: string
+        adrClass: string
     }
 
     /**
@@ -21508,6 +21518,13 @@ export namespace interfaces {
          * The shipment the line belongs to in a box plan (its job number): what its pieces are coloured and named by.
          */
         group?: string
+
+        /**
+         * The line's dangerous goods, as its UN number ("1263") and class ("3", "2.1"), and how it is to be lashed.
+         */
+        un?: string
+        dgClass?: string
+        lashing?: string
     }
 
     export interface LoadingPlanItem {
@@ -21532,6 +21549,11 @@ export namespace interfaces {
          * What the plan came to when it was last saved; null when not kept.
          */
         result?: PlanResult | null
+
+        /**
+         * A free note for the stuffing gang and the surveyor, printed on the plan.
+         */
+        note?: string
 
         /**
          * E-mail of the user who made the plan, and of the one who saved it last.

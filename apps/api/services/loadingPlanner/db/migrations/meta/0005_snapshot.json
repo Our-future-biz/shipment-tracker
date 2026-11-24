@@ -1,0 +1,300 @@
+{
+  "id": "7b368744-8cb6-4170-a01d-abe12937e97b",
+  "prevId": "85c0f77b-84be-4046-9285-396dbb79cbd9",
+  "version": "7",
+  "dialect": "postgresql",
+  "tables": {
+    "public.loading_plan": {
+      "name": "loading_plan",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "deleted_at": {
+          "name": "deleted_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "company_id": {
+          "name": "company_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "link_kind": {
+          "name": "link_kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "link_id": {
+          "name": "link_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "link_ref": {
+          "name": "link_ref",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "''"
+        },
+        "lines": {
+          "name": "lines",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'[]'::jsonb"
+        },
+        "nominated": {
+          "name": "nominated",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "result": {
+          "name": "result",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "note": {
+          "name": "note",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "''"
+        },
+        "created_by": {
+          "name": "created_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "updated_by": {
+          "name": "updated_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {
+        "loading_plan_company_id_idx": {
+          "name": "loading_plan_company_id_idx",
+          "columns": [
+            {
+              "expression": "company_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "loading_plan_link_idx": {
+          "name": "loading_plan_link_idx",
+          "columns": [
+            {
+              "expression": "company_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "link_kind",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "link_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "loading_plan_link_kind_check": {
+          "name": "loading_plan_link_kind_check",
+          "value": "\"loading_plan\".\"link_kind\" IN ('shipment', 'quote', 'sailing')"
+        },
+        "loading_plan_link_whole_check": {
+          "name": "loading_plan_link_whole_check",
+          "value": "(\"loading_plan\".\"link_kind\" IS NULL) = (\"loading_plan\".\"link_id\" IS NULL)"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.planner_setting": {
+      "name": "planner_setting",
+      "schema": "",
+      "columns": {
+        "company_id": {
+          "name": "company_id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "door_width_mm": {
+          "name": "door_width_mm",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "door_height_mm": {
+          "name": "door_height_mm",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "length_mm": {
+          "name": "length_mm",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "oog_width_mm": {
+          "name": "oog_width_mm",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 3500
+        },
+        "oog_over_end_mm": {
+          "name": "oog_over_end_mm",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 1000
+        },
+        "oog_height_mm": {
+          "name": "oog_height_mm",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 3200
+        },
+        "heavy_warn_kg": {
+          "name": "heavy_warn_kg",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 5000
+        },
+        "heavy_move_kg": {
+          "name": "heavy_move_kg",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 10000
+        },
+        "road_gross_20_kg": {
+          "name": "road_gross_20_kg",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "road_gross_40_kg": {
+          "name": "road_gross_40_kg",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "updated_by_user_id": {
+          "name": "updated_by_user_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "planner_setting_road_check": {
+          "name": "planner_setting_road_check",
+          "value": "(\"planner_setting\".\"road_gross_20_kg\" IS NULL OR \"planner_setting\".\"road_gross_20_kg\" BETWEEN 5000 AND 60000) AND (\"planner_setting\".\"road_gross_40_kg\" IS NULL OR \"planner_setting\".\"road_gross_40_kg\" BETWEEN 5000 AND 60000)"
+        },
+        "planner_setting_heavy_check": {
+          "name": "planner_setting_heavy_check",
+          "value": "\"planner_setting\".\"heavy_warn_kg\" > 0 AND \"planner_setting\".\"heavy_move_kg\" >= \"planner_setting\".\"heavy_warn_kg\""
+        },
+        "planner_setting_oog_check": {
+          "name": "planner_setting_oog_check",
+          "value": "\"planner_setting\".\"oog_width_mm\" > 0 AND \"planner_setting\".\"oog_over_end_mm\" >= 0 AND \"planner_setting\".\"oog_height_mm\" > 0"
+        },
+        "planner_setting_clearance_check": {
+          "name": "planner_setting_clearance_check",
+          "value": "\"planner_setting\".\"door_width_mm\" BETWEEN 0 AND 500 AND \"planner_setting\".\"door_height_mm\" BETWEEN 0 AND 500 AND \"planner_setting\".\"length_mm\" BETWEEN 0 AND 500"
+        }
+      },
+      "isRLSEnabled": false
+    }
+  },
+  "enums": {},
+  "schemas": {},
+  "sequences": {},
+  "roles": {},
+  "policies": {},
+  "views": {},
+  "_meta": {
+    "columns": {},
+    "schemas": {},
+    "tables": {}
+  }
+}

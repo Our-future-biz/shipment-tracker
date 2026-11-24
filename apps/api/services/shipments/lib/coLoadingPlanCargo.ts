@@ -39,6 +39,9 @@ export function planLinesOf(s: Pick<BoxShipment, "dangerous" | "pcs" | "totalWei
         weightPerPcKg: cargoNum(d.weightPerPcKg),
         stackable: STACKABLE_WORDS.includes(d.stackable),
         dangerous: yes(s.dangerous) || !!d.adrUn?.trim() || !!d.adrClass?.trim(),
+        // The line's own UN number and class, as its Dimensions row names them: the plan prints them (P11).
+        adrUn: (d.adrUn ?? "").trim(),
+        adrClass: (d.adrClass ?? "").trim(),
       })),
     };
   }
@@ -47,7 +50,7 @@ export function planLinesOf(s: Pick<BoxShipment, "dangerous" | "pcs" | "totalWei
   const kg = cargoNum(s.totalWeightTons ?? "") * 1000;
   return {
     totalsOnly: true,
-    lines: [{ packageType: "", pieces, lengthCm: 0, widthCm: 0, heightCm: 0, weightPerPcKg: kg > 0 ? Math.round((kg / pieces) * 10) / 10 : 0, stackable: false, dangerous: yes(s.dangerous) }],
+    lines: [{ packageType: "", pieces, lengthCm: 0, widthCm: 0, heightCm: 0, weightPerPcKg: kg > 0 ? Math.round((kg / pieces) * 10) / 10 : 0, stackable: false, dangerous: yes(s.dangerous), adrUn: "", adrClass: "" }],
   };
 }
 

@@ -46,7 +46,7 @@ export interface LoadingPlanListRow {
 }
 
 /** What a save writes of a plan. */
-export type PlanWrite = Pick<NewLoadingPlanRecord, "name" | "linkKind" | "linkId" | "linkRef" | "lines" | "nominated" | "result" | "updatedBy">;
+export type PlanWrite = Pick<NewLoadingPlanRecord, "name" | "linkKind" | "linkId" | "linkRef" | "lines" | "nominated" | "result" | "note" | "updatedBy">;
 
 // A save's time is always later than the one before it, whatever the two clocks say: it is the
 // plan's version (updateIfUnchanged).

@@ -19,6 +19,8 @@ export const loadingPlanTable = pgTable(
     nominated: jsonb("nominated").$type<string[]>(),
     // What the plan came to when it was last saved (containers by type, colli not loaded): for the lists (Council Outlay 14, P4).
     result: jsonb("result").$type<PlanResult>(),
+    // A free note for the stuffing gang and the surveyor, printed on the plan (Council Outlay 14, P11).
+    note: text("note").notNull().default(""),
     createdBy: text("created_by").notNull(),
     updatedBy: text("updated_by").notNull(),
   },

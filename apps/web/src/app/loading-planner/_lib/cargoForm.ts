@@ -16,6 +16,10 @@ export interface DraftLine {
   dg?: boolean;
   /** The shipment the line belongs to in a plan of a sailing's box: its job number. */
   group?: string;
+  /** Its UN number and class, and how it is to be lashed. */
+  un?: string;
+  dgClass?: string;
+  lashing?: string;
 }
 
 /** The most a plan holds; the server refuses more. */
@@ -44,7 +48,7 @@ const positive = (value: number | null): value is number => value !== null && va
 export function completeLine(line: DraftLine): CargoLine | null {
   const { lengthMm, widthMm, heightMm, weightKg, colli } = line;
   if (!positive(lengthMm) || !positive(widthMm) || !positive(heightMm) || !positive(weightKg) || !positive(colli)) return null;
-  return { id: line.id, name: line.name.trim(), lengthMm, widthMm, heightMm, weightKg, colli, canTurn: line.canTurn, stackable: line.stackable, ...(line.dg ? { dg: true } : {}), ...(line.group ? { group: line.group } : {}) };
+  return { id: line.id, name: line.name.trim(), lengthMm, widthMm, heightMm, weightKg, colli, canTurn: line.canTurn, stackable: line.stackable, ...(line.dg ? { dg: true } : {}), ...(line.group ? { group: line.group } : {}), ...(line.un ? { un: line.un } : {}), ...(line.dgClass ? { dgClass: line.dgClass } : {}), ...(line.lashing?.trim() ? { lashing: line.lashing.trim() } : {}) };
 }
 
 /** The figures a typed line still lacks, in the cargo table's words; none for a complete or a blank line. */
@@ -80,11 +84,11 @@ export interface JobLink {
  * a line's fields in its own order and trims its name. A line's id is left out: the same cargo
  * taken from the job again is no change.
  */
-export function planFingerprint(name: string, drafts: DraftLine[], nominated: string[] | null, link: JobLink | null): string {
+export function planFingerprint(name: string, drafts: DraftLine[], nominated: string[] | null, link: JobLink | null, note = ""): string {
   const lines = drafts
     .filter((line) => !isBlank(line))
-    .map((l) => [l.name.trim(), l.lengthMm, l.widthMm, l.heightMm, l.weightKg, l.colli, l.canTurn, l.stackable, l.dg === true, l.group ?? ""]);
-  return JSON.stringify([name.trim(), lines, nominated, link?.kind ?? null, link?.id ?? null]);
+    .map((l) => [l.name.trim(), l.lengthMm, l.widthMm, l.heightMm, l.weightKg, l.colli, l.canTurn, l.stackable, l.dg === true, l.group ?? "", l.un ?? "", l.dgClass ?? "", (l.lashing ?? "").trim()]);
+  return JSON.stringify([name.trim(), lines, nominated, link?.kind ?? null, link?.id ?? null, note.trim()]);
 }
 
 /** The lines the plan is worked out from: the complete ones. */

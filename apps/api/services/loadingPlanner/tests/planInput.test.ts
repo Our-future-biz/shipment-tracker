@@ -130,3 +130,33 @@ describe("a box plan's lines and a plan's result (Council Outlay 14, C1 and P4)"
     expect(cleanPlan(input({ result: { equipment: [], notLoaded: -1 } }))).toMatchObject({ plan: { result: null } });
   });
 });
+
+describe("dangerous goods and lashing notes on a plan (Council Outlay 14, P11)", () => {
+  const cleaned = (more: Partial<PlanInput>) => {
+    const result = cleanPlan(input(more));
+    if ("problem" in result) throw new Error(result.problem);
+    return result.plan;
+  };
+
+  it("keeps a line's UN number, class and lashing note, trimmed, and stores none as no field", () => {
+    const [kept, bare] = cleaned({ lines: [line({ id: "a", un: " 1263 ", dgClass: " 3 ", lashing: "  2 belts across  " }), line({ id: "b", un: "", dgClass: "", lashing: " " })] }).lines;
+    expect(kept).toMatchObject({ un: "1263", dgClass: "3", lashing: "2 belts across" });
+    expect(bare).not.toHaveProperty("un");
+    expect(bare).not.toHaveProperty("dgClass");
+    expect(bare).not.toHaveProperty("lashing");
+  });
+
+  it("refuses a UN number that is not four digits, a class that is none, and a lashing note that is too long", () => {
+    expect(problemOf({ lines: [line({ un: "12" })] })).toContain("UN number is four digits");
+    expect(problemOf({ lines: [line({ dgClass: "flammable" })] })).toContain("class is like 3, 2.1 or 1.4S");
+    expect(problemOf({ lines: [line({ lashing: "x".repeat(201) })] })).toContain("lashing note to 200 characters");
+    for (const dgClass of ["3", "2.1", "1.4S", "9", "6.1"]) expect(problemOf({ lines: [line({ dgClass })] })).toBeNull();
+  });
+
+  it("keeps the plan's note trimmed, leaves the stored one alone when none is sent, and refuses one that is too long", () => {
+    expect(cleaned({ note: "  Dunnage under the tank.  " }).note).toBe("Dunnage under the tank.");
+    expect(cleaned({ note: "" }).note).toBe("");
+    expect(cleaned({})).not.toHaveProperty("note");
+    expect(problemOf({ note: "x".repeat(1001) })).toContain("plan's note to 1,000 characters");
+  });
+});

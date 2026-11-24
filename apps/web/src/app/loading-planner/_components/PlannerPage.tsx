@@ -8,6 +8,7 @@ import { CopyOutlined, DeleteOutlined, DisconnectOutlined, ExportOutlined, FileP
 import { BackLink } from "@/components/BackLink";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { Pill } from "@/components/Pill";
+import { SectionCard } from "@/components/SectionCard";
 import { JobNotFound, useLoadingPlanJob, type PlanJob } from "@/hooks/useLoadingPlanJob";
 import { useLoadingPlan, useLoadingPlanWrites } from "@/hooks/useLoadingPlans";
 import { usePlannerSettings } from "@/hooks/usePlannerSettings";
@@ -40,6 +41,7 @@ import { linkAfterSave, linkOf, newerVersionStep, rememberedUnit, rememberUnit }
 import type { DimUnit } from "../_lib/units";
 import { CargoCard } from "./CargoCard";
 import { CompareCard } from "./CompareCard";
+import { dgWarning, PLAN_NOTE_MAX } from "../_lib/dangerous";
 import { boxCargoDiffers, boxVerdict, cargoDiffers, colourIndexes, shipmentsOf } from "../_lib/cargoTools";
 import { EquipmentCard } from "./EquipmentCard";
 import { LinkJobModal } from "./LinkJobModal";
@@ -88,6 +90,8 @@ function PlanEditor({ saved }: { saved: interfaces.LoadingPlanItem | null }) {
   const [name, setName] = useState(saved?.name ?? "");
   const [lines, setLines] = useState<DraftLine[]>(() => (saved ? draftsOf(saved.lines) : [newDraftLine(newId())]));
   const [nominated, setNominated] = useState<string[] | null>(saved?.nominated ?? null);
+  // A free note for the stuffing gang and the surveyor, printed on the plan (Council Outlay 14, P11).
+  const [note, setNote] = useState(saved?.note ?? "");
   const [link, setLink] = useState<JobLink | null>(() => linkOf(saved));
   const [unit, setUnit] = useState<DimUnit>("mm");
   // What the server holds: the plan as opened, then as last saved.
@@ -108,12 +112,13 @@ function PlanEditor({ saved }: { saved: interfaces.LoadingPlanItem | null }) {
   };
 
   const hasCargo = lines.some((line) => !isBlank(line));
-  const dirty = stored ? planFingerprint(name, lines, nominated, link) !== planFingerprint(stored.name, draftsOf(stored.lines), stored.nominated, linkOf(stored)) : true;
+  const dirty = stored ? planFingerprint(name, lines, nominated, link, note) !== planFingerprint(stored.name, draftsOf(stored.lines), stored.nominated, linkOf(stored), stored.note ?? "") : true;
 
   const adopt = (plan: interfaces.LoadingPlanItem) => {
     setName(plan.name);
     setLines(draftsOf(plan.lines));
     setNominated(plan.nominated);
+    setNote(plan.note ?? "");
     setLink(linkOf(plan));
     setStored(plan);
     setNewer(null);
@@ -241,7 +246,7 @@ function PlanEditor({ saved }: { saved: interfaces.LoadingPlanItem | null }) {
 
   // Leaving with unsaved work asks first: a link, the side menu, the Back button, closing or
   // reloading the page. A new plan nothing was typed into has nothing to lose.
-  const unsaved = stored ? dirty : name.trim() !== "" || hasCargo || link !== null;
+  const unsaved = stored ? dirty : name.trim() !== "" || hasCargo || link !== null || note.trim() !== "";
   useUnsavedGuard(unsaved && !goTo, "loading-plan");
   // The guard takes its mark off the browser's history a moment after it lets go; only then does the page move.
   useEffect(() => {
@@ -270,6 +275,7 @@ function PlanEditor({ saved }: { saved: interfaces.LoadingPlanItem | null }) {
         nominated: nominated ? CONTAINERS.filter((c) => nominated.includes(c.id)).map((c) => c.name) : null,
         unit,
         unplanned,
+        note: note.trim(),
         saved: !dirty,
         printedOn: formatDate(businessToday()),
       });
@@ -315,6 +321,7 @@ function PlanEditor({ saved }: { saved: interfaces.LoadingPlanItem | null }) {
       lines: planned,
       nominated,
       result: totals ? { equipment: totals.equipment, notLoaded: totals.notLoaded } : null,
+      note: note.trim(),
     };
   };
 
@@ -522,6 +529,19 @@ function PlanEditor({ saved }: { saved: interfaces.LoadingPlanItem | null }) {
           with45={with45}
           colourOf={colourOf}
         />
+        {/* What the stuffing gang and the surveyor must know that no figure says: printed on the plan's first page. */}
+        <SectionCard title="Note for the stuffing gang">
+          <Input.TextArea
+            aria-label="Note for the stuffing gang"
+            rows={2}
+            maxLength={PLAN_NOTE_MAX}
+            showCount
+            placeholder="Lashing, dunnage, what to mind: e.g. Timber under the tank, 4 chains to the lashing rings, no forklift on the roof side."
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+          />
+          <p className={`${HINT} m-0 mt-2`}>Printed on the plan&apos;s PDF, with each line&apos;s own lashing note (a line&apos;s &quot;⋯&quot; menu, Dangerous goods and lashing).</p>
+        </SectionCard>
         <EquipmentCard nominated={nominated} unit={unit} onChange={setNominated} rules={rules} onSettings={() => setSettingsOpen(true)} />
         {cargo.length > 0 && tooMuch === null && <CompareCard cargo={cargo} plan={loadPlan} nominated={nominated} rules={rules} onUse={setNominated} />}
         <ResultPanel
@@ -533,6 +553,7 @@ function PlanEditor({ saved }: { saved: interfaces.LoadingPlanItem | null }) {
           tooMuch={tooMuch}
           nothingNominated={nominated !== null && nominated.length === 0 && cargo.length > 0}
           planName={name}
+          dgWarningOf={(load) => dgWarning(load, (lineId) => cargo.find((line) => line.id === lineId))}
         />
       </div>
 
