@@ -15,6 +15,7 @@ export const settingsOfRow = (row: PlannerSettingRecord): PlannerSettings => ({
   clearance: { doorWidthMm: row.doorWidthMm, doorHeightMm: row.doorHeightMm, lengthMm: row.lengthMm },
   oogWarning: { widthMm: row.oogWidthMm, overEndMm: row.oogOverEndMm, heightMm: row.oogHeightMm },
   heavyPiece: { warnKg: row.heavyWarnKg, moveKg: row.heavyMoveKg },
+  roadWeight: { gross20Kg: row.roadGross20Kg, gross40Kg: row.roadGross40Kg },
 });
 
 /** The settings as the screen is given them. */
@@ -36,6 +37,8 @@ class PlannerSettingsService {
   /** Saves the company's settings, whole. Refused for a plain user, and for a figure out of its range. */
   async set(actor: Actor, settings: PlannerSettings): Promise<PlannerSettingsView> {
     if (!canEditPlannerSettings(actor.role)) throw APIError.permissionDenied("Only managers and admins change the Loading Planner's settings");
+    // A screen opened before the road weights existed sends none: it then leaves them as they are.
+    if (!settings.roadWeight) settings = { ...settings, roadWeight: (await this.get(actor.companyID, actor.role)).settings.roadWeight };
     const problem = settingsProblem(settings);
     if (problem) throw APIError.invalidArgument(problem);
     // The answer is what was stored, not what was sent.

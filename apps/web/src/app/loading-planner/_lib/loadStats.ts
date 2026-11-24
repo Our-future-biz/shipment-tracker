@@ -26,6 +26,9 @@ export interface PieceGroup {
 export interface LoadStats {
   pieceCount: number;
   payloadPct: number;
+  /** The empty container's weight, and the cargo with it: the gross weight, an estimate for the VGM. */
+  tareKg: number;
+  grossKg: number;
   /** Share of the floor under cargo. */
   floorPct: number;
   balance: Balance;
@@ -83,6 +86,8 @@ export function loadStats(load: ContainerLoad): LoadStats {
   return {
     pieceCount: pieces.length,
     payloadPct: pct(load.totalWeightKg, container.payloadKg),
+    tareKg: container.tareKg,
+    grossKg: Math.round(load.totalWeightKg + container.tareKg),
     floorPct: pct(onFloor.reduce((total, piece) => total + floorArea(piece, load), 0), container.internalL * container.internalW),
     balance: balanceOf(pieces, container),
     outOfGauge: pieces.some((piece) => isOutOfGauge(piece, container)),
@@ -114,6 +119,14 @@ export function ruleWarnings(load: ContainerLoad, unit: DimUnit): string[] {
   const kg = (value: number) => `${value.toLocaleString("en-US")} kg`;
   const names = (found: PlacedPiece[]) => [...new Set(found.map((p) => p.name || "Cargo"))].join(", ");
   const warnings: string[] = [];
+
+  // The road leg: the cargo with the container's own weight, against the weight set for a warning (Council Outlay 14, P2).
+  const gross = Math.round(load.totalWeightKg + container.tareKg);
+  if (container.roadGrossKg && gross > container.roadGrossKg) {
+    warnings.push(
+      `About ${kg(gross)} gross (cargo ${kg(Math.round(load.totalWeightKg))} with the container's ${kg(container.tareKg)}), over the ${kg(container.roadGrossKg)} set for the road. Check the inland leg: the truck, the route and the permits.`,
+    );
+  }
 
   const { heavy, oog } = container;
   if (heavy) {

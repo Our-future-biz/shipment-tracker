@@ -35,3 +35,12 @@ describe("canEditPlannerSettings", () => {
     expect(["superadmin", "admin", "manager", "user", ""].map(canEditPlannerSettings)).toEqual([true, true, true, false, false]);
   });
 });
+
+describe("the road-weight warning's figures", () => {
+  it("may be empty, or a whole number of kg from 5,000 to 60,000", () => {
+    expect(settingsProblem(withSettings((s) => (s.roadWeight = { gross20Kg: null, gross40Kg: null })))).toBeNull();
+    expect(settingsProblem(withSettings((s) => (s.roadWeight = { gross20Kg: 5000, gross40Kg: 60000 })))).toBeNull();
+    expect(settingsProblem(withSettings((s) => (s.roadWeight = { gross20Kg: 4999, gross40Kg: null })))).toBe("The road gross weight of a 20' must be a whole number of kg from 5,000 to 60,000, or left empty for no warning.");
+    expect(settingsProblem(withSettings((s) => (s.roadWeight = { gross20Kg: null, gross40Kg: 30000.5 })))).toMatch(/road gross weight of a 40'/);
+  });
+});

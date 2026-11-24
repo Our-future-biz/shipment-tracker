@@ -1,9 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { Button, Checkbox, Input, Select } from "antd";
+import { useQuery } from "@tanstack/react-query";
+import { AutoComplete, Button, Checkbox, Select } from "antd";
 import { AppModal } from "@/components/AppModal";
-import { apiErrorMessage } from "@/lib/api";
+import { useDebounced } from "@/hooks/useDebounced";
+import { api, apiErrorMessage } from "@/lib/api";
 import type { interfaces } from "@/lib/api/client";
 import { JobNotFound, type PlanJob } from "@/hooks/useLoadingPlanJob";
 import { HINT, LABEL_TEXT } from "@/styles/ui";
@@ -22,7 +24,7 @@ interface LinkJobModalProps {
 
 const KIND_OPTIONS = (["shipment", "quote"] as const).map((kind) => ({ value: kind, label: JOB_KIND_LABEL[kind] }));
 
-// Links the plan to a shipment (by its job number) or a quote (by its reference), and, if ticked,
+// Links the plan to a shipment (by its job number) or a quote (by its reference), found as you type, and, if ticked,
 // takes the job's cargo into the plan.
 export function LinkJobModal({ open, onClose, readJob, onLinked, hasCargo }: LinkJobModalProps) {
   const [kind, setKind] = useState<interfaces.PlanLinkKind>("shipment");
@@ -30,6 +32,18 @@ export function LinkJobModal({ open, onClose, readJob, onLinked, hasCargo }: Lin
   const [loadCargo, setLoadCargo] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // The jobs the typing finds (Council Outlay 14, P5): the main search's own answers, to pick from instead of typing the number out.
+  const typed = useDebounced(key.trim(), 300);
+  const found = useQuery({
+    queryKey: ["loading-plan-link-search", kind, typed],
+    queryFn: async () =>
+      kind === "shipment"
+        ? (await api.shipments.searchShipments({ q: typed, limit: 8 })).items.map((s) => ({ value: s.jobNumber, label: [s.jobNumber, s.customer, [s.pol, s.pod].filter(Boolean).join(" → ")].filter(Boolean).join(" · ") }))
+        : (await api.quotes.searchQuotes({ q: typed, limit: 8 })).items.map((x) => ({ value: x.quoteNumber, label: [x.quoteNumber, x.customerName, [x.pol, x.pod].filter(Boolean).join(" → ")].filter(Boolean).join(" · ") })),
+    enabled: open && typed.length >= 2,
+    staleTime: 30_000,
+  });
 
   const close = () => {
     setKey("");
@@ -75,17 +89,23 @@ export function LinkJobModal({ open, onClose, readJob, onLinked, hasCargo }: Lin
         </label>
         <label className="flex flex-col gap-1.5">
           <span className={LABEL_TEXT}>{kind === "shipment" ? "Job number" : "Quote reference"}</span>
-          <Input
+          <AutoComplete
             autoFocus
             value={key}
-            placeholder={kind === "shipment" ? "e.g. CZ00000053" : "e.g. QCZ00000012"}
+            options={(found.data ?? []).filter((o) => o.value)}
+            placeholder={kind === "shipment" ? "Job number, customer or port, e.g. CZ00000053" : "Quote reference or customer, e.g. QCZ00000012"}
             maxLength={60}
-            onChange={(e) => {
-              setKey(e.target.value);
+            aria-label={kind === "shipment" ? "Job number" : "Quote reference"}
+            notFoundContent={typed.length >= 2 && !found.isFetching && found.isSuccess ? "Nothing found: type the number as it is" : null}
+            onChange={(value) => {
+              setKey(value);
               setError(null);
             }}
-            onPressEnter={handleLink}
+            onInputKeyDown={(e) => {
+              if (e.key === "Enter" && (found.data ?? []).length === 0) void handleLink();
+            }}
           />
+          <span className={HINT}>Type a few letters and pick the {JOB_KIND_LABEL[kind].toLowerCase()} from the list, or type its number in full.</span>
         </label>
         <Checkbox checked={loadCargo} onChange={(e) => setLoadCargo(e.target.checked)}>
           Load the {JOB_KIND_LABEL[kind].toLowerCase()}&apos;s cargo into the plan

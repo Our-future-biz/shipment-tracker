@@ -11,7 +11,7 @@ export const plannerSettingRepository = {
   },
 
   /** Writes the company's settings, whether or not it had some. */
-  async save(companyId: string, { clearance, oogWarning, heavyPiece }: PlannerSettings, userId: string): Promise<PlannerSettingRecord> {
+  async save(companyId: string, { clearance, oogWarning, heavyPiece, roadWeight }: PlannerSettings, userId: string): Promise<PlannerSettingRecord> {
     const values = {
       ...clearance,
       oogWidthMm: oogWarning.widthMm,
@@ -19,6 +19,8 @@ export const plannerSettingRepository = {
       oogHeightMm: oogWarning.heightMm,
       heavyWarnKg: heavyPiece.warnKg,
       heavyMoveKg: heavyPiece.moveKg,
+      roadGross20Kg: roadWeight.gross20Kg,
+      roadGross40Kg: roadWeight.gross40Kg,
       updatedByUserId: userId,
     };
     const [row] = await db

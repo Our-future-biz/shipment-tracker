@@ -21,6 +21,8 @@ export interface ContainerSpec {
   doorH: number | null;
   /** The cargo weight the planner loads up to. */
   payloadKg: number;
+  /** The empty container's own weight: with the cargo it gives the gross weight (an estimate for the VGM; the weighed figure decides). */
+  tareKg: number;
   /** How much weight the floor carries on a given length of it. */
   floor: FloorStrength;
   /** A hard-top: loaded like an open top, but the planner picks a plain open top when it can. */
@@ -32,9 +34,21 @@ export interface ContainerSpec {
   clear?: Clearance;
   /** the weights of a heavy single piece in a standard container, */
   heavy?: HeavyPiece;
-  /** and the limits cargo on an open top or flat rack is warned about above. */
+  /** and the limits cargo on an open top or flat rack is warned about above; */
   oog?: OogWarning;
+  /** the gross weight (cargo with the container itself) above which the plan warns about the road leg; none when not set. */
+  roadGrossKg?: number;
 }
+
+/** The gross weight above which a plan warns about the road leg, in whole kg, by the container's length; null: no warning. */
+export interface RoadWeight {
+  /** For a 20' container. */
+  gross20Kg: number | null;
+  /** For a 40' or a 45' container. */
+  gross40Kg: number | null;
+}
+
+export const NO_ROAD_WEIGHT: RoadWeight = { gross20Kg: null, gross40Kg: null };
 
 /** Out-of-gauge cargo on an open top or flat rack is warned about above these, in whole mm. */
 export interface OogWarning {
@@ -58,6 +72,8 @@ export interface PlanRules {
   clearance: Clearance;
   oogWarning: OogWarning;
   heavyPiece: HeavyPiece;
+  /** Left out by rules from before it existed: then there is no road-weight warning. */
+  roadWeight?: RoadWeight;
 }
 
 /** The room the planner leaves free in a standard container, in whole mm. Managers set it per company. */
@@ -77,6 +93,7 @@ export const DEFAULT_RULES: PlanRules = {
   clearance: DEFAULT_CLEARANCE,
   oogWarning: { widthMm: 3500, overEndMm: 1000, heightMm: 3200 },
   heavyPiece: { warnKg: 5000, moveKg: 10000 },
+  roadWeight: NO_ROAD_WEIGHT,
 };
 export const MAX_CLEARANCE_MM = 500;
 /** A heavy piece also leaves standard containers when the bedding it needs is this many times its own length. */
@@ -110,21 +127,24 @@ const RACK_40_HIGH: FloorStrength = { anyKg: 24500, points: [[2000, 25600], [400
 /** Beams under a piece may carry its weight this far beyond each of its ends, the carrier says: no further. */
 export const BEDDING_END_MM = 1000;
 
+// Tare weights: each type's usual maximum gross weight (30,480 kg for a 20', 32,500 kg for a 40',
+// 34,000 kg for a 45' and a 20' flat rack, 45,000 and 55,000 kg for the 40' flat racks) less its
+// payload by the book. A container's own plate says its real tare; these are for an estimate.
 export const CONTAINERS: ContainerSpec[] = [
-  { id: "20dc", name: "20' DC", group: "standard", feet: 20, internalL: 5898, internalW: 2352, internalH: 2385, doorW: 2343, doorH: 2280, payloadKg: 28230, floor: WOOD_20 },
-  { id: "20hc", name: "20' HC", group: "standard", feet: 20, internalL: 5898, internalW: 2352, internalH: 2698, doorW: 2343, doorH: 2585, payloadKg: 28130, floor: WOOD_20 },
-  { id: "40dc", name: "40' DC", group: "standard", feet: 40, internalL: 12032, internalW: 2352, internalH: 2385, doorW: 2343, doorH: 2280, payloadKg: 28720, floor: WOOD_40 },
-  { id: "40hc", name: "40' HC", group: "standard", feet: 40, internalL: 12032, internalW: 2352, internalH: 2698, doorW: 2343, doorH: 2585, payloadKg: 28600, floor: WOOD_40 },
-  { id: "45hq", name: "45' HQ", group: "standard", feet: 45, internalL: 13556, internalW: 2352, internalH: 2698, doorW: 2343, doorH: 2585, payloadKg: 29300, floor: WOOD_40, onRequest: true },
-  { id: "20ot", name: "20' OT", group: "open-top", feet: 20, internalL: 5897, internalW: 2350, internalH: 2377, doorW: 2338, doorH: 2347, payloadKg: 28130, floor: WOOD_20 },
-  { id: "40ot", name: "40' OT", group: "open-top", feet: 40, internalL: 12029, internalW: 2350, internalH: 2380, doorW: 2338, doorH: 2346, payloadKg: 28450, floor: WOOD_40 },
-  { id: "40hot", name: "40' HOT", group: "open-top", feet: 40, internalL: 12025, internalW: 2350, internalH: 2680, doorW: 2338, doorH: 2585, payloadKg: 28350, floor: WOOD_40 },
-  { id: "20ht", name: "20' Hard-Top", group: "open-top", feet: 20, internalL: 5560, internalW: 2342, internalH: 2408, doorW: 2338, doorH: 2258, payloadKg: 28080, floor: STEEL_20, hardTop: true, onRequest: true },
-  { id: "40ht", name: "40' Hard-Top", group: "open-top", feet: 40, internalL: 12020, internalW: 2342, internalH: 2693, doorW: 2338, doorH: 2258, payloadKg: 28300, floor: STEEL_40, hardTop: true, onRequest: true },
-  { id: "20fr", name: "20' FR", group: "flat-rack", feet: 20, internalL: 5612, internalW: 2210, internalH: 2233, doorW: null, doorH: null, payloadKg: 31250, floor: RACK_20 },
+  { id: "20dc", name: "20' DC", group: "standard", feet: 20, internalL: 5898, internalW: 2352, internalH: 2385, doorW: 2343, doorH: 2280, payloadKg: 28230, tareKg: 2250, floor: WOOD_20 },
+  { id: "20hc", name: "20' HC", group: "standard", feet: 20, internalL: 5898, internalW: 2352, internalH: 2698, doorW: 2343, doorH: 2585, payloadKg: 28130, tareKg: 2350, floor: WOOD_20 },
+  { id: "40dc", name: "40' DC", group: "standard", feet: 40, internalL: 12032, internalW: 2352, internalH: 2385, doorW: 2343, doorH: 2280, payloadKg: 28720, tareKg: 3780, floor: WOOD_40 },
+  { id: "40hc", name: "40' HC", group: "standard", feet: 40, internalL: 12032, internalW: 2352, internalH: 2698, doorW: 2343, doorH: 2585, payloadKg: 28600, tareKg: 3900, floor: WOOD_40 },
+  { id: "45hq", name: "45' HQ", group: "standard", feet: 45, internalL: 13556, internalW: 2352, internalH: 2698, doorW: 2343, doorH: 2585, payloadKg: 29300, tareKg: 4700, floor: WOOD_40, onRequest: true },
+  { id: "20ot", name: "20' OT", group: "open-top", feet: 20, internalL: 5897, internalW: 2350, internalH: 2377, doorW: 2338, doorH: 2347, payloadKg: 28130, tareKg: 2350, floor: WOOD_20 },
+  { id: "40ot", name: "40' OT", group: "open-top", feet: 40, internalL: 12029, internalW: 2350, internalH: 2380, doorW: 2338, doorH: 2346, payloadKg: 28450, tareKg: 4050, floor: WOOD_40 },
+  { id: "40hot", name: "40' HOT", group: "open-top", feet: 40, internalL: 12025, internalW: 2350, internalH: 2680, doorW: 2338, doorH: 2585, payloadKg: 28350, tareKg: 4150, floor: WOOD_40 },
+  { id: "20ht", name: "20' Hard-Top", group: "open-top", feet: 20, internalL: 5560, internalW: 2342, internalH: 2408, doorW: 2338, doorH: 2258, payloadKg: 28080, tareKg: 2400, floor: STEEL_20, hardTop: true, onRequest: true },
+  { id: "40ht", name: "40' Hard-Top", group: "open-top", feet: 40, internalL: 12020, internalW: 2342, internalH: 2693, doorW: 2338, doorH: 2258, payloadKg: 28300, tareKg: 4200, floor: STEEL_40, hardTop: true, onRequest: true },
+  { id: "20fr", name: "20' FR", group: "flat-rack", feet: 20, internalL: 5612, internalW: 2210, internalH: 2233, doorW: null, doorH: null, payloadKg: 31250, tareKg: 2750, floor: RACK_20 },
   // The 40' flat racks carry 39,800 and 49,100 kg by the book; the planner loads them to 33,500 kg.
-  { id: "40fr", name: "40' FR", group: "flat-rack", feet: 40, internalL: 11652, internalW: 2374, internalH: 1959, doorW: null, doorH: null, payloadKg: 33500, floor: RACK_40 },
-  { id: "40hfr", name: "40' HFR", group: "flat-rack", feet: 40, internalL: 11652, internalW: 2347, internalH: 2265, doorW: null, doorH: null, payloadKg: 33500, floor: RACK_40_HIGH },
+  { id: "40fr", name: "40' FR", group: "flat-rack", feet: 40, internalL: 11652, internalW: 2374, internalH: 1959, doorW: null, doorH: null, payloadKg: 33500, tareKg: 5200, floor: RACK_40 },
+  { id: "40hfr", name: "40' HFR", group: "flat-rack", feet: 40, internalL: 11652, internalW: 2347, internalH: 2265, doorW: null, doorH: null, payloadKg: 33500, tareKg: 5900, floor: RACK_40_HIGH },
 ];
 
 /** The most weight the container carries on this length of its floor, in kg; never more than its payload. */
@@ -172,11 +192,18 @@ export const maxCargoKg = (container: ContainerSpec): number => maxWeightOn(cont
 
 /**
  * The equipment as planned with the company's rules: standard containers carry the clearance and
- * the heavy-piece weights, open tops and flat racks the out-of-gauge warning limits. Without rules
+ * the heavy-piece weights, open tops and flat racks the out-of-gauge warning limits; every type the
+ * road-weight warning of its length, where one is set. Without rules
  * the equipment is as it is.
  */
 export const containersWith = (rules?: PlanRules): ContainerSpec[] =>
-  rules ? CONTAINERS.map((c) => (c.group === "standard" ? { ...c, clear: rules.clearance, heavy: rules.heavyPiece } : { ...c, oog: rules.oogWarning })) : CONTAINERS;
+  rules
+    ? CONTAINERS.map((c) => {
+        const road = c.feet === 20 ? rules.roadWeight?.gross20Kg : rules.roadWeight?.gross40Kg;
+        const planned = c.group === "standard" ? { ...c, clear: rules.clearance, heavy: rules.heavyPiece } : { ...c, oog: rules.oogWarning };
+        return road ? { ...planned, roadGrossKg: road } : planned;
+      })
+    : CONTAINERS;
 
 /**
  * Whether a piece is too heavy to be planned into this standard container: over the weight set for

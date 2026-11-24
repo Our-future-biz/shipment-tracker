@@ -3,6 +3,7 @@ import { NO_CLEARANCE, type ContainerSpec, type PlanRules } from "./containers";
 import { standardLabel, type CargoLine } from "./gauge";
 import { balanceLimitText, END_WALLS_NOTE, floorOverloadText, outOfBalanceText, ruleWarnings, hasDoors, lineColour, loadStats, planTotals, startText, type PieceGroup } from "./loadStats";
 import type { ContainerLoad, LoadPlan } from "./plan";
+import { floorStepNumbers, howText, loadingRuns, stepsText, whereText } from "./stuffing";
 import { formatDim, formatKg, formatSize, type DimUnit } from "./units";
 
 // The loading plan as a PDF to send to a customer, an agent or a warehouse: a summary page with the
@@ -274,7 +275,53 @@ function drawFloor(doc: jsPDF, load: ContainerLoad, colourOf: (lineId: string) =
     doc.text(text, x, y, { align: "center", baseline: "middle" });
   }
 
+  // The loading step of each piece on the floor, small, in its corner at the far end: the order to
+  // load in (the stuffing sheet below). Left out where a piece is too small to carry it.
+  const stepOf = floorStepNumbers(load);
+  for (const piece of onFloor) {
+    const step = stepOf.get(`${piece.x}|${piece.z}`);
+    const [w, h] = [piece.length * scale, piece.width * scale];
+    if (step === undefined || w < 6 || h < 4.5) continue;
+    setFont(doc, "normal", 5.5, BODY);
+    doc.text(`s${step}`, px(piece.z) + 0.8, py(piece.x) + 2.3);
+  }
+
   return (maxX - minX) * scale;
+}
+
+/**
+ * The container from its side, to scale, in a box `maxHeight` high at most: only drawn for a load
+ * with pieces standing on others, so the stacks are seen and not only counted. Returns the height used.
+ */
+function drawSide(doc: jsPDF, load: ContainerLoad, colourOf: (lineId: string) => string, top: number, maxHeight: number): number {
+  const { container, pieces } = load;
+  const maxZ = Math.max(container.internalL, ...pieces.map((p) => p.z + p.length));
+  const minZ = Math.min(0, ...pieces.map((p) => p.z));
+  const maxY = Math.max(container.internalH, ...pieces.map((p) => p.y + p.height));
+  const scale = Math.min((WIDTH - 14) / (maxZ - minZ), maxHeight / maxY);
+  const left = MARGIN + (WIDTH - (maxZ - minZ) * scale) / 2;
+  const px = (z: number) => left + (z - minZ) * scale;
+  // The floor is the bottom line: heights grow upwards.
+  const floorY = top + maxY * scale;
+  const py = (y: number) => floorY - y * scale;
+  doc.setFillColor("#f8fafc");
+  doc.setDrawColor(MUTED);
+  doc.setLineWidth(0.4);
+  doc.rect(px(0), py(container.internalH), container.internalL * scale, container.internalH * scale, "FD");
+  // One piece per place and level: pieces side by side across the container cover each other from here.
+  const seen = new Set<string>();
+  for (const piece of [...pieces].sort((a, b) => a.x - b.x)) {
+    const key = `${piece.z}|${piece.y}|${piece.length}|${piece.height}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    doc.setFillColor(colourOf(piece.lineId));
+    doc.setDrawColor(BODY);
+    doc.setLineWidth(0.2);
+    doc.rect(px(piece.z), py(piece.y + piece.height), piece.length * scale, piece.height * scale, "FD");
+  }
+  setFont(doc, "bold", 7, MUTED);
+  doc.text("SIDE VIEW", px(minZ), top - 1.5);
+  return maxY * scale;
 }
 
 function summaryPage(doc: jsPDF, input: PlanPdfInput, colourOf: (lineId: string) => string, numberOf: (lineId: string) => number) {
@@ -380,15 +427,19 @@ function loadPage(doc: jsPDF, input: PlanPdfInput, load: ContainerLoad, number: 
   pageHead(doc, title, input);
 
   let y = MARGIN + 14;
-  y += drawFloor(doc, load, colourOf, numberOf, y, 60) + 8;
+  const stacked = load.pieces.some((piece) => piece.y > 0);
+  y += drawFloor(doc, load, colourOf, numberOf, y, stacked ? 46 : 60) + (stacked ? 7 : 8);
+  if (stacked) y += drawSide(doc, load, colourOf, y, 20) + 8;
 
   // Five figures in one row, each as wide as its longest value, and the centre of gravity with its
   // limit on a row of its own: together they would not fit across the page.
-  const widths = [22, 58, 32, 44, 117];
+  const widths = [18, 52, 60, 26, 36, 81];
   const { balance } = stats;
   const figures: [string, string, string?][] = [
     ["Colli", String(stats.pieceCount)],
     ["Weight (of payload)", `${formatKg(load.totalWeightKg)}  (${pctText(stats.payloadPct)})`],
+    // Cargo with the empty container: an estimate for the VGM, the weighed figure decides.
+    ["Gross, estimated (tare)", `${formatKg(stats.grossKg)}  (${formatKg(stats.tareKg)})`],
     ["Floor used", pctText(stats.floorPct)],
     ["Highest point", `${formatDim(stats.topMm, unit)} ${unit}`],
     ["Check", [balance.ok ? "Balanced" : "OUT OF BALANCE", stats.outOfGauge ? "Out of gauge" : ""].filter(Boolean).join(" · "), balance.ok ? (stats.outOfGauge ? AMBER : GREEN) : RED],
@@ -431,6 +482,40 @@ function loadPage(doc: jsPDF, input: PlanPdfInput, load: ContainerLoad, number: 
         sizeText(group.length, group.width, group.height, unit),
         formatKg(group.weightKg),
         notesOf(group, container, unit),
+      ],
+      y,
+    );
+    y += 5.5;
+  }
+
+  // The stuffing sheet: the order to load in, from the far end to the doors. Steps that repeat are one row.
+  const farEnd = hasDoors(container) ? "front wall" : "left end wall";
+  const order: Column[] = [
+    { title: "Step", width: 22 },
+    { title: "No.", width: 12 },
+    { title: "Cargo", width: 62 },
+    { title: "Colli", width: 16, right: true },
+    { title: "On the floor", width: 76 },
+    { title: "How", width: 85 },
+  ];
+  y += 5;
+  if (y > BOTTOM - 16) y = newPage();
+  setFont(doc, "bold", 9, INK);
+  doc.text(clean(`Loading order: from the ${farEnd} ${hasDoors(container) ? "to the doors" : "to the other end"}, left to right`), MARGIN, y);
+  y = tableHead(doc, order, y + 6);
+  for (const run of loadingRuns(load)) {
+    if (y > BOTTOM) y = tableHead(doc, order, newPage());
+    tableRow(
+      doc,
+      order,
+      [
+        stepsText(run),
+        String(numberOf(run.lineId)),
+        { swatch: colourOf(run.lineId), text: run.name || "Cargo" },
+        String(run.count),
+        // The unit stands once, after the second figure: "77 to 3,277 mm from the left end wall".
+        whereText(run, farEnd, (mm) => `${formatDim(mm, unit)} ${unit}`).replace(` ${unit} to `, " to "),
+        howText(run),
       ],
       y,
     );
@@ -481,7 +566,7 @@ export function buildPlanPdf(input: PlanPdfInput, fonts?: PdfFonts): jsPDF {
     setFont(doc, "normal", 7.5, MUTED);
     if (page > summaryPages) {
       doc.text(
-        clean("Seen from above, to scale. A piece carries the number of its cargo line; “×2” means two high. The cross is the middle of the floor, the dot the centre of gravity."),
+        clean("Seen from above, to scale. A piece carries the number of its cargo line; “×2” means two high; “s3” is its loading step. The cross is the middle of the floor, the dot the centre of gravity."),
         MARGIN,
         PAGE_H - 8,
       );

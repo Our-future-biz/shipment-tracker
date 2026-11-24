@@ -11,7 +11,13 @@ export const DEFAULT_SETTINGS: PlannerSettings = {
   clearance: { doorWidthMm: 50, doorHeightMm: 50, lengthMm: 100 },
   oogWarning: { widthMm: 3500, overEndMm: 1000, heightMm: 3200 },
   heavyPiece: { warnKg: 5000, moveKg: 10000 },
+  // No road-weight warning until a manager sets one (Council Outlay 14, P2).
+  roadWeight: { gross20Kg: null, gross40Kg: null },
 };
+
+/** A road-weight warning is set from this gross weight to this one, in kg. */
+export const ROAD_WEIGHT_MIN_KG = 5000;
+export const ROAD_WEIGHT_MAX_KG = 60000;
 
 /** Roles that set the planner's figures; everyone reads them. */
 export const canEditPlannerSettings = (role: string): boolean => role === "manager" || role === "admin" || role === "superadmin";
@@ -43,6 +49,13 @@ export function settingsProblem(settings: PlannerSettings): string | null {
     if (!Number.isInteger(rule.value) || rule.value < rule.min || rule.value > rule.max) {
       return `The ${rule.name} must be a whole number of ${rule.unit} from ${figure(rule.min)} to ${figure(rule.max)}.`;
     }
+  }
+  for (const [value, name] of [
+    [settings.roadWeight.gross20Kg, "road gross weight of a 20'"],
+    [settings.roadWeight.gross40Kg, "road gross weight of a 40'"],
+  ] as const) {
+    if (value !== null && (!Number.isInteger(value) || value < ROAD_WEIGHT_MIN_KG || value > ROAD_WEIGHT_MAX_KG))
+      return `The ${name} must be a whole number of kg from ${figure(ROAD_WEIGHT_MIN_KG)} to ${figure(ROAD_WEIGHT_MAX_KG)}, or left empty for no warning.`;
   }
   if (settings.heavyPiece.moveKg < settings.heavyPiece.warnKg) return "The weight a heavy piece leaves standard containers from cannot be below the weight it is warned about from.";
   return null;

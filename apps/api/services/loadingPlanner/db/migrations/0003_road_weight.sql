@@ -1,0 +1,3 @@
+ALTER TABLE "planner_setting" ADD COLUMN "road_gross_20_kg" integer;--> statement-breakpoint
+ALTER TABLE "planner_setting" ADD COLUMN "road_gross_40_kg" integer;--> statement-breakpoint
+ALTER TABLE "planner_setting" ADD CONSTRAINT "planner_setting_road_check" CHECK (("planner_setting"."road_gross_20_kg" IS NULL OR "planner_setting"."road_gross_20_kg" BETWEEN 5000 AND 60000) AND ("planner_setting"."road_gross_40_kg" IS NULL OR "planner_setting"."road_gross_40_kg" BETWEEN 5000 AND 60000));

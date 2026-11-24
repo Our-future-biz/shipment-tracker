@@ -39,6 +39,7 @@ import { planLoad, type LoadPlan } from "../_lib/plan";
 import { linkAfterSave, linkOf, newerVersionStep, rememberedUnit, rememberUnit } from "../_lib/plannerScreen";
 import type { DimUnit } from "../_lib/units";
 import { CargoCard } from "./CargoCard";
+import { cargoDiffers } from "../_lib/cargoTools";
 import { EquipmentCard } from "./EquipmentCard";
 import { LinkJobModal } from "./LinkJobModal";
 import { PlannerSettingsModal } from "./PlannerSettingsModal";
@@ -123,7 +124,11 @@ function PlanEditor({ saved }: { saved: interfaces.LoadingPlanItem | null }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [saved?.updatedAt]);
 
+  // The linked job's cargo as it is now (Council Outlay 14, P3): read when a linked plan opens and whenever
+  // the job is read, to say when the plan's cargo is no longer the job's. Null until it is known.
+  const [jobCargo, setJobCargo] = useState<{ id: string; lines: DraftLine[] } | null>(null);
   const takeJob = (job: PlanJob, loadCargo: boolean) => {
+    setJobCargo({ id: job.id, lines: job.lines });
     setLink({ kind: job.kind, id: job.id, ref: job.ref });
     if (!loadCargo) return;
     const jobName = `${JOB_KIND_LABEL[job.kind]} ${job.ref}`;
@@ -158,6 +163,22 @@ function PlanEditor({ saved }: { saved: interfaces.LoadingPlanItem | null }) {
     // Runs once, for the address the page was opened with.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // A saved, linked plan asks its job once, quietly: a job that cannot be read simply gives no mark.
+  const askedJob = useRef(false);
+  useEffect(() => {
+    const linked = linkOf(saved);
+    if (!linked || askedJob.current || saved?.linkGone) return;
+    askedJob.current = true;
+    readJob({ kind: linked.kind, key: linked.kind === "shipment" ? linked.id : linked.ref }).then(
+      (job) => setJobCargo({ id: job.id, lines: job.lines }),
+      () => undefined,
+    );
+    // Once, for the plan as it was opened.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  // Only for the job the plan is linked to now, and only once that job has cargo lines to compare.
+  const differsFromJob = link !== null && jobCargo !== null && jobCargo.id === link.id && jobCargo.lines.length > 0 && cargoDiffers(lines, jobCargo.lines);
 
   const handleReload = () => {
     if (!link) return;
@@ -234,6 +255,18 @@ function PlanEditor({ saved }: { saved: interfaces.LoadingPlanItem | null }) {
     }
   };
   const handlePdf = () => {
+    // Pieces that found no place go out in the PDF in red: asked first, so a plan that does not hold all the cargo is not sent by oversight (P3).
+    const left = loadPlan.notLoaded.reduce((n, entry) => n + entry.colli, 0);
+    if (unplanned === 0 && left > 0) {
+      modal.confirm({
+        title: left === 1 ? "1 colli is not loaded in this plan" : `${left} colli are not loaded in this plan`,
+        content: "The plan found no place for them. The PDF lists them in red under Not loaded. Make it anyway?",
+        okText: "Make the PDF",
+        cancelText: "Back to the plan",
+        onOk: makePdf,
+      });
+      return;
+    }
     if (unplanned === 0) return void makePdf();
     modal.confirm({
       title: unplanned === 1 ? "1 cargo line is not in the plan" : `${unplanned} cargo lines are not in the plan`,
@@ -347,6 +380,11 @@ function PlanEditor({ saved }: { saved: interfaces.LoadingPlanItem | null }) {
                   {link.ref || "(no job number yet)"}
                 </Link>
               </span>
+              {differsFromJob && (
+                <Pill tone="amber" title={`The ${jobWord}'s cargo lines are not the same as this plan's: sizes, weights, colli or the lines themselves. Reload the cargo, or keep the plan as it is if you changed it on purpose.`}>
+                  The {jobWord}&apos;s cargo differs from this plan&apos;s
+                </Pill>
+              )}
               {stored?.linkGone && linkOf(stored)?.id === link.id ? (
                 <Pill tone="red">This {jobWord} was deleted</Pill>
               ) : (
@@ -377,6 +415,7 @@ function PlanEditor({ saved }: { saved: interfaces.LoadingPlanItem | null }) {
           onUnitChange={handleUnit}
           onChange={setLines}
           onAdd={() => setLines([...lines, newDraftLine(newId())])}
+          newId={newId}
           onRead={() => setReading(true)}
           busy={readingJob}
           rules={rules}

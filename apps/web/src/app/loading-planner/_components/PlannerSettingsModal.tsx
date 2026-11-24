@@ -8,7 +8,7 @@ import { apiErrorMessage } from "@/lib/api";
 import { useMessages } from "@/lib/toast";
 import { HINT, LABEL_TEXT } from "@/styles/ui";
 import { CONTAINERS, DEFAULT_RULES, MAX_CLEARANCE_MM, passHeight, passWidth, usableLength } from "../_lib/containers";
-import { draftOf, heavyOrderWrong, rulesOf, sameAsStored, type SettingsDraft, type SettingsField } from "../_lib/settingsForm";
+import { draftOf, heavyOrderWrong, rulesOf, sameAsStored, type OptionalField, type SettingsDraft, type SettingsField } from "../_lib/settingsForm";
 
 interface PlannerSettingsModalProps {
   open: boolean;
@@ -16,7 +16,9 @@ interface PlannerSettingsModalProps {
 }
 
 interface Field {
-  key: SettingsField;
+  key: SettingsField | OptionalField;
+  /** May be left empty: no figure, no warning. */
+  optional?: true;
   label: string;
   hint: string;
   unit: "mm" | "kg";
@@ -51,11 +53,19 @@ const GROUPS: { title: string; about: string; fields: Field[] }[] = [
       { key: "moveKg", label: "Move from", hint: "A heavier piece leaves standard containers", unit: "kg", min: 500, max: 35000 },
     ],
   },
+  {
+    title: "Road weight",
+    about: "The gross weight - the cargo with the empty container - above which a plan warns to check the inland leg. Leave a field empty for no warning.",
+    fields: [
+      { key: "gross20Kg", label: "20' gross", hint: "Warn when a 20' weighs more with its cargo", unit: "kg", min: 5000, max: 60000, optional: true },
+      { key: "gross40Kg", label: "40' and 45' gross", hint: "Warn when a 40' or 45' weighs more with its cargo", unit: "kg", min: 5000, max: 60000, optional: true },
+    ],
+  },
 ];
 const mm = (value: number) => `${value.toLocaleString("en-US")} mm`;
 const EXAMPLE = CONTAINERS.find((c) => c.id === "40hc");
 
-// Loading Planner → Settings: what every plan of the company is worked out with. Everyone sees the
+// Loading Planner → Settings: what every plan of the company is worked out with, and the road weight it warns from. Everyone sees the
 // figures; managers and admins change them. Sizes are always in mm here, weights in kg.
 export function PlannerSettingsModal({ open, onClose }: PlannerSettingsModalProps) {
   const { rules, changed, canEdit, isLoading, isError, saveRules, isSaving } = usePlannerSettings();
@@ -122,7 +132,7 @@ export function PlannerSettingsModal({ open, onClose }: PlannerSettingsModalProp
             <h3 className="m-0 text-[14px] font-semibold text-slate-900">{group.title}</h3>
             <p className={`${HINT} m-0`}>{group.about}</p>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-              {group.fields.map(({ key, label, hint, unit, min, max }) => (
+              {group.fields.map(({ key, label, hint, unit, min, max, optional }) => (
                 <label key={key} className="flex flex-col gap-1.5">
                   <span className={LABEL_TEXT}>
                     {label} ({unit})
@@ -133,6 +143,7 @@ export function PlannerSettingsModal({ open, onClose }: PlannerSettingsModalProp
                     max={max}
                     precision={0}
                     controls={false}
+                    placeholder={optional ? "No warning" : undefined}
                     disabled={!canEdit || isLoading}
                     value={draft[key]}
                     onChange={(value) => setDraft({ ...draft, [key]: value })}

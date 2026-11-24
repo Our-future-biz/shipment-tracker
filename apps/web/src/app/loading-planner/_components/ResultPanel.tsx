@@ -86,7 +86,7 @@ function LoadCard({ load, number, unit, colourOf, numberOf, onShow3D }: LoadCard
     >
       <FloorPlan load={load} fillOf={(lineId) => colourOf(lineId).fill} numberOf={numberOf} />
 
-      <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-[13px] text-slate-700 sm:grid-cols-4">
+      <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-[13px] text-slate-700 sm:grid-cols-5">
         <span>
           <span className={`${LABEL_TEXT} block`}>Colli</span>
           {stats.pieceCount}
@@ -94,6 +94,11 @@ function LoadCard({ load, number, unit, colourOf, numberOf, onShow3D }: LoadCard
         <span>
           <span className={`${LABEL_TEXT} block`}>Weight</span>
           {formatKg(load.totalWeightKg)} <span className="text-slate-500">· {pctText(stats.payloadPct)} of payload</span>
+        </span>
+        {/* Cargo with the empty container: what the road and the VGM are about (Council Outlay 14, P2). */}
+        <span title="The cargo with the empty container's weight. An estimate for the VGM: the weighed figure decides.">
+          <span className={`${LABEL_TEXT} block`}>Gross, estimated</span>
+          {formatKg(stats.grossKg)} <span className="text-slate-500">· tare {formatKg(stats.tareKg)}</span>
         </span>
         <span>
           <span className={`${LABEL_TEXT} block`}>Floor used</span>
@@ -103,7 +108,7 @@ function LoadCard({ load, number, unit, colourOf, numberOf, onShow3D }: LoadCard
           <span className={`${LABEL_TEXT} block`}>Highest point</span>
           {formatDim(stats.topMm, unit)} {unit}
         </span>
-        <span className="col-span-2 sm:col-span-4">
+        <span className="col-span-2 sm:col-span-5">
           <span className={`${LABEL_TEXT} block`}>Centre of gravity</span>
           <span className={balance.ok ? "" : "text-red-600 font-medium"}>
             {offText(balance.alongPct)} off lengthwise ({formatDim(along, unit)} {unit}), {offText(balance.acrossPct)} off sideways ({formatDim(across, unit)} {unit})

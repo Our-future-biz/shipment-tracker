@@ -86,6 +86,15 @@ export interface PlannerSettings {
   clearance: PlannerClearance;
   oogWarning: PlannerOogWarning;
   heavyPiece: PlannerHeavyPiece;
+  roadWeight: PlannerRoadWeight;
+}
+
+/** The gross weight (cargo with the empty container) above which a plan warns about the road leg, in whole kg; null: no warning. */
+export interface PlannerRoadWeight {
+  /** For a 20' container. */
+  gross20Kg: number | null;
+  /** For a 40' or a 45' container. */
+  gross40Kg: number | null;
 }
 
 /** The room the planner leaves free in a standard container, in whole mm. */

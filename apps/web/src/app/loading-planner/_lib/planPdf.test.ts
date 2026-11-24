@@ -46,10 +46,12 @@ describe("buildPlanPdf", () => {
     const data = input(LINES);
     const doc = buildPlanPdf(data, FONTS);
     expect(data.plan.loads.length).toBeGreaterThan(1);
-    expect(doc.getNumberOfPages()).toBe(1 + data.plan.loads.length);
-    expect(doc.output("arraybuffer").byteLength).toBeGreaterThan(2000);
     // A look at the real thing: PLAN_PDF_OUT=/some/file.pdf writes it out.
     if (process.env.PLAN_PDF_OUT) writeFileSync(process.env.PLAN_PDF_OUT, Buffer.from(doc.output("arraybuffer")));
+    // A page per container at least: its loading order may carry it onto a second one.
+    expect(doc.getNumberOfPages()).toBeGreaterThanOrEqual(1 + data.plan.loads.length);
+    expect(doc.getNumberOfPages()).toBeLessThanOrEqual(1 + 2 * data.plan.loads.length);
+    expect(doc.output("arraybuffer").byteLength).toBeGreaterThan(2000);
   });
 
   it("is made without the font files too, and with every extra the screen passes", () => {

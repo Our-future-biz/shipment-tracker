@@ -24,6 +24,8 @@ const row: PlannerSettingRecord = {
   oogHeightMm: 3100,
   heavyWarnKg: 6000,
   heavyMoveKg: 12000,
+  roadGross20Kg: 24000,
+  roadGross40Kg: null,
   updatedByUserId: USER,
   updatedAt: new Date("2026-11-23T09:00:00.000Z"),
 };
@@ -31,6 +33,7 @@ const fromRow: PlannerSettings = {
   clearance: { doorWidthMm: 30, doorHeightMm: 40, lengthMm: 150 },
   oogWarning: { widthMm: 3600, overEndMm: 800, heightMm: 3100 },
   heavyPiece: { warnKg: 6000, moveKg: 12000 },
+  roadWeight: { gross20Kg: 24000, gross40Kg: null },
 };
 
 beforeEach(() => {
@@ -75,5 +78,24 @@ describe("set", () => {
   it("stores a manager's figures for the company and answers with what was stored", async () => {
     await expect(plannerSettingsService.set(actor("manager"), fromRow)).resolves.toEqual({ settings: fromRow, changed: true, canEdit: true });
     expect(repository.save).toHaveBeenCalledWith(COMPANY, fromRow, USER);
+  });
+});
+
+describe("the road-weight warning (Council Outlay 14, P2)", () => {
+  it("is saved with the rest, and may be left empty for no warning", async () => {
+    await plannerSettingsService.set(actor("manager"), { ...fromRow, roadWeight: { gross20Kg: null, gross40Kg: 30000 } });
+    expect(repository.save).toHaveBeenCalledWith(COMPANY, expect.objectContaining({ roadWeight: { gross20Kg: null, gross40Kg: 30000 } }), USER);
+  });
+
+  it("keeps the stored weights when a screen from before them sends none", async () => {
+    repository.get.mockResolvedValue(row);
+    const old = { clearance: fromRow.clearance, oogWarning: fromRow.oogWarning, heavyPiece: fromRow.heavyPiece };
+    await plannerSettingsService.set(actor("admin"), old as PlannerSettings);
+    expect(repository.save).toHaveBeenCalledWith(COMPANY, expect.objectContaining({ roadWeight: { gross20Kg: 24000, gross40Kg: null } }), USER);
+  });
+
+  it("refuses a weight out of its range", async () => {
+    await expect(plannerSettingsService.set(actor("manager"), { ...fromRow, roadWeight: { gross20Kg: 900, gross40Kg: null } })).rejects.toMatchObject({ code: "invalid_argument" });
+    expect(repository.save).not.toHaveBeenCalled();
   });
 });
