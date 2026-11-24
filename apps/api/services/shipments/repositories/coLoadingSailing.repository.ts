@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, isNotNull, isNull } from "drizzle-orm";
+import { and, asc, count, desc, eq, gte, inArray, isNotNull, isNull, or } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { db } from "../db/db";
 import {
@@ -11,7 +11,7 @@ import { coLoadingBoxCostChangeTable as costChanges, coLoadingBoxCostTable as co
 import { cargoDimensionTable as dimensions } from "../schemas/cargoDimension.schema";
 import { shipmentTable } from "../schemas/shipment.schema";
 import type { BoxShipment } from "../lib/boxUtilization";
-import type { SailingDetails } from "../lib/coLoadingSailing";
+import type { SailingDetails, SailingFacts } from "../lib/coLoadingSailing";
 
 /** A change of a sailing that moves its box costs, as the record of changes keeps it (lib/coLoadingBoxCosts sailingDetailChanges). */
 export interface SailingChange {
@@ -67,10 +67,10 @@ class CoLoadingSailingRepository {
   }
 
   /** The sailings these shipments are on now (their live links), with each sailing's vessel and voyage. */
-  async sailingsOf(shipmentIds: string[], companyId: string): Promise<{ shipmentId: string; sailingId: string; vessel: string; voyage: string }[]> {
+  async sailingsOf(shipmentIds: string[], companyId: string): Promise<{ shipmentId: string; sailingId: string; serviceId: string; vessel: string; voyage: string }[]> {
     if (shipmentIds.length === 0) return [];
     return db
-      .select({ shipmentId: links.shipmentId, sailingId: links.sailingId, vessel: sailings.vessel, voyage: sailings.voyage })
+      .select({ shipmentId: links.shipmentId, sailingId: links.sailingId, serviceId: sailings.serviceId, vessel: sailings.vessel, voyage: sailings.voyage })
       .from(links)
       .innerJoin(sailings, eq(sailings.id, links.sailingId))
       .where(and(eq(links.companyId, companyId), inArray(links.shipmentId, shipmentIds), isNull(links.deletedAt)));
@@ -122,9 +122,9 @@ class CoLoadingSailingRepository {
   }
 
   /**
-   * "Edit sailing" in one turn (Council Review 7, K13): sets the sailing's number of containers, its
-   * cut-off and - when given - its departure date, and records what moved its box costs, together or
-   * not at all. The sailing's row is locked first, the lock a save of its box costs takes
+   * "Edit sailing" in one turn (Council Review 7, K13; Council Outlay 14, A2): sets the sailing's
+   * facts (vessel, voyage, ports, HUB, container type), its number of containers, its cut-off and -
+   * when given - its departure date, and records every change, together or not at all. The sailing's row is locked first, the lock a save of its box costs takes
    * (coLoadingBoxCost.repository save), so no cost is set between the judging and the writing.
    * `judge` sees the sailing as it is then, with the containers that have a cost, and returns the
    * changes to record or throws to refuse: nothing is written then. The sailing as it is now; null
@@ -135,7 +135,7 @@ class CoLoadingSailingRepository {
     companyId: string,
     details: SailingDetails,
     by: { id: string; name: string },
-    judge: (now: CoLoadingSailingRecord, costedContainers: number[]) => SailingChange[],
+    judge: (now: CoLoadingSailingRecord, costedContainers: number[]) => { changes: SailingChange[]; facts: SailingFacts },
   ): Promise<CoLoadingSailingRecord | null> {
     return db.transaction(async (tx) => {
       const live = and(eq(sailings.id, id), eq(sailings.companyId, companyId), isNull(sailings.deletedAt));
@@ -146,10 +146,11 @@ class CoLoadingSailingRepository {
         .from(costs)
         .where(and(eq(costs.companyId, companyId), eq(costs.sailingId, id), isNotNull(costs.amount)))
         .orderBy(asc(costs.containerNo));
-      const changes = judge(now, costed.map((c) => c.containerNo));
+      const { changes, facts } = judge(now, costed.map((c) => c.containerNo));
       const [row] = await tx
         .update(sailings)
         .set({
+          ...facts,
           containerCount: details.containerCount,
           cutoffDate: details.cutoffDate,
           ...(details.departureDate !== undefined ? { departureDate: details.departureDate } : {}),
@@ -176,6 +177,58 @@ class CoLoadingSailingRepository {
       }
       return row ?? null;
     });
+  }
+
+  /**
+   * Removes a sailing made by mistake, under the lock a save of its box costs takes. `judge` sees
+   * how many live shipments it holds and which containers have a cost, and throws to refuse: nothing
+   * is removed then. False when the sailing is not found.
+   */
+  async removeJudged(id: string, companyId: string, judge: (linkedShipments: number, costedContainers: number[]) => void): Promise<boolean> {
+    return db.transaction(async (tx) => {
+      const live = and(eq(sailings.id, id), eq(sailings.companyId, companyId), isNull(sailings.deletedAt));
+      const [now] = await tx.select({ id: sailings.id }).from(sailings).where(live).for("update");
+      if (!now) return false;
+      const [linked] = await tx
+        .select({ n: count() })
+        .from(links)
+        .innerJoin(shipmentTable, eq(shipmentTable.id, links.shipmentId))
+        .where(and(eq(links.companyId, companyId), eq(links.sailingId, id), isNull(links.deletedAt), isNull(shipmentTable.deletedAt)));
+      const costed = await tx
+        .selectDistinct({ containerNo: costs.containerNo })
+        .from(costs)
+        .where(and(eq(costs.companyId, companyId), eq(costs.sailingId, id), isNotNull(costs.amount)))
+        .orderBy(asc(costs.containerNo));
+      judge(linked?.n ?? 0, costed.map((c) => c.containerNo));
+      const at = new Date();
+      await tx.update(sailings).set({ deletedAt: at, updatedAt: at }).where(live);
+      return true;
+    });
+  }
+
+  /** The sailing a shipment is on now (its live link to a live sailing), or null. */
+  async sailingOfShipment(shipmentId: string, companyId: string): Promise<CoLoadingSailingRecord | null> {
+    const [row] = await db
+      .select({ sailing: sailings })
+      .from(links)
+      .innerJoin(sailings, eq(sailings.id, links.sailingId))
+      .where(and(eq(links.companyId, companyId), eq(links.shipmentId, shipmentId), isNull(links.deletedAt), isNull(sailings.deletedAt)))
+      .limit(1);
+    return row?.sailing ?? null;
+  }
+
+  /**
+   * The sailings of these services still to come: no departure date yet, or one of `today` or
+   * later. The soonest first, the undated ones last.
+   */
+  async comingOfServices(serviceIds: string[], companyId: string, today: string): Promise<CoLoadingSailingRecord[]> {
+    if (serviceIds.length === 0) return [];
+    return db
+      .select()
+      .from(sailings)
+      .where(and(eq(sailings.companyId, companyId), inArray(sailings.serviceId, serviceIds), isNull(sailings.deletedAt), or(isNull(sailings.departureDate), gte(sailings.departureDate, today))))
+      .orderBy(asc(sailings.departureDate), asc(sailings.createdAt))
+      .limit(50);
   }
 
   /**

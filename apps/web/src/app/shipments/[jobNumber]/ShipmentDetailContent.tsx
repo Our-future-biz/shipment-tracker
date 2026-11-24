@@ -72,6 +72,7 @@ import { shipmentEmailSubject } from "../_lib/shipmentEmail";
 import { FROM_LINES_HINT, FROM_LINES_TITLE, lockedByLines } from "../_lib/cargoFromLines";
 import { airChargeableWeight, carrierCardTitle, equipmentCardTitle, fieldsForMode, houseReleaseWords, showsChargeableWeight, showsContainerTab, workflowHeading } from "./freightModeFields";
 import { MasterJobHoverCard } from "@/components/MasterJobHoverCard";
+import { ShipmentSailingChip } from "@/components/coLoading/ShipmentSailingChip";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { LOCKED_BOX } from "@/components/LockedBox";
 import { ReleasedMark } from "./_components/ReleasedMark";
@@ -1521,6 +1522,8 @@ export function ShipmentDetailContent() {
             <BackLink href="/shipments" arrow={!cameFrom}>Shipments</BackLink>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
+            {/* Its Co-Loading Concept sailing, or "Put on a sailing" where Co-Loading is for it (Council Outlay 14, A1). */}
+            <ShipmentSailingChip shipment={shipment} className={HEADER_BTN} />
             {/* The shipment's quote, shown once: the sales quote in its Sales Number, with a link
                 to its page. A shipment without one may still carry the reference its costs were
                 copied from (Costs tab > Copy from quote): that is named as what it is, and is not

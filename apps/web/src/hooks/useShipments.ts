@@ -32,6 +32,9 @@ export function getFieldValue(shipment: ShipmentItem, key: string): string {
     return getComputedValue(key, rowData);
   }
 
+  // The Co-Loading sailing the job is on comes with its ids: the cell shows its name.
+  if (key === "sailing") return shipment.sailing?.name ?? "";
+
   const col = COLUMN_MAP.get(key);
   if (!col) return "";
 

@@ -4,14 +4,14 @@ import { fx, invoicing } from "~encore/clients";
 import { businessDay } from "../../../lib/businessDate";
 import { isUuid } from "../../../lib/uuid";
 import { capacityOf, containerCapacity } from "../../../lib/containerCapacity";
-import type { BoxCostChange, BoxUtilization, CoLoadingSailingItem, SailingEarnings, SailingProfit, SailingRemovedShipment } from "../interfaces/interfaces";
+import type { BoxCostChange, BoxUtilization, CoLoadingSailingItem, SailingEarnings, SailingProfit, SailingRemovedShipment, ShipmentSailing } from "../interfaces/interfaces";
 import { boxCostsOf, checkBoxCosts, type BoxCostLineInput, type BoxCostStored, type BoxRates } from "../lib/coLoadingBoxCosts";
 import { canManageServices } from "../lib/coLoadingService";
 import { BoxCostsChangedMeanwhile, coLoadingBoxCostRepository as boxCostRepo } from "../repositories/coLoadingBoxCost.repository";
 import { sailingEarnings, sailingProfit, type ShipmentMoney } from "../lib/coLoadingEarnings";
 import { boxFillOf, boxUtilization } from "../lib/boxUtilization";
 import { CANCELLED_STATUS } from "../lib/fieldDefaults";
-import { checkSailingInput, LINK_AT_ONCE_MAX, linkRefusal, moveRefusal, oddInBox, sailingEdit, type SailingDetails, type SailingInput } from "../lib/coLoadingSailing";
+import { checkSailingInput, LINK_AT_ONCE_MAX, linkRefusal, moveRefusal, oddInBox, sailingEdit, sailingRemovalRefusal, type SailingDetails, type SailingInput } from "../lib/coLoadingSailing";
 import { userNameOf } from "../lib/userName";
 import { coLoadingSailingRepository as repo, type LinkedCargo } from "../repositories/coLoadingSailing.repository";
 import type { CoLoadingSailingRecord } from "../schemas/coLoadingSailing.schema";
@@ -250,10 +250,11 @@ class CoLoadingSailingService {
   }
 
   /**
-   * "Edit sailing": its number of containers, its cut-off and its departure date. Not while the
-   * service is closed. The number of containers and the departure date move the box costs, so once
-   * a box cost is set only managers and admins change them (Council Review 7, K13), and every such
-   * change goes into the record of changes, written with it. The change is judged on the sailing as
+   * "Edit sailing": its vessel, voyage, ports, HUB and container type, its number of containers, its
+   * cut-off and its departure date (Council Outlay 14, A2). Not while the service is closed. The
+   * container type, the number of containers and the departure date move the box costs, so once a
+   * box cost is set only managers and admins change them (Council Review 7, K13), and every change
+   * goes into the record of changes, written with it. The change is judged on the sailing as
    * it is under its lock (repository setDetailsRecorded), so no box cost is set in between.
    */
   async setDetails(id: string, details: SailingDetails, actor: { userID: string; companyID: string; role: string }): Promise<CoLoadingSailingItem> {
@@ -266,10 +267,67 @@ class CoLoadingSailingService {
       const edit = sailingEdit(now, details, { ...context, costedContainers });
       if ("invalid" in edit) throw APIError.invalidArgument(edit.invalid);
       if ("denied" in edit) throw APIError.permissionDenied(edit.denied);
-      return edit.changes;
+      return edit;
     });
     if (!row) throw APIError.notFound("Sailing not found");
     return toItem(row);
+  }
+
+  /**
+   * Removes a sailing made by mistake (Council Outlay 14, D4): a manager or admin, while it holds no
+   * shipment and no box cost, and not while the service is closed. Judged under the sailing's lock,
+   * so nothing is linked or costed in between.
+   */
+  async remove(id: string, actor: { companyID: string; role: string }): Promise<void> {
+    const sailing = await this.get(id, actor.companyID);
+    await coLoadingServiceService.requireOpen(sailing.serviceId, actor.companyID);
+    const mayRemove = canManageServices(actor.role);
+    const gone = await repo.removeJudged(sailing.id, actor.companyID, (linkedShipments, costedContainers) => {
+      const refusal = sailingRemovalRefusal({ linkedShipments, costedContainers }, mayRemove);
+      if (refusal && "denied" in refusal) throw APIError.permissionDenied(refusal.denied);
+      if (refusal) throw APIError.failedPrecondition(refusal.refused);
+    });
+    if (!gone) throw APIError.notFound("Sailing not found");
+  }
+
+  /** The sailing each of these shipments is on, by shipment, for the Shipments list's Sailing column: one read for the page. */
+  async sailingsOfShipments(shipmentIds: string[], companyId: string): Promise<Map<string, { id: string; serviceId: string; name: string }>> {
+    const rows = await repo.sailingsOf(shipmentIds, companyId);
+    return new Map(rows.map((l) => [l.shipmentId, { id: l.sailingId, serviceId: l.serviceId, name: [l.vessel, l.voyage].filter(Boolean).join(" ") }]));
+  }
+
+  /**
+   * A shipment's place in Co-Loading, for its own page (Council Outlay 14, A1): the sailing it is
+   * on with how full that box is, and the sailings still to come it could go on - those of the open
+   * services that stand for its Service Name and take its kind of shipment. No money.
+   */
+  async ofShipment(shipmentId: string, companyId: string): Promise<ShipmentSailing> {
+    const [shipment] = isUuid(shipmentId) ? await repo.shipmentsToLink([shipmentId], companyId) : [];
+    if (!shipment) throw APIError.notFound("Shipment not found");
+    const [on, open, planningPct] = await Promise.all([
+      repo.sailingOfShipment(shipment.id, companyId),
+      coLoadingServiceService.list(companyId, "user"),
+      coLoadingServiceService.planningVolumePct(companyId),
+    ]);
+    const own = shipment.serviceName.trim().toLowerCase();
+    const services = own ? open.filter((s) => s.serviceName.trim().toLowerCase() === own && !oddInBox(s.mode, shipment)) : [];
+    const coming = await repo.comingOfServices(services.map((s) => s.id), companyId, today());
+    // A closed service's sailing still shows on its shipment: it stays in the app.
+    const onService = on ? (services.find((s) => s.id === on.serviceId) ?? (await coLoadingServiceService.get(on.serviceId, companyId))) : null;
+    const cargo = await repo.boxShipmentsOf([...new Set([...(on ? [on.id] : []), ...coming.map((c) => c.id)])], companyId);
+    const withFill = (r: CoLoadingSailingRecord, service: { name: string; mode: string; inlandWeightKg: number | null }) => ({
+      ...toItem(r),
+      serviceLabel: service.name,
+      fill: boxFillOf(fillOf(r, service, planningPct, cargo.get(r.id) ?? [])),
+    });
+    return {
+      on: on && onService ? { ...withFill(on, onService), serviceClosed: onService.closedAt !== null } : null,
+      services: services.map((s) => ({ id: s.id, name: s.name })),
+      coming: coming.flatMap((c) => {
+        const service = services.find((s) => s.id === c.serviceId);
+        return service ? [withFill(c, service)] : [];
+      }),
+    };
   }
 
   /**

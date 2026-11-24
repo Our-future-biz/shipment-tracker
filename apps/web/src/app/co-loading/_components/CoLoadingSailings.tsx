@@ -7,12 +7,12 @@ import { Tooltip } from "antd";
 import { PlusOutlined } from "@ant-design/icons";
 import { useCoLoadingSailings, useSailingProfits } from "@/hooks/useCoLoadingServices";
 import { useAuth } from "@/lib/auth/AuthContext";
-import { formatDate } from "@/lib/date";
+import { businessToday, formatDate } from "@/lib/date";
 import { useMessages } from "@/lib/toast";
 import { BTN_PRIMARY, CARD, EMPTY_STATE, HEADING, LINK, REF, TD, TH } from "@/styles/ui";
 import { containersWords } from "../_lib/boxUtilization";
 import { profitGlance } from "../_lib/earnings";
-import { sailingHref } from "../_lib/sailings";
+import { CUTOFF_TONE, cutoffState, cutoffWords, sailingHref, sailingsInOrder } from "../_lib/sailings";
 import { canManageServices } from "../_lib/services";
 import { BoxFillChip } from "./BoxFillChip";
 import { CreateSailingModal } from "./CreateSailingModal";
@@ -35,8 +35,9 @@ function ProfitCell({ profit }: { profit: Parameters<typeof profitGlance>[0] }) 
   );
 }
 
-// A Co-Loading Concept service's sailings, the newest first, over its shipments: "Create new sailing"
-// on the right, above the grid's Export. A closed service takes no new sailing until it is reopened.
+// A Co-Loading Concept service's sailings over its shipments: those still to come by departure, the
+// soonest first, then the ones that have left, folded away (Council Outlay 14, A2). "Create new
+// sailing" on the right, above the grid's Export. A closed service takes no new sailing until it is reopened.
 export function CoLoadingSailings({ serviceId, closed }: { serviceId: string; closed: boolean }) {
   const { sailings, isLoading, isError, create } = useCoLoadingSailings(serviceId);
   // Managers and admins see each sailing's profit (Council Outlay 13, D19); nobody else asks for it.
@@ -46,6 +47,12 @@ export function CoLoadingSailings({ serviceId, closed }: { serviceId: string; cl
   const message = useMessages();
   const router = useRouter();
   const [creating, setCreating] = useState(false);
+  const [showDeparted, setShowDeparted] = useState(false);
+  const today = businessToday();
+  const { coming, departed } = sailingsInOrder(sailings, today);
+  // With nothing to come, the ones that left are the list.
+  const departedShown = showDeparted || coming.length === 0;
+  const shown = departedShown ? [...coming, ...departed] : coming;
 
   const button = (
     <button
@@ -102,12 +109,17 @@ export function CoLoadingSailings({ serviceId, closed }: { serviceId: string; cl
               </tr>
             </thead>
             <tbody>
-              {sailings.map((s) => (
+              {shown.map((s) => {
+                const left = departed.includes(s);
+                // How near the cut-off is, while the sailing is still to come: amber from 3 days before (Council Outlay 14, D9), red once passed.
+                const near = left ? "" : cutoffWords(s.cutoffDate, today);
+                const cutoffTone = CUTOFF_TONE[cutoffState(s.cutoffDate, today)];
+                return (
                 // A sailing opens its own page: by its vessel (a link, so it also opens in a new tab) or anywhere on its row.
                 <tr
                   key={s.id}
                   onClick={() => router.push(sailingHref(s))}
-                  className="cursor-pointer hover:bg-slate-50"
+                  className={`cursor-pointer hover:bg-slate-50 ${left ? "text-slate-500 [&_td]:!text-slate-500" : ""}`}
                 >
                   <td className={TD}>
                     <Link
@@ -125,17 +137,30 @@ export function CoLoadingSailings({ serviceId, closed }: { serviceId: string; cl
                   <td className={TD}>{containersWords(s)}</td>
                   <td className={TD}>{s.fill ? <BoxFillChip fill={s.fill} /> : "—"}</td>
                   <td className={`${TD} text-right tabular-nums`}>{s.fill ? s.fill.shipments : "—"}</td>
-                  <td className={`${TD} whitespace-nowrap tabular-nums`}>{formatDate(s.cutoffDate) || "—"}</td>
-                  <td className={`${TD} whitespace-nowrap tabular-nums`}>{formatDate(s.departureDate) || "—"}</td>
+                  <td className={`${TD} whitespace-nowrap tabular-nums`}>
+                    {formatDate(s.cutoffDate) || "—"}
+                    {near && <span className={`ml-1.5 text-[11px] font-medium ${cutoffTone}`}>{near}</span>}
+                  </td>
+                  <td className={`${TD} whitespace-nowrap tabular-nums`}>
+                    {formatDate(s.departureDate) || "—"}
+                    {left && <span className="ml-1.5 text-[11px] font-medium">left</span>}
+                  </td>
                   {isManager && <td className={`${TD} whitespace-nowrap text-right tabular-nums`}>{profitsLoading ? "…" : <ProfitCell profit={profits.get(s.id)} />}</td>}
                   <td className={`${TD} whitespace-nowrap text-slate-500`}>
                     {formatDate(s.createdAt)}
                     {s.createdByName ? ` · ${s.createdByName}` : ""}
                   </td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
+          {/* The sailings that have left stay in the app, a click away. */}
+          {coming.length > 0 && departed.length > 0 && (
+            <button type="button" className={`${LINK} mt-2 cursor-pointer border-0 bg-transparent p-0 text-[12px]`} aria-expanded={departedShown} onClick={() => setShowDeparted((v) => !v)}>
+              {departedShown ? "Hide" : "Show"} the {departed.length === 1 ? "1 sailing that has left" : `${departed.length} sailings that have left`}
+            </button>
+          )}
         </div>
       )}
 

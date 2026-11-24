@@ -5,7 +5,7 @@ import { and, asc, eq } from "drizzle-orm";
 import { db } from "../../db/db";
 import { coLoadingSailingRepository as repo } from "../../repositories/coLoadingSailing.repository";
 import { coLoadingBoxCostChangeTable as changes, coLoadingBoxCostTable as costs } from "../../schemas/coLoadingBoxCost.schema";
-import { coLoadingSailingTable as sailings } from "../../schemas/coLoadingSailing.schema";
+import { coLoadingSailingTable as sailings, type CoLoadingSailingRecord } from "../../schemas/coLoadingSailing.schema";
 import { coLoadingSailingShipmentTable as links } from "../../schemas/coLoadingSailingShipment.schema";
 
 // The SQL a sailing's box and Edit sailing rely on (migrations 0098-0103), against the shipments
@@ -94,7 +94,9 @@ describe("taking a shipment off a sailing", () => {
 });
 
 describe("Edit sailing", () => {
-  const twoContainers = (now: { containerCount: number }) => [{ kind: "containers", oldAmount: now.containerCount, newAmount: 2, oldNote: "", newNote: "" }];
+  // The sailing's own facts as they are: these edits leave them alone.
+  const factsOf = (now: CoLoadingSailingRecord) => ({ vessel: now.vessel, voyage: now.voyage, pol: now.pol, pod: now.pod, hub: now.hub, containerType: now.containerType });
+  const twoContainers = (now: CoLoadingSailingRecord) => ({ facts: factsOf(now), changes: [{ kind: "containers", oldAmount: now.containerCount, newAmount: 2, oldNote: "", newNote: "" }] });
 
   it("writes the details and their record of changes together", async () => {
     const companyId = randomUUID();
@@ -105,6 +107,18 @@ describe("Edit sailing", () => {
     expect((await recordOf(s.id, companyId)).map((c) => [c.containerNo, c.kind, c.oldAmount, c.newAmount, c.changedById, c.changedByName])).toEqual([
       [0, "containers", "1.00", "2.00", EVA.id, "Eva Malá"],
     ]);
+  });
+
+  it("writes the sailing's own facts: a week becomes the vessel, a wrong port is put right", async () => {
+    const companyId = randomUUID();
+    const s = await newSailing(companyId);
+    const facts = { vessel: "MSC Anna", voyage: "445W", pol: "Ningbo (CNNGB)", pod: "Hamburg (DEHAM)", hub: "Praha (CZPRG)", containerType: "20' DC" };
+    const row = await repo.setDetailsRecorded(s.id, companyId, { containerCount: 1, cutoffDate: null }, EVA, () => ({
+      facts,
+      changes: [{ kind: "vessel", oldAmount: null, newAmount: null, oldNote: "WEEK 51", newNote: "MSC Anna" }],
+    }));
+    expect(row).toMatchObject(facts);
+    expect((await recordOf(s.id, companyId)).map((c) => [c.containerNo, c.kind, c.oldNote, c.newNote])).toEqual([[0, "vessel", "WEEK 51", "MSC Anna"]]);
   });
 
   it("writes nothing, details nor record, when the change is refused", async () => {
@@ -122,9 +136,9 @@ describe("Edit sailing", () => {
     const companyId = randomUUID();
     const s = await newSailing(companyId);
     let seen: number[] | null = null;
-    const judge = (_now: unknown, costed: number[]) => {
+    const judge = (now: CoLoadingSailingRecord, costed: number[]) => {
       seen = costed;
-      return [];
+      return { facts: factsOf(now), changes: [] };
     };
     // A save of the box costs holds the sailing's lock while it writes container 1's cost.
     let edit: Promise<unknown> | null = null;
@@ -146,5 +160,47 @@ describe("Edit sailing", () => {
     expect(await repo.setDetailsRecorded(s.id, other, { containerCount: 2, cutoffDate: null }, EVA, twoContainers)).toBeNull();
     expect((await sailingRow(s.id)).containerCount).toBe(1);
     expect(await recordOf(s.id, other)).toEqual([]);
+  });
+});
+
+describe("removing a sailing, and the sailings still to come (Council Outlay 14)", () => {
+  it("removes an empty sailing, tells the judge what it holds, and removes nothing when the judge refuses", async () => {
+    const companyId = randomUUID();
+    const s = await newSailing(companyId);
+    let seen: [number, number[]] | null = null;
+    const refuse = (linked: number, costed: number[]) => {
+      seen = [linked, costed];
+      throw new Error("refused");
+    };
+    await expect(repo.removeJudged(s.id, companyId, refuse)).rejects.toThrow("refused");
+    expect(seen).toEqual([0, []]);
+    expect((await sailingRow(s.id)).deletedAt).toBeNull();
+    // Another company removes nothing of this one's.
+    expect(await repo.removeJudged(s.id, randomUUID(), () => undefined)).toBe(false);
+    expect(await repo.removeJudged(s.id, companyId, () => undefined)).toBe(true);
+    expect((await sailingRow(s.id)).deletedAt).not.toBeNull();
+    expect(await repo.get(s.id, companyId)).toBeNull();
+    // Gone once: a second removal finds nothing.
+    expect(await repo.removeJudged(s.id, companyId, () => undefined)).toBe(false);
+  });
+
+  it("lists a service's sailings still to come, the soonest first and the undated last, and names the sailing a shipment is on", async () => {
+    const companyId = randomUUID();
+    const serviceId = randomUUID();
+    const past = await newSailing(companyId, { serviceId, vessel: "WEEK 40", departureDate: "2026-10-01" });
+    const later = await newSailing(companyId, { serviceId, vessel: "WEEK 52", departureDate: "2026-12-24" });
+    const sooner = await newSailing(companyId, { serviceId, vessel: "WEEK 51", departureDate: "2026-12-17" });
+    const undated = await newSailing(companyId, { serviceId, vessel: "WEEK 53" });
+    await newSailing(companyId, { vessel: "WEEK 51" });
+    expect((await repo.comingOfServices([serviceId], companyId, "2026-11-24")).map((r) => r.vessel)).toEqual(["WEEK 51", "WEEK 52", "WEEK 53"]);
+    // The day of departure still counts as to come.
+    expect((await repo.comingOfServices([serviceId], companyId, "2026-12-24")).map((r) => r.id)).toEqual([later.id, undated.id]);
+    expect(await repo.comingOfServices([], companyId, "2026-11-24")).toEqual([]);
+    const shipment = randomUUID();
+    expect(await repo.sailingOfShipment(shipment, companyId)).toBeNull();
+    await repo.link(sooner.id, [shipment], companyId, JANA);
+    expect((await repo.sailingOfShipment(shipment, companyId))?.id).toBe(sooner.id);
+    expect((await repo.sailingsOf([shipment], companyId))[0]).toMatchObject({ sailingId: sooner.id, serviceId, vessel: "WEEK 51" });
+    expect(past.id).not.toBe(sooner.id);
   });
 });

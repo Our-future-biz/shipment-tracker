@@ -115,7 +115,7 @@ describe("a container's box costs, saved", () => {
     const s = await newSailing(companyId);
     // Edit sailing writes it with the change (coLoadingSailing.repository setDetailsRecorded).
     const changed = [{ kind: "containers", oldAmount: 2, newAmount: 1, oldNote: "", newNote: "" }, { kind: "departure", oldAmount: null, newAmount: null, oldNote: "", newNote: "2026-11-20" }];
-    await coLoadingSailingRepository.setDetailsRecorded(s.id, companyId, { containerCount: 1, cutoffDate: null, departureDate: "2026-11-20" }, EVA, () => changed);
+    await coLoadingSailingRepository.setDetailsRecorded(s.id, companyId, { containerCount: 1, cutoffDate: null, departureDate: "2026-11-20" }, EVA, (now) => ({ facts: { vessel: now.vessel, voyage: now.voyage, pol: now.pol, pod: now.pod, hub: now.hub, containerType: now.containerType }, changes: changed }));
     expect((await repo.changes(s.id, companyId)).map((c) => [c.containerNo, c.kind, c.oldAmount, c.newAmount, c.newNote, c.changedByName]).sort()).toEqual([
       [0, "containers", "2.00", "1.00", "", "Eva Malá"],
       [0, "departure", null, null, "2026-11-20", "Eva Malá"],

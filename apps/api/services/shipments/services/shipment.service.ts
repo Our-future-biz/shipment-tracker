@@ -948,19 +948,25 @@ class ShipmentService {
 
     const latestEvents = await shipmentTrackingEventRepository.latestPerShipment(shipmentIds, companyId);
 
-    const enriched = result.data.map((s) => toShipmentItem({
-      ...enrich(
-        s,
-        containersByShipment.get(s.id) ?? [],
-        itemsByShipment.get(s.id) ?? [],
-        dimensionsByShipment.get(s.id) ?? [],
-        invoicesByShipment.get(s.id) ?? [],
-      ),
-      masterJobMczNumber: s.masterJobId ? mczMap.get(s.masterJobId) || null : null,
-      licensePlate: platesByShipment.get(s.id) ?? "",
-      documentTypes: (docsByShipment.get(s.id) ?? []).map((d) => d.documentType),
-      customsStatus: customsStatusFor(s.customsStatus, docsByShipment.get(s.id) ?? []),
-      lastEvent: lastEventOf(s, latestEvents.get(s.id) ?? null),
+    // The Co-Loading Concept sailing each job of the page is on, read in one query (Council Outlay 14, A1).
+    const sailingByShipment = await coLoadingSailingService.sailingsOfShipments(shipmentIds, companyId);
+
+    const enriched = result.data.map((s) => ({
+      ...toShipmentItem({
+        ...enrich(
+          s,
+          containersByShipment.get(s.id) ?? [],
+          itemsByShipment.get(s.id) ?? [],
+          dimensionsByShipment.get(s.id) ?? [],
+          invoicesByShipment.get(s.id) ?? [],
+        ),
+        masterJobMczNumber: s.masterJobId ? mczMap.get(s.masterJobId) || null : null,
+        licensePlate: platesByShipment.get(s.id) ?? "",
+        documentTypes: (docsByShipment.get(s.id) ?? []).map((d) => d.documentType),
+        customsStatus: customsStatusFor(s.customsStatus, docsByShipment.get(s.id) ?? []),
+        lastEvent: lastEventOf(s, latestEvents.get(s.id) ?? null),
+      }),
+      sailing: sailingByShipment.get(s.id) ?? null,
     }));
 
     return {

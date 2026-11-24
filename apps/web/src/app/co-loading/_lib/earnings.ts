@@ -177,12 +177,18 @@ export function boxRateWords(box: SailingBoxCosts, formatDate: (d: string) => st
   return `Valued at ${rates}: the rates of the departure date, ${formatDate(box.departureDate)}.`;
 }
 
+const SAILING_FACT_LABEL: Partial<Record<BoxCostChange["kind"], string>> = { vessel: "Vessel", voyage: "Voyage", pol: "Port of Loading", pod: "Port of Discharge", hub: "HUB", container_type: "Container type" };
+
 /** One kept change in words: "Ocean Freight of container 2: 2,100.00 USD → 2,250.00 USD". */
 export function changeWords(c: BoxCostChange, severalContainers: boolean, formatDate: (d: string) => string = (d) => d): string {
   // A change of the sailing itself that moves the box costs.
   if (c.kind === "containers") return `Number of containers: ${c.oldAmount ?? "—"} → ${c.newAmount ?? "—"}`;
   if (c.kind === "departure") return `Departure date: ${c.oldNote ? formatDate(c.oldNote) : "none"} → ${c.newNote ? formatDate(c.newNote) : "none"}`;
-  const what = `${BOX_COST_LABEL[c.kind]}${severalContainers ? ` of container ${c.containerNo}` : ""}`;
+  if (c.kind === "cutoff") return `Cut-off: ${c.oldNote ? formatDate(c.oldNote) : "none"} → ${c.newNote ? formatDate(c.newNote) : "none"}`;
+  // The sailing's own facts (Edit sailing): old and new words.
+  const fact = SAILING_FACT_LABEL[c.kind];
+  if (fact) return `${fact}: ${c.oldNote || "none"} → ${c.newNote || "none"}`;
+  const what = `${BOX_COST_LABEL[c.kind as BoxCostKind]}${severalContainers ? ` of container ${c.containerNo}` : ""}`;
   const parts: string[] = [];
   const amountChanged = c.oldAmount !== c.newAmount || (c.newAmount !== null && c.oldCurrency !== c.newCurrency);
   if (amountChanged) parts.push(`${boxCostWords(c.oldAmount, c.oldCurrency)} → ${boxCostWords(c.newAmount, c.newCurrency)}`);

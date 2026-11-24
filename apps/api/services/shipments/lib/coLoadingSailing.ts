@@ -59,8 +59,18 @@ export type SailingValues = Required<Omit<SailingInput, "cutoffDate" | "departur
 
 const tidy = (s: string | undefined) => (s ?? "").trim().replace(/\s+/g, " ");
 
-/** The values to save, or what is wrong with the input, in words for the form. `today` is YYYY-MM-DD. */
-export function checkSailingInput(input: SailingInput, today: string): { values: SailingValues } | { error: string } {
+/** A sailing's own facts: what it is called, where it goes and the kind of box it is. */
+export interface SailingFacts {
+  vessel: string;
+  voyage: string;
+  pol: string;
+  pod: string;
+  hub: string;
+  containerType: string;
+}
+
+/** The facts as they are saved (trimmed, a week written "WEEK 44"), or what is wrong with them, in words for the form. */
+export function checkSailingFacts(input: Partial<SailingFacts>): { facts: SailingFacts } | { error: string } {
   const typed = tidy(input.vessel);
   if (!typed) return { error: "Give the vessel, or the week it sails (WEEK 44)." };
   if (typed.length > VESSEL_MAX) return { error: `The vessel can be at most ${VESSEL_MAX} characters.` };
@@ -77,13 +87,20 @@ export function checkSailingInput(input: SailingInput, today: string): { values:
   if (!hub) return { error: "Give the HUB." };
   const containerType = tidy(input.containerType);
   if (!(SAILING_CONTAINER_TYPES as readonly string[]).includes(containerType)) return { error: "Pick the container type." };
+  return { facts: { vessel: week ?? typed, voyage, pol, pod, hub, containerType } };
+}
+
+/** The values to save, or what is wrong with the input, in words for the form. `today` is YYYY-MM-DD. */
+export function checkSailingInput(input: SailingInput, today: string): { values: SailingValues } | { error: string } {
+  const checked = checkSailingFacts(input);
+  if ("error" in checked) return checked;
   const details = { containerCount: input.containerCount ?? 1, cutoffDate: input.cutoffDate || null, departureDate: input.departureDate || null };
   const wrong = sailingDetailsProblem(details, today);
   if (wrong) return { error: wrong };
-  return { values: { vessel: week ?? typed, voyage, pol, pod, hub, containerType, ...details } };
+  return { values: { ...checked.facts, ...details } };
 }
 
-// ─── What may be changed on a sailing later: its number of containers and its cut-off ───
+// ─── What may be changed on a sailing later: all of it (Council Outlay 14, A2) ───
 
 export const CONTAINER_COUNT_MAX = 20;
 export const MOVE_REASON_MAX = 300;
@@ -97,6 +114,45 @@ export interface SailingDetails {
   cutoffDate: string | null;
   /** YYYY-MM-DD, or null for none; left out, it stays as it is. */
   departureDate?: string | null;
+  /** The sailing's own facts: each one left out stays as it is. */
+  vessel?: string;
+  voyage?: string;
+  pol?: string;
+  pod?: string;
+  hub?: string;
+  containerType?: string;
+}
+
+/** A sailing as "Edit sailing" finds it. */
+export type SailingStored = SailingFacts & { containerCount: number; cutoffDate: string | null; departureDate: string | null };
+
+/** One change of a sailing as the record of changes keeps it: numbers in the amounts, words and dates in the notes. */
+export interface SailingChangeNote {
+  kind: string;
+  oldAmount: number | null;
+  newAmount: number | null;
+  oldNote: string;
+  newNote: string;
+}
+
+const FACT_KINDS: readonly (readonly [keyof SailingFacts, string])[] = [
+  ["vessel", "vessel"],
+  ["voyage", "voyage"],
+  ["pol", "pol"],
+  ["pod", "pod"],
+  ["hub", "hub"],
+  ["containerType", "container_type"],
+];
+
+/**
+ * What "Edit sailing" changed besides the number of containers and the departure date: the vessel,
+ * the voyage, the ports, the HUB, the container type and the cut-off, old and new in the notes.
+ */
+export function sailingFactChanges(before: SailingStored, facts: SailingFacts, cutoffDate: string | null): SailingChangeNote[] {
+  const out: SailingChangeNote[] = [];
+  for (const [field, kind] of FACT_KINDS) if (facts[field] !== before[field]) out.push({ kind, oldAmount: null, newAmount: null, oldNote: before[field], newNote: facts[field] });
+  if (cutoffDate !== before.cutoffDate) out.push({ kind: "cutoff", oldAmount: null, newAmount: null, oldNote: before.cutoffDate ?? "", newNote: cutoffDate ?? "" });
+  return out;
 }
 
 const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
@@ -122,26 +178,50 @@ export function sailingDetailsProblem(d: SailingDetails, today: string, stored: 
   return null;
 }
 
-/** What "Edit sailing" may do to a sailing, and the change it records. */
-export type SailingEdit = { invalid: string } | { denied: string } | { changes: ReturnType<typeof sailingDetailChanges> };
+/** What "Edit sailing" may do to a sailing: the facts to save and the changes it records. */
+export type SailingEdit = { invalid: string } | { denied: string } | { changes: SailingChangeNote[]; facts: SailingFacts };
 
 /**
- * "Edit sailing" judged on the sailing as it is when its row is locked: what is wrong with the
- * details, or who may not make the change, or the changes that move the box costs, for the record.
- * Once a container has box costs, only managers and admins change the number of containers or the
- * departure date (Council Review 7, K13): `mayMoveCosts` says whether the editor is one of them.
+ * "Edit sailing" judged on the sailing as it is when its row is locked: what is wrong with what was
+ * typed, or who may not make the change, or the facts to save with every change, for the record.
+ * The number of containers, the departure date and the container type move the box costs (what a
+ * box holds, and the day its costs are valued at): once a container has box costs, only managers and
+ * admins change them (Council Review 7, K13; Council Outlay 14, D3). `mayMoveCosts` says whether the
+ * editor is one of them. The vessel, the voyage, the ports, the HUB and the cut-off stay anyone's.
  */
 export function sailingEdit(
-  stored: { containerCount: number; departureDate: string | null },
+  stored: SailingStored,
   details: SailingDetails,
   context: { today: string; costedContainers: readonly number[]; mayMoveCosts: boolean },
 ): SailingEdit {
+  const checked = checkSailingFacts({
+    vessel: details.vessel ?? stored.vessel,
+    voyage: details.voyage ?? stored.voyage,
+    pol: details.pol ?? stored.pol,
+    pod: details.pod ?? stored.pod,
+    hub: details.hub ?? stored.hub,
+    containerType: details.containerType ?? stored.containerType,
+  });
+  if ("error" in checked) return { invalid: checked.error };
   const problem = sailingDetailsProblem(details, context.today, stored);
   if (problem) return { invalid: problem };
-  const changes = sailingDetailChanges(stored, details);
-  if (changes.length > 0 && !context.mayMoveCosts && context.costedContainers.length > 0)
-    return { denied: "This sailing has box costs: only managers and admins change its number of containers or its departure date." };
-  return { changes };
+  const moving = sailingDetailChanges(stored, details);
+  const typeChanged = checked.facts.containerType !== stored.containerType;
+  if ((moving.length > 0 || typeChanged) && !context.mayMoveCosts && context.costedContainers.length > 0)
+    return { denied: "This sailing has box costs: only managers and admins change its container type, its number of containers or its departure date." };
+  return { changes: [...moving, ...sailingFactChanges(stored, checked.facts, details.cutoffDate)], facts: checked.facts };
+}
+
+/**
+ * Why a sailing cannot be removed, or null when it can (Council Outlay 14, D4): one made by mistake
+ * goes, by a manager or admin, while it holds no shipment and no box cost. Anything it holds stays.
+ */
+export function sailingRemovalRefusal(sailing: { linkedShipments: number; costedContainers: readonly number[] }, mayRemove: boolean): { denied: string } | { refused: string } | null {
+  if (!mayRemove) return { denied: "Only managers and admins remove a sailing." };
+  if (sailing.linkedShipments > 0)
+    return { refused: `This sailing has ${sailing.linkedShipments === 1 ? "1 shipment" : `${sailing.linkedShipments} shipments`} linked: move or remove ${sailing.linkedShipments === 1 ? "it" : "them"} first.` };
+  if (sailing.costedContainers.length > 0) return { refused: "This sailing has box costs: clear them first." };
+  return null;
 }
 
 /**

@@ -585,6 +585,20 @@ export const ShipmentsTable = ({
             </MasterJobHoverCard>
           );
         }
+        // Sailing \u2192 opens the Co-Loading Concept sailing the job is on.
+        if (col.key === "sailing") {
+          if (!val || !record.sailing) return <span className={EMPTY}>{"\u2014"}</span>;
+          return (
+            <Link
+              href={`/co-loading/${record.sailing.serviceId}/sailings/${record.sailing.id}`}
+              onClick={(e) => e.stopPropagation()}
+              className={`${cellLinkClass(textStyle?.color)} font-medium`}
+              style={textStyle}
+            >
+              {val}
+            </Link>
+          );
+        }
         // Container Number / Type / Total TEU \u2192 open the shipment's Container Details tab.
         if (CONTAINER_LINK_COLUMNS.has(col.key)) {
           return val ? (

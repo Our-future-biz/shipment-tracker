@@ -3,6 +3,11 @@ import { CONTAINER_TYPES } from "@/lib/cargo";
 // The server's list of the types a sailing takes (shipments lib/coLoadingSailing): pure, so it is read here.
 import { SAILING_CONTAINER_TYPES } from "../../../../../api/services/shipments/lib/coLoadingSailing";
 import {
+  cutoffState,
+  cutoffWords,
+  sailingDeparted,
+  sailingEditOf,
+  sailingsInOrder,
   SAILING_TABS,
   sailingFormError,
   sailingHref,
@@ -81,5 +86,63 @@ describe("a sailing's page", () => {
     expect(sailingTabsFor(true).map((t) => t.key)).toEqual(["box", "shipments", "earnings"]);
     expect(sailingTabsFor(false).map((t) => t.key)).toEqual(["box", "shipments"]);
     expect(sailingTabOf("earnings", false)).toBe("box");
+  });
+});
+
+describe("the order of a service's sailings (Council Outlay 14, A2)", () => {
+  const TODAY = "2026-11-24";
+  const s = (vessel: string, departureDate: string | null, createdAt = "2026-11-01T08:00:00Z") => ({ vessel, departureDate, createdAt });
+
+  it("counts a sailing as left only once its departure date is before today", () => {
+    expect(sailingDeparted(s("a", "2026-11-23"), TODAY)).toBe(true);
+    expect(sailingDeparted(s("a", TODAY), TODAY)).toBe(false);
+    expect(sailingDeparted(s("a", null), TODAY)).toBe(false);
+  });
+
+  it("lists the ones to come by departure, the soonest first and the undated last, whenever they were typed in", () => {
+    const list = [s("WEEK 53", null, "2026-11-05T08:00:00Z"), s("WEEK 52", "2026-12-24", "2026-11-01T08:00:00Z"), s("WEEK 51", "2026-12-17", "2026-11-20T08:00:00Z"), s("WEEK 54", null, "2026-11-02T08:00:00Z")];
+    expect(sailingsInOrder(list, TODAY).coming.map((x) => x.vessel)).toEqual(["WEEK 51", "WEEK 52", "WEEK 54", "WEEK 53"]);
+    expect(sailingsInOrder(list, TODAY).departed).toEqual([]);
+  });
+
+  it("puts the ones that left apart, the last to leave first", () => {
+    const list = [s("WEEK 45", "2026-11-05"), s("WEEK 47", "2026-11-19"), s("WEEK 48", TODAY)];
+    const { coming, departed } = sailingsInOrder(list, TODAY);
+    expect(coming.map((x) => x.vessel)).toEqual(["WEEK 48"]);
+    expect(departed.map((x) => x.vessel)).toEqual(["WEEK 47", "WEEK 45"]);
+  });
+});
+
+describe("a cut-off beside today", () => {
+  const TODAY = "2026-11-24";
+  it("is said in days", () => {
+    expect(cutoffWords("2026-11-24", TODAY)).toBe("today");
+    expect(cutoffWords("2026-11-25", TODAY)).toBe("tomorrow");
+    expect(cutoffWords("2026-11-23", TODAY)).toBe("yesterday");
+    expect(cutoffWords("2026-12-03", TODAY)).toBe("in 9 days");
+    expect(cutoffWords("2026-11-18", TODAY)).toBe("6 days ago");
+    expect(cutoffWords(null, TODAY)).toBe("");
+  });
+
+  it("turns amber from 3 days before and red once passed (D9)", () => {
+    expect(cutoffState("2026-11-28", TODAY)).toBe("far");
+    expect(cutoffState("2026-11-27", TODAY)).toBe("near");
+    expect(cutoffState(TODAY, TODAY)).toBe("near");
+    expect(cutoffState("2026-11-23", TODAY)).toBe("passed");
+    expect(cutoffState(null, TODAY)).toBe("");
+  });
+});
+
+describe("what Edit sailing sends", () => {
+  const details = { containerCount: 1, cutoffDate: null, departureDate: null };
+  it("sends only the facts that changed, trimmed, with the three details always", () => {
+    expect(sailingEditOf(FILLED, { ...FILLED, ...details })).toEqual(details);
+    expect(sailingEditOf({ ...FILLED, vessel: "WEEK 51", voyage: "" }, { ...FILLED, vessel: " MSC Anna ", ...details, cutoffDate: "2026-12-03" })).toEqual({
+      containerCount: 1,
+      cutoffDate: "2026-12-03",
+      departureDate: null,
+      vessel: "MSC Anna",
+      voyage: "445W",
+    });
   });
 });

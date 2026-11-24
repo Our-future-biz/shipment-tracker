@@ -5,9 +5,10 @@ import { Button, Input, Select } from "antd";
 import { AppModal } from "@/components/AppModal";
 import { useCoLoadingSailings, type CoLoadingSailing } from "@/hooks/useCoLoadingServices";
 import { apiErrorMessage } from "@/lib/api";
+import { businessToday, formatDate } from "@/lib/date";
 import { HINT, LABEL_TEXT } from "@/styles/ui";
 import { containersWords, fillWords } from "../_lib/boxUtilization";
-import { sailingTitle } from "../_lib/sailings";
+import { sailingsInOrder, sailingTitle } from "../_lib/sailings";
 
 interface MoveShipmentModalProps {
   open: boolean;
@@ -24,7 +25,8 @@ interface MoveShipmentModalProps {
 // the reason typed. This sailing's "Taken off" list keeps where it went and why.
 export function MoveShipmentModal({ open, onClose, sailing, shipment, onMove, moving }: MoveShipmentModalProps) {
   const { sailings, isLoading } = useCoLoadingSailings(sailing.serviceId);
-  const others = sailings.filter((s) => s.id !== sailing.id);
+  // Cargo is rolled forward, never onto a sailing that has left: only those still to come are offered, the soonest first (Council Outlay 14, A2).
+  const others = sailingsInOrder(sailings, businessToday()).coming.filter((s) => s.id !== sailing.id);
   const [to, setTo] = useState<string | null>(null);
   const [reason, setReason] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -66,7 +68,7 @@ export function MoveShipmentModal({ open, onClose, sailing, shipment, onMove, mo
       <div className="flex flex-col gap-3">
         {!isLoading && others.length === 0 ? (
           <p className="m-0 text-[13px] text-slate-700" role="status">
-            This service has no other sailing yet. Create the next sailing on the service&apos;s page first.
+            This service has no other sailing still to come. Create the next sailing on the service&apos;s page first.
           </p>
         ) : (
           <>
@@ -81,9 +83,9 @@ export function MoveShipmentModal({ open, onClose, sailing, shipment, onMove, mo
                   setTo(value);
                   setError(null);
                 }}
-                options={others.map((s) => ({ value: s.id, label: `${sailingTitle(s)} · ${containersWords(s)}${s.fill ? ` · ${fillWords(s.fill)}` : ""}` }))}
+                options={others.map((s) => ({ value: s.id, label: `${sailingTitle(s)}${s.departureDate ? ` · leaves ${formatDate(s.departureDate)}` : ""} · ${containersWords(s)}${s.fill ? ` · ${fillWords(s.fill)}` : ""}` }))}
               />
-              <span className={HINT}>The other sailings of this service, the newest first, each with how full it is.</span>
+              <span className={HINT}>The other sailings of this service still to come, the soonest first, each with how full it is.</span>
             </label>
             <label className="flex flex-col gap-1.5">
               <span className={LABEL_TEXT}>Why</span>

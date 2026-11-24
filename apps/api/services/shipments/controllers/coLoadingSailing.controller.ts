@@ -2,7 +2,7 @@ import { api } from "encore.dev/api";
 import type { MaxLen } from "encore.dev/validate";
 import { getAuthData } from "~encore/auth";
 import { requireRole } from "../../../lib/rbac";
-import type { BoxCostChange, BoxUtilization, CoLoadingSailingItem, SailingEarnings, SailingProfit, SailingRemovedShipment } from "../interfaces/interfaces";
+import type { BoxCostChange, BoxUtilization, CoLoadingSailingItem, SailingEarnings, SailingProfit, SailingRemovedShipment, ShipmentSailing } from "../interfaces/interfaces";
 import { coLoadingSailingService as service } from "../services/coLoadingSailing.service";
 
 // A Co-Loading Concept service's sailings (lib/coLoadingSailing), for everyone in the company.
@@ -113,13 +113,43 @@ interface CoLoadingSailingDetailsRequest {
   cutoffDate: string | null;
   /** The day the sailing leaves, YYYY-MM-DD, or null for none; left out, it stays as it is */
   departureDate?: string | null;
+  /** The vessel's name, or the week it sails ("WEEK 44"); left out, it stays as it is */
+  vessel?: string & MaxLen<200>;
+  /** Left out, it stays as it is; "" only with a week in vessel */
+  voyage?: string & MaxLen<200>;
+  /** Port of Loading; left out, it stays as it is */
+  pol?: string & MaxLen<200>;
+  /** Port of Discharge; left out, it stays as it is */
+  pod?: string & MaxLen<200>;
+  /** HUB; left out, it stays as it is */
+  hub?: string & MaxLen<200>;
+  /** "40' HC"; left out, it stays as it is */
+  containerType?: string & MaxLen<20>;
 }
 
-// "Edit sailing": its number of containers, its cut-off and its departure date. Refused while the service is closed.
+// "Edit sailing": its vessel, voyage, ports, HUB and container type, its number of containers, its cut-off and its
+// departure date (Council Outlay 14, A2). Refused while the service is closed.
 export const coLoadingSailingDetails = api(
   { expose: true, auth: true, method: "PUT", path: "/co-loading/sailings/:id" },
-  async ({ id, containerCount, cutoffDate, departureDate }: CoLoadingSailingDetailsRequest): Promise<{ sailing: CoLoadingSailingItem }> => {
-    return { sailing: await service.setDetails(id, { containerCount, cutoffDate, ...(departureDate !== undefined ? { departureDate } : {}) }, getAuthData()!) };
+  async ({ id, containerCount, cutoffDate, departureDate, vessel, voyage, pol, pod, hub, containerType }: CoLoadingSailingDetailsRequest): Promise<{ sailing: CoLoadingSailingItem }> => {
+    const facts = Object.fromEntries(Object.entries({ vessel, voyage, pol, pod, hub, containerType }).filter(([, v]) => v !== undefined));
+    return { sailing: await service.setDetails(id, { containerCount, cutoffDate, ...(departureDate !== undefined ? { departureDate } : {}), ...facts }, getAuthData()!) };
+  },
+);
+
+// Removes a sailing made by mistake: managers and admins, while it holds no shipment and no box cost (Council Outlay 14, D4).
+export const coLoadingSailingRemove = api(
+  { expose: true, auth: true, method: "DELETE", path: "/co-loading/sailings/:id" },
+  async ({ id }: { id: string }): Promise<void> => {
+    await service.remove(id, getAuthData()!);
+  },
+);
+
+// A shipment's place in Co-Loading Concept, for its own page: the sailing it is on and the ones it could go on. No money.
+export const coLoadingShipmentSailing = api(
+  { expose: true, auth: true, method: "GET", path: "/co-loading/shipments/:shipmentId/sailing" },
+  async ({ shipmentId }: { shipmentId: string }): Promise<ShipmentSailing> => {
+    return service.ofShipment(shipmentId, getAuthData()!.companyID);
   },
 );
 

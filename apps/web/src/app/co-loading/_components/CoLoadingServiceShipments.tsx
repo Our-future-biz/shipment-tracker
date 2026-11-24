@@ -36,7 +36,8 @@ export function CoLoadingServiceShipments({ serviceName, closed }: { serviceName
       isError={isError}
       onVisibleColumnsChange={setSearchColumns}
       // One set of columns for every service: what a user picks shows on each of them.
-      view={{ key: "co-loading", title: "", readonlyColumns: closed ? ALL_COLUMNS_READONLY : undefined }}
+      // The Sailing column leads: which jobs are on a box, and which still wait for one, is seen at once (Council Outlay 14, A1).
+      view={{ key: "co-loading", title: "", leadColumn: "sailing", readonlyColumns: closed ? ALL_COLUMNS_READONLY : undefined }}
     />
   );
 }

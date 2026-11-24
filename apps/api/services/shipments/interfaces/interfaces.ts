@@ -194,6 +194,8 @@ export interface ShipmentItem extends ShipmentStep6Fields {
   masterJobMczNumber: string | null;
   /** What happened last ("Arrived 20.10.2026 · Warehouse"); "" when nothing has yet. */
   lastEvent: string;
+  /** On the Shipments list only: the Co-Loading Concept sailing the job is on ("WEEK 51", "MSC Anna 445W"); null when on none. */
+  sailing?: { id: string; serviceId: string; name: string } | null;
 
   // Meta
   shipmentsDate: string | null;
@@ -2331,6 +2333,24 @@ export interface CoLoadingSailingItem {
   fill?: BoxFill;
 }
 
+/** A sailing as a shipment's page shows it: with its service's name and how full its box is. */
+export interface ShipmentSailingItem extends CoLoadingSailingItem {
+  /** The name of its service: "Import from Shanghai". */
+  serviceLabel: string;
+  /** Its service is closed: nothing can be moved or removed until a manager reopens it. Only on the sailing the shipment is on. */
+  serviceClosed?: boolean;
+}
+
+/** A shipment's place in Co-Loading Concept, for its own page (Council Outlay 14, A1). No money. */
+export interface ShipmentSailing {
+  /** The sailing it is on; null when it is on none. */
+  on: ShipmentSailingItem | null;
+  /** The open services that stand for its Service Name and take its kind of shipment; empty when Co-Loading is not for it. */
+  services: { id: string; name: string }[];
+  /** Those services' sailings still to come (no departure date, or one of today or later), the soonest first. */
+  coming: ShipmentSailingItem[];
+}
+
 /** A shipment taken off a sailing: who took it off, when and why. */
 export interface SailingRemovedShipment {
   shipmentId: string;
@@ -2605,8 +2625,11 @@ export interface BoxCostChange {
   id: string;
   /** The container whose cost changed; 0 for a change of the sailing itself. */
   containerNo: number;
-  /** A box cost, or a change of the sailing that moves them: "containers" (old and new number in the amounts) or "departure" (old and new date in the notes). */
-  kind: BoxCostKind | "containers" | "departure";
+  /**
+   * A box cost, or a change of the sailing itself: "containers" (old and new number in the amounts), "departure" and
+   * "cutoff" (old and new date in the notes), "vessel", "voyage", "pol", "pod", "hub", "container_type" (old and new words in the notes).
+   */
+  kind: BoxCostKind | "containers" | "departure" | "cutoff" | "vessel" | "voyage" | "pol" | "pod" | "hub" | "container_type";
   oldAmount: number | null;
   oldCurrency: string;
   oldNote: string;

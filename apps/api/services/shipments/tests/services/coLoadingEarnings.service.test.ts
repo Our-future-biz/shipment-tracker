@@ -12,6 +12,9 @@ const repo = vi.hoisted(() => ({
   unlink: vi.fn(),
   move: vi.fn(),
   create: vi.fn(),
+  removeJudged: vi.fn(),
+  sailingOfShipment: vi.fn(),
+  comingOfServices: vi.fn(),
 }));
 const boxCosts = vi.hoisted(() => {
   class BoxCostsChangedMeanwhile extends Error {
@@ -21,7 +24,7 @@ const boxCosts = vi.hoisted(() => {
   }
   return { BoxCostsChangedMeanwhile, repo: { list: vi.fn(), listOf: vi.fn(), save: vi.fn(), changes: vi.fn(), costedContainers: vi.fn() } };
 });
-const services = vi.hoisted(() => ({ get: vi.fn(), requireOpen: vi.fn(), planningVolumePct: vi.fn() }));
+const services = vi.hoisted(() => ({ get: vi.fn(), list: vi.fn(), requireOpen: vi.fn(), planningVolumePct: vi.fn() }));
 const fx = vi.hoisted(() => ({ fxRatesOn: vi.fn() }));
 const invoicing = vi.hoisted(() => ({ _internalCoLoadingMoney: vi.fn() }));
 const names = vi.hoisted(() => ({ userNameOf: vi.fn() }));
@@ -305,8 +308,8 @@ describe("\"Edit sailing\" once a container has box costs", () => {
     vi.setSystemTime(new Date("2026-11-24T09:00:00Z"));
     locked = { row: sailing(), costed: [1] };
     written = [];
-    repo.setDetailsRecorded.mockImplementation(async (_id: string, _c: string, d: object, by: unknown, judge: (now: object, costed: number[]) => unknown[]) => {
-      const changes = judge(locked.row, locked.costed);
+    repo.setDetailsRecorded.mockImplementation(async (_id: string, _c: string, d: object, by: unknown, judge: (now: object, costed: number[]) => { changes: unknown[] }) => {
+      const { changes } = judge(locked.row, locked.costed);
       written.push({ details: d, changes, by });
       return sailing({ ...locked.row, ...d });
     });
@@ -319,9 +322,11 @@ describe("\"Edit sailing\" once a container has box costs", () => {
     expect(written).toEqual([]);
   });
 
-  it("lets a plain user change the cut-off alone", async () => {
+  it("lets a plain user change the cut-off alone, and records it", async () => {
     await service.setDetails(SAILING, details({ cutoffDate: "2026-11-18" }), USER);
-    expect(written).toEqual([{ details: details({ cutoffDate: "2026-11-18" }), changes: [], by: { id: "u-user", name: "Jana Nová" } }]);
+    expect(written).toEqual([
+      { details: details({ cutoffDate: "2026-11-18" }), changes: [{ kind: "cutoff", oldAmount: null, newAmount: null, oldNote: "", newNote: "2026-11-18" }], by: { id: "u-user", name: "Jana Nová" } },
+    ]);
   });
 
   it("lets a manager change both, and records the old and the new with the change", async () => {
@@ -528,5 +533,96 @@ describe("the rates of the service's sailings", () => {
     expect(fx.fxRatesOn).toHaveBeenCalledTimes(10);
     expect(most).toBe(4);
     expect(profits.every((p) => p.boxCostsSet)).toBe(true);
+  });
+});
+
+describe("removing a sailing made by mistake (Council Outlay 14, D4)", () => {
+  // The repository hands the judge what the sailing holds under its lock.
+  const holding = (linkedShipments: number, costed: number[]) =>
+    repo.removeJudged.mockImplementation(async (_id: string, _c: string, judge: (linked: number, costed: number[]) => void) => {
+      judge(linkedShipments, costed);
+      return true;
+    });
+
+  it("lets a manager remove an empty one", async () => {
+    holding(0, []);
+    await expect(service.remove(SAILING, MANAGER)).resolves.toBeUndefined();
+    expect(repo.removeJudged).toHaveBeenCalledWith(SAILING, COMPANY, expect.any(Function));
+  });
+
+  it("refuses a plain user", async () => {
+    holding(0, []);
+    await expect(service.remove(SAILING, USER)).rejects.toMatchObject({ code: "permission_denied", message: "Only managers and admins remove a sailing." });
+  });
+
+  it("refuses while it holds a shipment or a box cost", async () => {
+    holding(2, []);
+    await expect(service.remove(SAILING, MANAGER)).rejects.toMatchObject({ code: "failed_precondition", message: "This sailing has 2 shipments linked: move or remove them first." });
+    holding(0, [1]);
+    await expect(service.remove(SAILING, MANAGER)).rejects.toMatchObject({ code: "failed_precondition", message: "This sailing has box costs: clear them first." });
+  });
+
+  it("is refused on a closed service, and not found when the sailing is gone", async () => {
+    repo.removeJudged.mockResolvedValue(false);
+    await expect(service.remove(SAILING, MANAGER)).rejects.toMatchObject({ code: "not_found" });
+    services.requireOpen.mockRejectedValue(Object.assign(new Error("closed"), { code: "failed_precondition" }));
+    await expect(service.remove(SAILING, MANAGER)).rejects.toMatchObject({ code: "failed_precondition" });
+  });
+});
+
+describe("a shipment's place in Co-Loading (Council Outlay 14, A1)", () => {
+  const JOB = "00000000-0000-4000-8000-0000000000aa";
+  const lcl = { id: JOB, jobNumber: "CZLCL00000062", serviceName: " isha ", freightMode: "Sea Freight", loadType: "Consolidation" };
+  const open = (more = {}) => ({ id: SERVICE, name: "Import from Shanghai", serviceName: "ISHA", mode: "sea_lcl", inlandWeightKg: null, closedAt: null, ...more });
+  beforeEach(() => {
+    repo.shipmentsToLink.mockResolvedValue([lcl]);
+    repo.sailingOfShipment.mockResolvedValue(null);
+    repo.comingOfServices.mockResolvedValue([]);
+    repo.boxShipmentsOf.mockResolvedValue(new Map());
+    services.list.mockResolvedValue([open()]);
+    services.planningVolumePct.mockResolvedValue(85);
+  });
+
+  it("is not found for a shipment the company does not have", async () => {
+    repo.shipmentsToLink.mockResolvedValue([]);
+    await expect(service.ofShipment(JOB, COMPANY)).rejects.toMatchObject({ code: "not_found" });
+    await expect(service.ofShipment("not-an-id", COMPANY)).rejects.toMatchObject({ code: "not_found" });
+  });
+
+  it("offers the coming sailings of the open services that stand for its Service Name, read as users see them", async () => {
+    repo.comingOfServices.mockResolvedValue([sailing({ id: OTHER, vessel: "WEEK 52", cutoffDate: "2026-12-10" })]);
+    const place = await service.ofShipment(JOB, COMPANY);
+    expect(services.list).toHaveBeenCalledWith(COMPANY, "user");
+    expect(repo.comingOfServices).toHaveBeenCalledWith([SERVICE], COMPANY, expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/));
+    expect(place.on).toBeNull();
+    expect(place.services).toEqual([{ id: SERVICE, name: "Import from Shanghai" }]);
+    expect(place.coming).toMatchObject([{ id: OTHER, vessel: "WEEK 52", serviceLabel: "Import from Shanghai", cutoffDate: "2026-12-10", fill: { shipments: 0 } }]);
+  });
+
+  it("offers nothing to a shipment Co-Loading is not for: another Service Name, none, or another kind of shipment", async () => {
+    for (const other of [{ ...lcl, serviceName: "Domestic" }, { ...lcl, serviceName: "" }, { ...lcl, loadType: "Full Load" }, { ...lcl, freightMode: "Air Freight" }]) {
+      repo.shipmentsToLink.mockResolvedValue([other]);
+      const place = await service.ofShipment(JOB, COMPANY);
+      expect(place.services).toEqual([]);
+      expect(repo.comingOfServices).toHaveBeenLastCalledWith([], COMPANY, expect.any(String));
+    }
+  });
+
+  it("gives the sailing it is on with how full its box is, and no money", async () => {
+    repo.sailingOfShipment.mockResolvedValue(sailing());
+    repo.boxShipmentsOf.mockResolvedValue(new Map([[SAILING, [shipment({ id: JOB, totalVolumeCbm: "9.08", totalWeightTons: "1.95" })]]]));
+    const place = await service.ofShipment(JOB, COMPANY);
+    expect(place.on).toMatchObject({ id: SAILING, vessel: "WEEK 51", serviceLabel: "Import from Shanghai", serviceClosed: false, fill: { shipments: 1, volume: { pct: 13 }, weight: { pct: 7 } } });
+    expect(JSON.stringify(place)).not.toMatch(/profit|cost/i);
+  });
+
+  it("still shows the sailing of a closed service, and says it is closed", async () => {
+    services.list.mockResolvedValue([]);
+    services.get.mockResolvedValue(open({ closedAt: "2026-11-20T10:00:00.000Z" }));
+    repo.sailingOfShipment.mockResolvedValue(sailing());
+    const place = await service.ofShipment(JOB, COMPANY);
+    expect(place.on).toMatchObject({ id: SAILING, serviceClosed: true });
+    expect(place.services).toEqual([]);
+    expect(place.coming).toEqual([]);
   });
 });

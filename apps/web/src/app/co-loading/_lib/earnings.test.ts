@@ -350,6 +350,10 @@ describe("fix step 3 of Council Review 7", () => {
     expect(changeWords(change({}), true, day)).toBe("Number of containers: 2 → 1");
     expect(changeWords(change({ kind: "departure", oldAmount: null, newAmount: null, oldNote: "", newNote: "2026-11-20" }), false, day)).toBe("Departure date: none → 20.11.2026");
     expect(changeWords(change({ kind: "departure", oldAmount: null, newAmount: null, oldNote: "2026-11-20", newNote: "" }), false, day)).toBe("Departure date: 20.11.2026 → none");
+    expect(changeWords(change({ kind: "cutoff", oldAmount: null, newAmount: null, oldNote: "", newNote: "2026-12-03" }), false, day)).toBe("Cut-off: none → 03.12.2026");
+    expect(changeWords(change({ kind: "vessel", oldAmount: null, newAmount: null, oldNote: "WEEK 51", newNote: "MSC Anna" }), false, day)).toBe("Vessel: WEEK 51 → MSC Anna");
+    expect(changeWords(change({ kind: "voyage", oldAmount: null, newAmount: null, oldNote: "", newNote: "445W" }), false, day)).toBe("Voyage: none → 445W");
+    expect(changeWords(change({ kind: "container_type", oldAmount: null, newAmount: null, oldNote: "40' HC", newNote: "20' DC" }), true, day)).toBe("Container type: 40' HC → 20' DC");
   });
   it("tells the manager to reopen a closed service to set the departure date", () => {
     expect(boxRateWords(box({ set: true, rateDate: "2026-11-23", eurRate: 24.455 }), day, true)).toBe(

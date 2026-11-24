@@ -38,6 +38,57 @@ export function sailingFormError(f: {
   return null;
 }
 
+/** A sailing has left: its departure date is before `today` (both YYYY-MM-DD). One with no date is still to come. */
+export const sailingDeparted = (s: { departureDate: string | null }, today: string): boolean => s.departureDate !== null && s.departureDate < today;
+
+/**
+ * A service's sailings as its list shows them (Council Outlay 14, A2): those still to come by
+ * departure, the soonest first and the ones with no date after them; then those that have left,
+ * the last one to leave first. Within the same day, the one made first.
+ */
+export function sailingsInOrder<T extends { departureDate: string | null; createdAt: string }>(sailings: readonly T[], today: string): { coming: T[]; departed: T[] } {
+  const byMade = (a: T, b: T) => a.createdAt.localeCompare(b.createdAt);
+  const coming = sailings
+    .filter((s) => !sailingDeparted(s, today))
+    .sort((a, b) => (a.departureDate === null ? (b.departureDate === null ? byMade(a, b) : 1) : b.departureDate === null ? -1 : a.departureDate.localeCompare(b.departureDate) || byMade(a, b)));
+  const departed = sailings.filter((s) => sailingDeparted(s, today)).sort((a, b) => b.departureDate!.localeCompare(a.departureDate!) || byMade(a, b));
+  return { coming, departed };
+}
+
+/** The cut-off beside today, in words: "today", "in 2 days", "3 days ago"; "" with no cut-off. Both YYYY-MM-DD. */
+export function cutoffWords(cutoffDate: string | null, today: string): string {
+  if (!cutoffDate) return "";
+  const days = Math.round((Date.parse(`${cutoffDate}T00:00:00Z`) - Date.parse(`${today}T00:00:00Z`)) / 86_400_000);
+  if (Number.isNaN(days)) return "";
+  if (days === 0) return "today";
+  if (days === 1) return "tomorrow";
+  if (days === -1) return "yesterday";
+  return days > 0 ? `in ${days} days` : `${-days} days ago`;
+}
+
+/** The days before a cut-off from which it shows amber (Council Outlay 14, D9). */
+export const CUTOFF_NEAR_DAYS = 3;
+
+/** How a cut-off stands beside today: "passed" (red), "near" (amber, within 3 days), or "far". "" with no cut-off. */
+export function cutoffState(cutoffDate: string | null, today: string): "passed" | "near" | "far" | "" {
+  if (!cutoffDate) return "";
+  const days = Math.round((Date.parse(`${cutoffDate}T00:00:00Z`) - Date.parse(`${today}T00:00:00Z`)) / 86_400_000);
+  if (Number.isNaN(days)) return "";
+  return days < 0 ? "passed" : days <= CUTOFF_NEAR_DAYS ? "near" : "far";
+}
+
+/** The colour of a cut-off's remark. */
+export const CUTOFF_TONE = { passed: "text-red-600", near: "text-amber-700", far: "text-slate-500", "": "" } as const;
+
+/** What "Edit sailing" would change, as the request sends it: only the facts that differ, with the three details always. */
+export function sailingEditOf(
+  sailing: { vessel: string; voyage: string; pol: string; pod: string; hub: string; containerType: string },
+  form: { vessel: string; voyage: string; pol: string; pod: string; hub: string; containerType: string; containerCount: number; cutoffDate: string | null; departureDate: string | null },
+) {
+  const facts = (["vessel", "voyage", "pol", "pod", "hub", "containerType"] as const).filter((k) => form[k].trim() !== sailing[k]);
+  return { containerCount: form.containerCount, cutoffDate: form.cutoffDate, departureDate: form.departureDate, ...Object.fromEntries(facts.map((k) => [k, form[k].trim()])) };
+}
+
 /** A sailing's own page, under its service's: /co-loading/<service>/sailings/<sailing>. */
 export const sailingHref = (s: { id: string; serviceId: string }) =>
   `/co-loading/${s.serviceId}/sailings/${s.id}`;

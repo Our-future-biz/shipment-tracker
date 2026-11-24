@@ -165,6 +165,8 @@ export const COLUMNS: ColumnDef[] = [
   { key: "jobNumber", title: "Internal Reference", width: 162, type: "text", fixed: true, readonly: true, apiField: "jobNumber" },
   // 172: the longest master job number, "MCZPROJECT00000004", is 157 px (review of the S21-058 fix).
   { key: "masterJob", title: "Master job", width: 172, type: "text", readonly: true, apiField: "masterJobMczNumber" },
+  // The Co-Loading Concept sailing the job is on ("WEEK 51", "MSC Anna 445W"): a link to it (Council Outlay 14, A1).
+  { key: "sailing", title: "Sailing", width: 150, type: "text", readonly: true, apiField: "sailing" },
 
   // Meta
   { key: "shipmentsDate", title: "Shipments Month", width: 120, type: "computed", readonly: true },

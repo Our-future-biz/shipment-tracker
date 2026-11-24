@@ -88,13 +88,14 @@ export function CoLoadingSailingPage() {
           <BackLink href={sailing ? `/co-loading/${sailing.serviceId}` : "/co-loading"}>
             {service?.name ?? "Co-Loading Concept"}
           </BackLink>
-          {/* Its number of containers, its cut-off and its departure date; not while the service is closed. */}
+          {/* All of the sailing: vessel, ports, containers and dates; not while the service is closed. */}
           {sailing && service && !service.closedAt && (
             <button type="button" className={BTN} onClick={() => setEditing(true)}>
               Edit sailing
             </button>
           )}
-          {sailing && <EditSailingModal open={editing} onClose={() => setEditing(false)} sailing={sailing} isManager={isManager} />}
+          {/* A removed sailing has no page: back to its service's list. */}
+          {sailing && <EditSailingModal open={editing} onClose={() => setEditing(false)} sailing={sailing} isManager={isManager} onRemoved={() => router.replace(`/co-loading/${sailing.serviceId}`)} />}
         </div>
 
         {sailing && (

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { checkSailingInput, linkRefusal, moveRefusal, oddInBox, sailingDetailsProblem, sailingEdit, SAILING_CONTAINER_TYPES, sailingWeek, VESSEL_MAX } from "../lib/coLoadingSailing";
+import { checkSailingInput, linkRefusal, moveRefusal, oddInBox, sailingDetailsProblem, sailingEdit, sailingRemovalRefusal, SAILING_CONTAINER_TYPES, sailingWeek, VESSEL_MAX } from "../lib/coLoadingSailing";
 
 const PORTS = { pol: "Shanghai (CNSHA)", pod: "Hamburg (DEHAM)", hub: "Praha (CZPRG)", containerType: "40' HC" };
 // A sailing made without them has one container and no cut-off.
@@ -155,33 +155,83 @@ describe("what Edit sailing changes", () => {
 });
 
 describe("Edit sailing, judged on the sailing as it is", () => {
-  const stored = { containerCount: 1, cutoffDate: null, departureDate: null };
+  const facts = { vessel: "WEEK 51", voyage: "", ...PORTS };
+  const stored = { ...facts, containerCount: 1, cutoffDate: null, departureDate: null };
   const anyone = { today: TODAY, costedContainers: [], mayMoveCosts: false };
 
   it("gives the changes that move the box costs, for the record", () => {
     expect(sailingEdit(stored, { containerCount: 2, cutoffDate: null, departureDate: "2026-12-10" }, anyone)).toEqual({
+      facts,
       changes: [
         { kind: "containers", oldAmount: 1, newAmount: 2, oldNote: "", newNote: "" },
         { kind: "departure", oldAmount: null, newAmount: null, oldNote: "", newNote: "2026-12-10" },
       ],
     });
-    expect(sailingEdit(stored, { containerCount: 1, cutoffDate: "2026-12-01" }, anyone)).toEqual({ changes: [] });
+    expect(sailingEdit(stored, { containerCount: 1, cutoffDate: null }, anyone)).toEqual({ facts, changes: [] });
   });
 
-  it("lets only managers move the box costs once a container has some (K13); the cut-off stays anyone's", () => {
-    const costed = { ...anyone, costedContainers: [1] };
-    expect(sailingEdit(stored, { containerCount: 2, cutoffDate: null }, costed)).toEqual({
-      denied: "This sailing has box costs: only managers and admins change its number of containers or its departure date.",
+  it("records a change of the cut-off too (Council Outlay 14)", () => {
+    expect(sailingEdit(stored, { containerCount: 1, cutoffDate: "2026-12-01" }, anyone)).toEqual({
+      facts,
+      changes: [{ kind: "cutoff", oldAmount: null, newAmount: null, oldNote: "", newNote: "2026-12-01" }],
     });
+  });
+
+  it("lets a week become the real vessel, and a wrong port be put right, each change recorded", () => {
+    const edit = sailingEdit(stored, { containerCount: 1, cutoffDate: null, vessel: "  MSC  Anna ", voyage: "445W", hub: "Brno (CZBRQ)" }, anyone);
+    expect(edit).toEqual({
+      facts: { ...facts, vessel: "MSC Anna", voyage: "445W", hub: "Brno (CZBRQ)" },
+      changes: [
+        { kind: "vessel", oldAmount: null, newAmount: null, oldNote: "WEEK 51", newNote: "MSC Anna" },
+        { kind: "voyage", oldAmount: null, newAmount: null, oldNote: "", newNote: "445W" },
+        { kind: "hub", oldAmount: null, newAmount: null, oldNote: "Praha (CZPRG)", newNote: "Brno (CZBRQ)" },
+      ],
+    });
+  });
+
+  it("checks the facts as a new sailing's are checked", () => {
+    expect(sailingEdit(stored, { containerCount: 1, cutoffDate: null, vessel: "MSC Anna" }, anyone)).toEqual({
+      invalid: "Give the voyage, or write the week in Vessel (WEEK 44) while the vessel is not known.",
+    });
+    expect(sailingEdit(stored, { containerCount: 1, cutoffDate: null, pol: "  " }, anyone)).toEqual({ invalid: "Give the Port of Loading." });
+    expect(sailingEdit(stored, { containerCount: 1, cutoffDate: null, containerType: "40' XX" }, anyone)).toEqual({ invalid: "Pick the container type." });
+  });
+
+  it("lets only managers move the box costs once a container has some (K13); the cut-off and the vessel stay anyone's", () => {
+    const costed = { ...anyone, costedContainers: [1] };
+    const denied = "This sailing has box costs: only managers and admins change its container type, its number of containers or its departure date.";
+    expect(sailingEdit(stored, { containerCount: 2, cutoffDate: null }, costed)).toEqual({ denied });
     expect(sailingEdit(stored, { containerCount: 1, cutoffDate: null, departureDate: "2026-12-10" }, costed)).toHaveProperty("denied");
-    expect(sailingEdit(stored, { containerCount: 1, cutoffDate: "2026-12-01" }, costed)).toEqual({ changes: [] });
-    expect(sailingEdit(stored, { containerCount: 2, cutoffDate: null }, { ...costed, mayMoveCosts: true })).toHaveProperty("changes");
+    expect(sailingEdit(stored, { containerCount: 1, cutoffDate: null, containerType: "20' DC" }, costed)).toEqual({ denied });
+    expect(sailingEdit(stored, { containerCount: 1, cutoffDate: "2026-12-01", vessel: "MSC Anna", voyage: "445W" }, costed)).toHaveProperty("changes");
+    expect(sailingEdit(stored, { containerCount: 2, cutoffDate: null, containerType: "20' DC" }, { ...costed, mayMoveCosts: true })).toHaveProperty("changes");
+  });
+
+  it("lets anyone change the container type while no box cost is set", () => {
+    expect(sailingEdit(stored, { containerCount: 1, cutoffDate: null, containerType: "20' DC" }, anyone)).toMatchObject({
+      changes: [{ kind: "container_type", oldNote: "40' HC", newNote: "20' DC" }],
+    });
   });
 
   it("refuses details that cannot be saved, before who may change them", () => {
     expect(sailingEdit({ ...stored, departureDate: "2026-12-10" }, { containerCount: 1, cutoffDate: "2026-12-31" }, { ...anyone, costedContainers: [1] })).toEqual({
       invalid: "The cut-off cannot be after the departure date.",
     });
+  });
+});
+
+describe("removing a sailing made by mistake", () => {
+  const empty = { linkedShipments: 0, costedContainers: [] };
+
+  it("is for managers and admins", () => {
+    expect(sailingRemovalRefusal(empty, false)).toEqual({ denied: "Only managers and admins remove a sailing." });
+    expect(sailingRemovalRefusal(empty, true)).toBeNull();
+  });
+
+  it("is refused while the sailing holds a shipment or a box cost", () => {
+    expect(sailingRemovalRefusal({ ...empty, linkedShipments: 1 }, true)).toEqual({ refused: "This sailing has 1 shipment linked: move or remove it first." });
+    expect(sailingRemovalRefusal({ ...empty, linkedShipments: 3 }, true)).toEqual({ refused: "This sailing has 3 shipments linked: move or remove them first." });
+    expect(sailingRemovalRefusal({ ...empty, costedContainers: [1] }, true)).toEqual({ refused: "This sailing has box costs: clear them first." });
   });
 });
 

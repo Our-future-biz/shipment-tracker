@@ -3416,6 +3416,8 @@ export namespace shipments {
             this.coLoadingSailingBoxCostChanges = this.coLoadingSailingBoxCostChanges.bind(this)
             this.coLoadingSailingBoxCostsSave = this.coLoadingSailingBoxCostsSave.bind(this)
             this.coLoadingSailingDetails = this.coLoadingSailingDetails.bind(this)
+            this.coLoadingSailingRemove = this.coLoadingSailingRemove.bind(this)
+            this.coLoadingShipmentSailing = this.coLoadingShipmentSailing.bind(this)
             this.coLoadingSailingMoveShipment = this.coLoadingSailingMoveShipment.bind(this)
             this.coLoadingSailingEarnings = this.coLoadingSailingEarnings.bind(this)
             this.coLoadingSailingRemoved = this.coLoadingSailingRemoved.bind(this)
@@ -3750,12 +3752,28 @@ export namespace shipments {
         }
 
         /**
-         * "Edit sailing": its number of containers and its cut-off. Refused while the service is closed.
+         * "Edit sailing": its vessel, voyage, ports, HUB and container type, its number of containers, its cut-off and its departure date. Refused while the service is closed.
          */
-        public async coLoadingSailingDetails(id: string, params: { containerCount: number; cutoffDate: string | null; departureDate?: string | null }): Promise<{ sailing: interfaces.CoLoadingSailingItem }> {
+        public async coLoadingSailingDetails(id: string, params: { containerCount: number; cutoffDate: string | null; departureDate?: string | null; vessel?: string; voyage?: string; pol?: string; pod?: string; hub?: string; containerType?: string }): Promise<{ sailing: interfaces.CoLoadingSailingItem }> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("PUT", `/co-loading/sailings/${encodeURIComponent(id)}`, JSON.stringify(params))
             return await resp.json() as { sailing: interfaces.CoLoadingSailingItem }
+        }
+
+        /**
+         * Removes a sailing made by mistake: managers and admins, while it holds no shipment and no box cost.
+         */
+        public async coLoadingSailingRemove(id: string): Promise<void> {
+            await this.baseClient.callTypedAPI("DELETE", `/co-loading/sailings/${encodeURIComponent(id)}`)
+        }
+
+        /**
+         * A shipment's place in Co-Loading Concept, for its own page: the sailing it is on and the ones it could go on. No money.
+         */
+        public async coLoadingShipmentSailing(shipmentId: string): Promise<interfaces.ShipmentSailing> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/co-loading/shipments/${encodeURIComponent(shipmentId)}/sailing`)
+            return await resp.json() as interfaces.ShipmentSailing
         }
 
         /**
@@ -16157,7 +16175,7 @@ export namespace interfaces {
         /**
          * A box cost, or a change of the sailing that moves them: "containers" (numbers in the amounts) or "departure" (dates in the notes).
          */
-        kind: BoxCostKind | "containers" | "departure"
+        kind: BoxCostKind | "containers" | "departure" | "cutoff" | "vessel" | "voyage" | "pol" | "pod" | "hub" | "container_type"
         oldAmount: number | null
         oldCurrency: string
         oldNote: string
@@ -16400,6 +16418,41 @@ export namespace interfaces {
          */
         notCounted: number
         rows: BoxUtilizationRow[]
+    }
+
+    /**
+     * A sailing as a shipment's page shows it: with its service's name and how full its box is.
+     */
+    export interface ShipmentSailingItem extends CoLoadingSailingItem {
+        /**
+         * The name of its service: "Import from Shanghai".
+         */
+        serviceLabel: string
+
+        /**
+         * Its service is closed: nothing can be moved or removed until a manager reopens it. Only on the sailing the shipment is on.
+         */
+        serviceClosed?: boolean
+    }
+
+    /**
+     * A shipment's place in Co-Loading Concept, for its own page (Council Outlay 14, A1). No money.
+     */
+    export interface ShipmentSailing {
+        /**
+         * The sailing it is on; null when it is on none.
+         */
+        on: ShipmentSailingItem | null
+
+        /**
+         * The open services that stand for its Service Name and take its kind of shipment; empty when Co-Loading is not for it.
+         */
+        services: { id: string; name: string }[]
+
+        /**
+         * Those services' sailings still to come (no departure date, or one of today or later), the soonest first.
+         */
+        coming: ShipmentSailingItem[]
     }
 
     /**
@@ -26914,6 +26967,11 @@ export namespace interfaces {
          * What happened last ("Arrived 20.10.2026 · Warehouse"); "" when nothing has yet.
          */
         lastEvent: string
+
+        /**
+         * On the Shipments list only: the Co-Loading Concept sailing the job is on ("WEEK 51", "MSC Anna 445W"); null when on none.
+         */
+        sailing?: { id: string; serviceId: string; name: string } | null
 
         /**
          * Meta

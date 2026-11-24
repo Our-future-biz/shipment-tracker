@@ -74,7 +74,7 @@ vi.mock("../../repositories/commercialInvoice.repository", () => ({
   commercialInvoiceRepository: { listByShipmentId: vi.fn(async () => []), listByShipmentIds: vi.fn(), replaceForShipment: vi.fn() },
 }));
 vi.mock("../../topics", () => ({ shipmentDeleted: { publish: vi.fn() }, shipmentPartiesChanged: { publish: vi.fn() } }));
-vi.mock("../../services/coLoadingSailing.service", () => ({ coLoadingSailingService: { shipmentDeleted: vi.fn() } }));
+vi.mock("../../services/coLoadingSailing.service", () => ({ coLoadingSailingService: { shipmentDeleted: vi.fn(), sailingsOfShipments: vi.fn(async () => new Map()) } }));
 vi.mock("../../services/quoteLinks.service", () => ({ quoteLinksService: { syncReference: vi.fn(), markDirty: vi.fn() } }));
 vi.mock("../../services/shipmentEvents.service", () => ({ deliverShipmentEvents: vi.fn(async () => ({ sent: 1, retry: 0, failed: 0 })) }));
 vi.mock("../../repositories/shipmentReleaseOverride.repository", () => ({ shipmentReleaseOverrideRepository: { create: vi.fn() } }));
