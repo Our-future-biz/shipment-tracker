@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { boxCargoOf, breakEvenMark, fillOfBox, fillWords, fullWords, meterBar, meterScale, meterTone, meterWords, missingNote, noVolumeWords, containersWords, cutoffWarning, oddInBox, oddWarning, overfillWarning, removedReasonWords, rowNotes, shareWords, usedOfLimit, type BoxMeter, type BoxRow, type BoxUtilization } from "./boxUtilization";
+import { boxCargoOf, breakEvenMark, fillOfBox, fillWords, fullWords, meterBar, meterScale, meterTone, meterWords, missingNote, noVolumeWords, containersWords, cutoffWarning, oddInBox, oddWarning, overfillWarning, removedReasonWords, rowNotes, shareWords, specialCargoOf, usedOfLimit, type BoxMeter, type BoxRow, type BoxUtilization } from "./boxUtilization";
 
 const HC = { containerType: "40' HC", insideCbm: 76.4, planningCbm: 64.9, standardKg: 26200, heavyTestedKg: 28400, maxKg: 28400, inlandKg: null as number | null, planningPct: 85, containers: 1 };
 const OT = { containerType: "40' OT", insideCbm: 67.3, planningCbm: 57.2, standardKg: 26600, heavyTestedKg: null, maxKg: 28550, inlandKg: null, planningPct: 85, containers: 1 };
@@ -20,6 +20,7 @@ const row = (more: Partial<BoxRow> = {}): BoxRow => ({
   volumeSharePct: 3.1,
   notStackable: false,
   dangerous: false,
+  adr: [],
   outOfGauge: false,
   temperatureControlled: false,
   odd: null,
@@ -256,5 +257,31 @@ describe("the break-even mark on a meter", () => {
   it("is not drawn without a break-even or on an empty meter", () => {
     expect(breakEvenMark("volume", meter(40, 64.9, 76.4, "room"), null)).toBeNull();
     expect(breakEvenMark("weight", meter(0, 26200, 28400, "room"), 0.5)).toBeNull();
+  });
+});
+
+describe("the dangerous and special cargo of a box (Council Outlay 14, A11)", () => {
+  it("is nothing for a box of plain cargo", () => {
+    expect(specialCargoOf(box({ rows: [row(), row({ shipmentId: "s2" })] }))).toBeNull();
+  });
+
+  it("lists the dangerous shipments with what their lines name, and counts the rest; a cancelled one is left out", () => {
+    const special = specialCargoOf(
+      box({
+        rows: [
+          row({ dangerous: true, adr: ["UN 1263 · class 3"] }),
+          row({ shipmentId: "s2", jobNumber: "CZLCL00000002", dangerous: true, adr: [], notStackable: true }),
+          row({ shipmentId: "s3", outOfGauge: true, temperatureControlled: true }),
+          row({ shipmentId: "s4", counted: false, dangerous: true, adr: ["class 8"] }),
+        ],
+      }),
+    );
+    expect(special).toMatchObject({ classes: ["3"], mixedClasses: false, unnamed: 1, notStackable: 1, outOfGauge: 1, temperatureControlled: 1 });
+    expect(special!.dangerous.map((d) => [d.jobNumber, d.adr])).toEqual([["CZLCL00000001", ["UN 1263 · class 3"]], ["CZLCL00000002", []]]);
+  });
+
+  it("says when two or more classes share the box", () => {
+    const special = specialCargoOf(box({ rows: [row({ dangerous: true, adr: ["UN 1263 · class 3"] }), row({ shipmentId: "s2", dangerous: true, adr: ["UN 1789 · class 8", "UN 1993 · class 3"] })] }));
+    expect(special).toMatchObject({ classes: ["3", "8"], mixedClasses: true, unnamed: 0 });
   });
 });

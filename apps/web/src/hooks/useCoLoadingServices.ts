@@ -314,3 +314,31 @@ export function useSailingCandidates(serviceName: string, search: string, enable
   });
   return { candidates: query.data?.data ?? [], isLoading: query.isLoading, isError: query.isError, error: query.error, refetch: query.refetch };
 }
+
+/**
+ * The board of all services (Council Outlay 14, A6): their sailings still to come, and each
+ * service's shipments waiting for a box. Boxes fill from other people's work, so it is read again
+ * on opening and on coming back to the window. Under the Co-Loading key: every link, move and edit reads it again.
+ */
+export function useCoLoadingBoard() {
+  const query = useQuery({
+    queryKey: [...LIST_KEY, "board"],
+    queryFn: () => api.shipments.coLoadingBoard(),
+    staleTime: 0,
+    refetchOnWindowFocus: true,
+  });
+  return { board: query.data ?? null, isLoading: query.isLoading, isError: query.isError, refetch: query.refetch };
+}
+export type BoardSailing = NonNullable<ReturnType<typeof useCoLoadingBoard>["board"]>["sailings"][number];
+
+/** The profit of the board's sailings, by sailing id. Managers only: `enabled` keeps others from asking. */
+export function useBoardProfits(enabled: boolean) {
+  const query = useQuery({
+    queryKey: [...LIST_KEY, "board", "profits"],
+    queryFn: () => api.shipments.coLoadingBoardProfits(),
+    enabled,
+    staleTime: 0,
+    refetchOnWindowFocus: true,
+  });
+  return { profits: new Map((query.data?.data ?? []).map((p) => [p.sailingId, p])), isLoading: query.isLoading };
+}

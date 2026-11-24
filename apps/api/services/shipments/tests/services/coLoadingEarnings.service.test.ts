@@ -14,6 +14,8 @@ const repo = vi.hoisted(() => ({
   create: vi.fn(),
   removeJudged: vi.fn(),
   moveMany: vi.fn(),
+  waitingByKind: vi.fn(),
+  listOfServices: vi.fn(),
   unlinkMany: vi.fn(),
   sailingOfShipment: vi.fn(),
   comingOfServices: vi.fn(),
@@ -672,5 +674,50 @@ describe("moving or removing several shipments at once (Council Outlay 14, A9)",
     services.requireOpen.mockRejectedValue(Object.assign(new Error("closed"), { code: "failed_precondition" }));
     await expect(service.unlinkShipments(SAILING, [A], USER)).rejects.toMatchObject({ code: "failed_precondition" });
     await expect(service.moveShipments(SAILING, [A], OTHER, "why", USER)).rejects.toMatchObject({ code: "failed_precondition" });
+  });
+});
+
+describe("the board of all services (Council Outlay 14, A6)", () => {
+  const svc = (more = {}) => ({ id: SERVICE, name: "Import from Shanghai", serviceName: "ISHA", frequency: "weekly", mode: "sea_lcl", inlandWeightKg: null, closedAt: null, origin: "Shanghai (CNSHA)", destination: "Praha (CZPRG)", note: "", ...more });
+  beforeEach(() => {
+    services.list.mockResolvedValue([svc()]);
+    services.planningVolumePct.mockResolvedValue(85);
+    repo.comingOfServices.mockResolvedValue([sailing({ cutoffDate: "2026-12-03" })]);
+    repo.waitingByKind.mockResolvedValue([]);
+    repo.boxShipmentsOf.mockResolvedValue(new Map());
+    repo.listOfServices.mockResolvedValue([sailing()]);
+  });
+
+  it("gives each coming sailing with its service, its fill, the room left and what to watch - and no money", async () => {
+    repo.boxShipmentsOf.mockResolvedValue(new Map([[SAILING, [shipment({ totalVolumeCbm: "9.08", totalWeightTons: "1.95", dangerous: "Yes" }), shipment({ status: "Cancelled Shipment" })]]]));
+    const board = await service.board(COMPANY);
+    expect(services.list).toHaveBeenCalledWith(COMPANY, "user");
+    expect(board.sailings).toMatchObject([{ id: SAILING, serviceLabel: "Import from Shanghai", cutoffDate: "2026-12-03", fill: { shipments: 1, volume: { pct: 13 } }, free: { cbm: 55.82, kg: 24250 }, cancelled: 1, dangerous: 1 }]);
+    expect(JSON.stringify(board)).not.toMatch(/profit|cost/i);
+  });
+
+  it("counts a service's waiting shipments: its Service Name, of the kind its box is for", async () => {
+    repo.waitingByKind.mockResolvedValue([
+      { serviceName: "isha", freightMode: "Sea Freight", loadType: "Consolidation", shipments: 3 },
+      { serviceName: "isha", freightMode: "Sea Freight", loadType: "Full Load", shipments: 2 },
+      { serviceName: "isha", freightMode: "Air Freight", loadType: "", shipments: 1 },
+      { serviceName: "domestic", freightMode: "Sea Freight", loadType: "Consolidation", shipments: 9 },
+    ]);
+    expect((await service.board(COMPANY)).services).toEqual([{ id: SERVICE, name: "Import from Shanghai", frequency: "weekly", waiting: 3 }]);
+  });
+
+  it("gives managers the profit of the coming sailings only", async () => {
+    repo.listByService.mockResolvedValue([sailing(), sailing({ id: OTHER, departureDate: "2026-10-01" })]);
+    boxCosts.repo.listOf.mockResolvedValue([]);
+    const profits = await service.boardProfits(COMPANY);
+    expect(profits.map((p) => p.sailingId)).toEqual([SAILING]);
+  });
+
+  it("finds services and sailings by every word typed, as the asker sees the services", async () => {
+    expect((await service.searchMain(COMPANY, "user", "shanghai import", 5)).items.map((i) => [i.kind, i.title])).toEqual([["service", "Import from Shanghai"], ["sailing", "WEEK 51"]]);
+    expect(services.list).toHaveBeenLastCalledWith(COMPANY, "user");
+    expect((await service.searchMain(COMPANY, "manager", "week 51", 5)).items).toMatchObject([{ kind: "sailing", id: SAILING, serviceId: SERVICE, serviceLabel: "Import from Shanghai", pol: "Shanghai (CNSHA)" }]);
+    expect(await service.searchMain(COMPANY, "user", "rotterdam", 5)).toEqual({ items: [], total: 0 });
+    expect(await service.searchMain(COMPANY, "user", "shanghai", 1)).toMatchObject({ total: 2, items: [{ kind: "service" }] });
   });
 });

@@ -81,6 +81,39 @@ const masterJobs: Source<interfaces.SearchMasterJobItem> = {
   // house job numbers this search also finds them by, so it would list fewer than the count says.
 };
 
+// Co-Loading Concept: its services and their sailings (Council Outlay 14, A10).
+const coLoading: Source<interfaces.SearchCoLoadingItem> = {
+  kind: "coLoading",
+  label: "Co-Loading Concept",
+  fetch: (q, limit) => api.shipments.searchCoLoading({ q, limit }),
+  hit: (c) => ({
+    key: `co-loading-${c.kind}-${c.id}`,
+    href: c.kind === "sailing" ? `/co-loading/${c.serviceId}/sailings/${c.id}` : `/co-loading/${c.id}`,
+    title: c.title,
+    isRef: c.kind === "sailing",
+    subtitle:
+      c.kind === "sailing"
+        ? line("Sailing", c.serviceLabel, route(c.pol, c.pod), c.cutoffDate && `cut-off ${formatDate(c.cutoffDate)}`, c.departureDate && `departure ${formatDate(c.departureDate)}`)
+        : line("Service", c.serviceName, route(c.pol, c.pod)),
+    mark: c.closed ? <Pill tone="slate">Closed</Pill> : undefined,
+  }),
+  // No "Show all": no one list holds services and sailings together.
+};
+
+// Saved loading plans, by their name or the job they are linked to (Council Outlay 14, A10).
+const loadingPlans: Source<interfaces.LoadingPlanSummary> = {
+  kind: "loadingPlans",
+  label: "Loading Planner",
+  fetch: (q, limit) => api.loadingPlanner.searchLoadingPlans({ q, limit }),
+  hit: (p) => ({
+    key: `loading-plan-${p.id}`,
+    href: `/loading-planner/${p.id}`,
+    title: p.name,
+    subtitle: line(p.linkRef && `Linked to ${p.linkRef}`, `${p.colli} colli`, `saved ${formatDate(p.updatedAt)}`),
+  }),
+  // No "Show all": the planner's list has its own search box.
+};
+
 const containers: Source<interfaces.SearchContainerItem> = {
   kind: "containers",
   label: "Containers",
@@ -175,7 +208,7 @@ const invoices: Source<interfaces.SearchInvoiceItem> = {
   }),
 };
 
-const SOURCES = [shipments, masterJobs, containers, warehouse, warehouseConcept, customers, quotes, invoices] as const;
+const SOURCES = [shipments, masterJobs, coLoading, containers, warehouse, warehouseConcept, customers, quotes, loadingPlans, invoices] as const;
 
 /** `allowed` false leaves a kind out for this user (it is not asked, and shows no group). */
 function useSourceGroup<T>(source: Source<T>, q: string, limit: number, allowed = true): SearchGroup {
@@ -203,8 +236,8 @@ function useSourceGroup<T>(source: Source<T>, q: string, limit: number, allowed 
 
 /**
  * Everything the main search finds for `q`, by kind and in a fixed order: the app's pages the
- * user's menu lists, then shipments, master jobs, containers, warehouse records, companies, quotes
- * and invoices - at most
+ * user's menu lists, then shipments, master jobs, Co-Loading services and sailings, containers, warehouse records,
+ * companies, quotes, loading plans and invoices - at most
  * `limit` of each. Each kind is asked on its own, so one that answers first shows first.
  */
 export function useGlobalSearch(q: string, limit: number): SearchGroup[] {
@@ -227,10 +260,12 @@ export function useGlobalSearch(q: string, limit: number): SearchGroup[] {
     useSourceGroup(SOURCES[1], q, limit),
     useSourceGroup(SOURCES[2], q, limit),
     useSourceGroup(SOURCES[3], q, limit),
-    useSourceGroup(SOURCES[4], q, limit, user?.role === "superadmin"),
-    useSourceGroup(SOURCES[5], q, limit),
+    useSourceGroup(SOURCES[4], q, limit),
+    useSourceGroup(SOURCES[5], q, limit, user?.role === "superadmin"),
     useSourceGroup(SOURCES[6], q, limit),
     useSourceGroup(SOURCES[7], q, limit),
+    useSourceGroup(SOURCES[8], q, limit),
+    useSourceGroup(SOURCES[9], q, limit),
   ];
   return [pages, ...found];
 }

@@ -1,4 +1,4 @@
-import { and, asc, count, desc, eq, gte, inArray, isNotNull, isNull, or } from "drizzle-orm";
+import { and, asc, count, desc, eq, gte, inArray, isNotNull, isNull, ne, or, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { db } from "../db/db";
 import {
@@ -228,7 +228,40 @@ class CoLoadingSailingRepository {
       .from(sailings)
       .where(and(eq(sailings.companyId, companyId), inArray(sailings.serviceId, serviceIds), isNull(sailings.deletedAt), or(isNull(sailings.departureDate), gte(sailings.departureDate, today))))
       .orderBy(asc(sailings.departureDate), asc(sailings.createdAt))
-      .limit(50);
+      .limit(200);
+  }
+
+  /** Every live sailing of these services, the newest first: what the main search looks through. */
+  async listOfServices(serviceIds: string[], companyId: string): Promise<CoLoadingSailingRecord[]> {
+    if (serviceIds.length === 0) return [];
+    return db
+      .select()
+      .from(sailings)
+      .where(and(eq(sailings.companyId, companyId), inArray(sailings.serviceId, serviceIds), isNull(sailings.deletedAt)))
+      .orderBy(desc(sailings.createdAt))
+      .limit(2000);
+  }
+
+  /**
+   * The company's live shipments on no sailing, counted by Service Name (trimmed, lower case), mode
+   * and load type: what each service's waiting shipments are worked out from. A cancelled shipment
+   * waits for no box; one with no Service Name belongs to no service.
+   */
+  async waitingByKind(companyId: string, cancelledStatus: string): Promise<{ serviceName: string; freightMode: string; loadType: string; shipments: number }[]> {
+    const name = sql<string>`lower(trim(${shipmentTable.serviceName}))`;
+    return db
+      .select({ serviceName: name, freightMode: shipmentTable.freightMode, loadType: shipmentTable.loadType, shipments: count() })
+      .from(shipmentTable)
+      .where(
+        and(
+          eq(shipmentTable.companyId, companyId),
+          isNull(shipmentTable.deletedAt),
+          ne(shipmentTable.status, cancelledStatus),
+          sql`trim(${shipmentTable.serviceName}) <> ''`,
+          sql`NOT EXISTS (SELECT 1 FROM ${links} WHERE ${links.shipmentId} = ${shipmentTable.id} AND ${links.companyId} = ${shipmentTable.companyId} AND ${links.deletedAt} IS NULL)`,
+        ),
+      )
+      .groupBy(name, shipmentTable.freightMode, shipmentTable.loadType);
   }
 
   /**
@@ -366,6 +399,9 @@ class CoLoadingSailingRepository {
         weightPerPcKg: dimensions.weightPerPcKg,
         volumePerPcM3: dimensions.volumePerPcM3,
         stackable: dimensions.stackable,
+        // The dangerous goods a line names, for the box's dangerous-cargo card.
+        adrUn: dimensions.adrUn,
+        adrClass: dimensions.adrClass,
       })
       .from(dimensions)
       .where(and(eq(dimensions.companyId, companyId), inArray(dimensions.shipmentId, rows.map((r) => r.id)), isNull(dimensions.deletedAt)))

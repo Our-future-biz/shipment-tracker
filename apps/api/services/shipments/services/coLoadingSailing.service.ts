@@ -3,8 +3,9 @@ import log from "encore.dev/log";
 import { fx, invoicing } from "~encore/clients";
 import { businessDay } from "../../../lib/businessDate";
 import { isUuid } from "../../../lib/uuid";
+import { hasEveryWord } from "../../../lib/mainSearch";
 import { capacityOf, containerCapacity } from "../../../lib/containerCapacity";
-import type { BoxCostChange, BoxUtilization, CoLoadingSailingItem, SailingEarnings, SailingProfit, SailingRemovedShipment, ShipmentSailing } from "../interfaces/interfaces";
+import type { BoxCostChange, BoxUtilization, CoLoadingBoard, CoLoadingSailingItem, SailingEarnings, SailingProfit, SailingRemovedShipment, SearchCoLoadingItem, ShipmentSailing } from "../interfaces/interfaces";
 import { boxCostsOf, checkBoxCosts, type BoxCostLineInput, type BoxCostStored, type BoxRates } from "../lib/coLoadingBoxCosts";
 import { canManageServices } from "../lib/coLoadingService";
 import { BoxCostsChangedMeanwhile, coLoadingBoxCostRepository as boxCostRepo } from "../repositories/coLoadingBoxCost.repository";
@@ -288,6 +289,80 @@ class CoLoadingSailingService {
       if (refusal) throw APIError.failedPrecondition(refusal.refused);
     });
     if (!gone) throw APIError.notFound("Sailing not found");
+  }
+
+  /**
+   * The board of all services (Council Outlay 14, A6): every open service's sailings still to come
+   * with how full each box is and the room left, and each service's shipments waiting for a box.
+   * For everyone; no money. Read together: the services, their coming sailings, the cargo of all
+   * those boxes in two reads, and the waiting shipments in one.
+   */
+  async board(companyId: string): Promise<CoLoadingBoard> {
+    // Open services only, as users see them: a closed one takes nothing new.
+    const services = await coLoadingServiceService.list(companyId, "user");
+    const [coming, planningPct, waiting] = await Promise.all([
+      repo.comingOfServices(services.map((s) => s.id), companyId, today()),
+      coLoadingServiceService.planningVolumePct(companyId),
+      repo.waitingByKind(companyId, CANCELLED_STATUS),
+    ]);
+    const cargo = await repo.boxShipmentsOf(coming.map((c) => c.id), companyId);
+    return {
+      sailings: coming.flatMap((c) => {
+        const service = services.find((s) => s.id === c.serviceId);
+        if (!service) return [];
+        const box = fillOf(c, service, planningPct, cargo.get(c.id) ?? []);
+        return [
+          {
+            ...toItem(c),
+            serviceLabel: service.name,
+            fill: boxFillOf(box),
+            free: { cbm: box.volume?.free ?? null, kg: box.weight?.free ?? null },
+            cancelled: box.notCounted,
+            dangerous: box.rows.filter((r) => r.counted && r.dangerous).length,
+          },
+        ];
+      }),
+      services: services.map((s) => {
+        const own = s.serviceName.trim().toLowerCase();
+        // Of its Service Name, and of the kind its box is for: a full load or an air job waits for no LCL box.
+        const mine = own ? waiting.filter((w) => w.serviceName === own && !oddInBox(s.mode, w)) : [];
+        return { id: s.id, name: s.name, frequency: s.frequency, waiting: mine.reduce((n, w) => n + w.shipments, 0) };
+      }),
+    };
+  }
+
+  /**
+   * The profit of every sailing still to come, for the board (D8). For managers: the controller lets
+   * only them ask. Each service's sailings are worked out as its own list does (profits).
+   */
+  async boardProfits(companyId: string): Promise<SailingProfit[]> {
+    const services = await coLoadingServiceService.list(companyId, "user");
+    const coming = await repo.comingOfServices(services.map((s) => s.id), companyId, today());
+    const ids = new Set(coming.map((c) => c.id));
+    const out: SailingProfit[] = [];
+    for (const serviceId of new Set(coming.map((c) => c.serviceId))) out.push(...(await this.profits(serviceId, companyId)).filter((p) => ids.has(p.sailingId)));
+    return out;
+  }
+
+  /**
+   * The main search in Co-Loading Concept: the services `role` sees and their sailings that have
+   * every word typed - in a service's name, Service Name, route or note; in a sailing's vessel,
+   * voyage, ports or HUB. Services first, then sailings, the newest first.
+   */
+  async searchMain(companyId: string, role: string, q: string, limit: number): Promise<{ items: SearchCoLoadingItem[]; total: number }> {
+    const services = await coLoadingServiceService.list(companyId, role);
+    const sailings = await repo.listOfServices(services.map((s) => s.id), companyId);
+    const found: SearchCoLoadingItem[] = [
+      ...services
+        .filter((s) => hasEveryWord([s.name, s.serviceName, s.origin, s.destination, s.note], q))
+        .map((s) => ({ kind: "service", id: s.id, serviceId: s.id, title: s.name, serviceLabel: "", serviceName: s.serviceName, pol: s.origin, pod: s.destination, cutoffDate: null, departureDate: null, closed: s.closedAt !== null })),
+      ...sailings.flatMap((r) => {
+        const service = services.find((s) => s.id === r.serviceId);
+        if (!service || !hasEveryWord([r.vessel, r.voyage, r.pol, r.pod, r.hub, service.name], q)) return [];
+        return [{ kind: "sailing", id: r.id, serviceId: r.serviceId, title: [r.vessel, r.voyage].filter(Boolean).join(" "), serviceLabel: service.name, serviceName: service.serviceName, pol: r.pol, pod: r.pod, cutoffDate: r.cutoffDate, departureDate: r.departureDate, closed: service.closedAt !== null }];
+      }),
+    ];
+    return { items: found.slice(0, limit), total: found.length };
   }
 
   /** The sailing each of these shipments is on, by shipment, for the Shipments list's Sailing column: one read for the page. */

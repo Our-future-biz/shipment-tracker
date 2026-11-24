@@ -1,8 +1,9 @@
 import { api } from "encore.dev/api";
 import type { MaxLen } from "encore.dev/validate";
 import { getAuthData } from "~encore/auth";
+import { mainSearchInput } from "../../../lib/mainSearch";
 import { requireRole } from "../../../lib/rbac";
-import type { BoxCostChange, BoxUtilization, CoLoadingSailingItem, SailingEarnings, SailingProfit, SailingRemovedShipment, ShipmentSailing } from "../interfaces/interfaces";
+import type { BoxCostChange, BoxUtilization, CoLoadingBoard, CoLoadingSailingItem, SearchCoLoadingItem, SearchMasterJobsRequest, SailingEarnings, SailingProfit, SailingRemovedShipment, ShipmentSailing } from "../interfaces/interfaces";
 import { coLoadingSailingService as service } from "../services/coLoadingSailing.service";
 
 // A Co-Loading Concept service's sailings (lib/coLoadingSailing), for everyone in the company.
@@ -220,5 +221,26 @@ export const coLoadingSailingCreate = api(
   { expose: true, auth: true, method: "POST", path: "/co-loading/services/:id/sailings" },
   async ({ id, ...input }: CoLoadingSailingCreateRequest): Promise<{ sailing: CoLoadingSailingItem }> => {
     return { sailing: await service.create(id, input, getAuthData()!) };
+  },
+);
+
+// The board of all services: their sailings still to come and the shipments waiting for a box (Council Outlay 14, A6). No money.
+export const coLoadingBoard = api({ expose: true, auth: true, method: "GET", path: "/co-loading/board" }, async (): Promise<CoLoadingBoard> => {
+  return service.board(getAuthData()!.companyID);
+});
+
+// The profit of the board's sailings. Managers and admins.
+export const coLoadingBoardProfits = api({ expose: true, auth: true, method: "GET", path: "/co-loading/board/profits" }, async (): Promise<{ data: SailingProfit[] }> => {
+  return { data: await service.boardProfits(requireRole("superadmin", "admin", "manager").companyID) };
+});
+
+// The main search (the top bar) in Co-Loading Concept: services and sailings. Fewer than 2 characters give nothing.
+export const searchCoLoading = api(
+  { expose: true, auth: true, method: "GET", path: "/search/co-loading" },
+  async (req: SearchMasterJobsRequest): Promise<{ items: SearchCoLoadingItem[]; total: number }> => {
+    const input = mainSearchInput(req.q, req.limit);
+    if (!input) return { items: [], total: 0 };
+    const auth = getAuthData()!;
+    return service.searchMain(auth.companyID, auth.role, input.q, input.limit);
   },
 );

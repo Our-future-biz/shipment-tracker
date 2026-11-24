@@ -2351,6 +2351,54 @@ export interface ShipmentSailing {
   coming: ShipmentSailingItem[];
 }
 
+/** A sailing still to come, as the board of all services shows it (Council Outlay 14, A6). No money. */
+export interface CoLoadingBoardSailing extends ShipmentSailingItem {
+  /** The room left to its limits, in cbm and kg; negative when over; null where the box has no such meter. */
+  free: { cbm: number | null; kg: number | null };
+  /** Cancelled shipments still linked: listed in the box, not counted. */
+  cancelled: number;
+  /** Counted shipments with dangerous cargo. */
+  dangerous: number;
+}
+
+/** A service on the board: what waits for a box, and how often it sails. */
+export interface CoLoadingBoardService {
+  id: string;
+  name: string;
+  /** weekly | bi_weekly | ad_hoc */
+  frequency: string;
+  /** Its shipments on no sailing yet: not cancelled, of the kind its box is for. */
+  waiting: number;
+}
+
+/** The board: every open service's sailings still to come, and each service's waiting shipments. */
+export interface CoLoadingBoard {
+  /** No departure date yet, or one of today or later; the soonest departure first, the undated last. */
+  sailings: CoLoadingBoardSailing[];
+  services: CoLoadingBoardService[];
+}
+
+/** One thing of Co-Loading Concept the main search found: a service, or a sailing. */
+export interface SearchCoLoadingItem {
+  /** "service" | "sailing" */
+  kind: string;
+  id: string;
+  serviceId: string;
+  /** The service's name, or the sailing's vessel and voyage: "WEEK 51", "MSC Anna 445W" */
+  title: string;
+  /** A sailing's service; "" for a service. */
+  serviceLabel: string;
+  /** The service's Service Name: ISHA */
+  serviceName: string;
+  /** A sailing's ports and dates; "" / null for a service. */
+  pol: string;
+  pod: string;
+  cutoffDate: string | null;
+  departureDate: string | null;
+  /** The service is closed. */
+  closed: boolean;
+}
+
 /** A shipment taken off a sailing: who took it off, when and why. */
 export interface SailingRemovedShipment {
   shipmentId: string;
@@ -2419,7 +2467,10 @@ export interface BoxUtilizationRow {
   weightSharePct: number | null;
   volumeSharePct: number | null;
   notStackable: boolean;
+  /** Marked dangerous on the shipment, or a cargo line names a UN number or a class. */
   dangerous: boolean;
+  /** The dangerous goods its cargo lines name, each once: "UN 1263 · class 3". Empty when none is named. */
+  adr: string[];
   outOfGauge: boolean;
   temperatureControlled: boolean;
   /** Why it is an odd one in this box: another mode ("Air Freight") or a container of its own ("Full Load"); null when it belongs. */

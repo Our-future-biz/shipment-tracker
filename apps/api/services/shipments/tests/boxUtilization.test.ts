@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 vi.mock("encore.dev/api", () => import("../../../lib/tests/encoreApi.stub"));
 
 import { capacityOf, containerCapacity } from "../../../lib/containerCapacity";
-import { boxFillOf, boxUtilization, meterOf, wholePct, type BoxShipment } from "../lib/boxUtilization";
+import { adrClassesOf, adrOf, boxFillOf, boxUtilization, meterOf, wholePct, type BoxShipment } from "../lib/boxUtilization";
 import { NOT_STACKABLE } from "../lib/cargoProjection";
 
 // A 40' HC: 64.9 cbm planning of 76.4 inside; 26,200 kg standard, 28,400 at most.
@@ -224,5 +224,24 @@ describe("boxFillOf", () => {
   it("has no volume for a reefer and nothing for a type without capacity", () => {
     expect(boxFillOf(boxUtilization("40' HRF", containerCapacity("40' HRF"), [typed("10", "30")], PLAN))).toMatchObject({ volume: null, weight: { pct: 36, state: "room" }, fullPct: 36 });
     expect(boxFillOf(boxUtilization("53' HC", containerCapacity("53' HC"), [], PLAN))).toEqual({ volume: null, weight: null, fullPct: null, shipments: 0, missing: 0 });
+  });
+});
+
+describe("the dangerous goods a box holds (Council Outlay 14, A11)", () => {
+  const line = (more: { adrUn?: string | null; adrClass?: string | null }): BoxShipment["cargoDimensions"][number] => ({ pieces: "1", lengthCm: "100", widthCm: "100", heightCm: "100", weightPerPcKg: "100", volumePerPcM3: null, stackable: "", ...more });
+
+  it("names each UN number and class once, from the cargo lines", () => {
+    expect(adrOf([line({ adrUn: "1263", adrClass: "3" }), line({ adrUn: "1263", adrClass: "3" }), line({ adrUn: null, adrClass: " 8 " }), line({ adrUn: "3480" }), line({})])).toEqual(["UN 1263 · class 3", "class 8", "UN 3480"]);
+    expect(adrOf([line({})])).toEqual([]);
+  });
+
+  it("reads the classes out of the marks, each once", () => {
+    expect(adrClassesOf(["UN 1263 · class 3", "class 8", "UN 3480", "UN 1993 · class 3"])).toEqual(["3", "8"]);
+  });
+
+  it("counts a shipment as dangerous when it is ticked so, or when a line names a UN number", () => {
+    const capacity = capacityOf(1, containerCapacity("40' HC", 0.85)!);
+    const box = boxUtilization("40' HC", capacity, [shipment({ dangerous: "Yes" }), shipment({ cargoDimensions: [line({ adrUn: "1263", adrClass: "3" })] }), shipment()], { planningPct: 85, inlandWeightKg: null, containers: 1 });
+    expect(box.rows.map((r) => [r.dangerous, r.adr]).sort()).toEqual([[false, []], [true, []], [true, ["UN 1263 · class 3"]]].sort());
   });
 });

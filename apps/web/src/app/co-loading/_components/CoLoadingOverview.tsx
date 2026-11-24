@@ -2,17 +2,22 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Input } from "antd";
 import { PlusOutlined, SearchOutlined, SettingOutlined } from "@ant-design/icons";
 import { ArrowsMergeIcon, CaretRightIcon } from "@phosphor-icons/react";
 import { Pill } from "@/components/Pill";
-import { useCoLoadingServices } from "@/hooks/useCoLoadingServices";
+import { useCoLoadingBoard, useCoLoadingServices } from "@/hooks/useCoLoadingServices";
 import { useAuth } from "@/lib/auth/AuthContext";
-import { formatDate } from "@/lib/date";
+import { businessToday, formatDate } from "@/lib/date";
 import { useMessages } from "@/lib/toast";
 import { BTN, BTN_PRIMARY, CARD, HINT, PAGE_SUBTITLE, PAGE_TITLE } from "@/styles/ui";
 import { canManageServices, closedLine, searchServices, tileLine, tilesInOrder } from "../_lib/services";
+import { byCutoff, sailingAttention, serviceAttention } from "../_lib/attention";
+import { cutoffWords, sailingTitle } from "../_lib/sailings";
+import { AttentionChips } from "./AttentionChips";
 import { CoLoadingSettingsModal } from "./CoLoadingSettingsModal";
+import { SailingsBoard } from "./SailingsBoard";
 import { NewServiceModal } from "./NewServiceModal";
 
 // Co-Loading Concept's own page: the consolidation hub customer service works in. The bar (New Service on
@@ -29,6 +34,15 @@ export function CoLoadingOverview() {
   const [adding, setAdding] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const shown = useMemo(() => tilesInOrder(searchServices(services, query)), [services, query]);
+  // Two views of the same work (Council Outlay 14, A6): the services as tiles, or every coming sailing in one table. Kept in the address (?view=sailings).
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const view = searchParams.get("view") === "sailings" ? "sailings" : "services";
+  const openView = (next: "services" | "sailings") => router.replace(next === "sailings" ? `${pathname}?view=sailings` : pathname, { scroll: false });
+  // Each tile says what is next on its service: read with the board, so the tiles need no read of their own.
+  const { board } = useCoLoadingBoard();
+  const today = businessToday();
 
   let empty: string | null = null;
   if (isLoading) empty = "Loading services…";
@@ -45,7 +59,7 @@ export function CoLoadingOverview() {
           </span>
           <div className="min-w-0">
             <h1 className={PAGE_TITLE}>Co-Loading Concept</h1>
-            <p className={`${PAGE_SUBTITLE} mt-0.5`}>The consolidation hub for customer service in operations. Pick the service to work in.</p>
+            <p className={`${PAGE_SUBTITLE} mt-0.5`}>The consolidation hub for customer service in operations. Pick the service to work in, or see every sailing still to come.</p>
           </div>
         </div>
 
@@ -62,6 +76,7 @@ export function CoLoadingOverview() {
           <div className="flex flex-1 basis-[220px] justify-center min-w-[200px]">
             <Input
               placeholder="Search services..."
+              disabled={view === "sailings"}
               aria-label="Search services"
               prefix={<SearchOutlined className="text-slate-400" />}
               value={query}
@@ -79,7 +94,30 @@ export function CoLoadingOverview() {
           </div>
         </div>
 
-        {empty ? (
+        <nav aria-label="Views" className="flex gap-0 border-b border-slate-200">
+          {(
+            [
+              ["services", "Services"],
+              ["sailings", `Sailings to come${board ? ` (${board.sailings.length})` : ""}`],
+            ] as const
+          ).map(([key, label]) => (
+            <button
+              key={key}
+              type="button"
+              aria-current={view === key ? "page" : undefined}
+              onClick={() => openView(key)}
+              className={`-mb-px cursor-pointer border-0 border-b-2 bg-transparent px-3.5 py-2.5 text-[13px] whitespace-nowrap transition-colors ${
+                view === key ? "border-indigo-600 font-semibold text-indigo-600" : "border-transparent font-medium text-slate-500 hover:text-slate-900"
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </nav>
+
+        {view === "sailings" ? (
+          <SailingsBoard isManager={isManager} />
+        ) : empty ? (
           <p className={`${HINT} m-0`}>{empty}</p>
         ) : (
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
@@ -100,6 +138,28 @@ export function CoLoadingOverview() {
                   <span className={`block ${HINT} mt-1`}>{tileLine(s)}</span>
                   {s.note && <span className={`block ${HINT} mt-0.5`}>{s.note}</span>}
                   {s.closedAt && <span className={`block ${HINT} mt-0.5`}>{closedLine(s, formatDate)} · hidden from users</span>}
+                  {/* What is next on the service: its soonest sailing by cut-off, and what needs a look (Council Outlay 14, A6 and A7). */}
+                  {!s.closedAt &&
+                    board &&
+                    (() => {
+                      const mine = byCutoff(board.sailings.filter((x) => x.serviceId === s.id));
+                      const next = mine[0];
+                      const service = board.services.find((x) => x.id === s.id);
+                      const near = next ? cutoffWords(next.cutoffDate, today) : "";
+                      return (
+                        <span className="mt-2 flex flex-col gap-1">
+                          {next && (
+                            <span className="text-[12px] text-slate-700">
+                              Next: <span className="font-semibold">{sailingTitle(next)}</span>
+                              {next.cutoffDate ? ` · cut-off ${formatDate(next.cutoffDate)}${near ? ` (${near})` : ""}` : " · no cut-off"}
+                              {next.fill && next.fill.fullPct !== null ? ` · box ${next.fill.fullPct}%` : ""}
+                              {mine.length > 1 ? ` · ${mine.length} sailings to come` : ""}
+                            </span>
+                          )}
+                          <AttentionChips flags={[...(next ? sailingAttention(next, today) : []), ...(service ? serviceAttention(service, mine.length) : [])]} />
+                        </span>
+                      );
+                    })()}
                 </span>
                 <CaretRightIcon size={16} weight="bold" aria-hidden className="shrink-0 text-slate-400 group-hover:text-indigo-600" />
               </Link>

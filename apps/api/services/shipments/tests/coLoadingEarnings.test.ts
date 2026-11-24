@@ -18,7 +18,7 @@ const row = (more: Partial<BoxUtilizationRow> = {}): BoxUtilizationRow => ({
   weightSharePct: null,
   volumeSharePct: null,
   notStackable: false,
-  dangerous: false,
+  dangerous: false, adr: [],
   outOfGauge: false,
   temperatureControlled: false,
   odd: null,

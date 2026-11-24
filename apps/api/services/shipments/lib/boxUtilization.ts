@@ -31,8 +31,20 @@ export interface BoxShipment {
   pcs: string | null;
   totalWeightTons: string | null;
   totalVolumeCbm: string | null;
-  cargoDimensions: { pieces: string; lengthCm: string; widthCm: string; heightCm: string; weightPerPcKg: string; volumePerPcM3: string | null; stackable: string }[];
+  cargoDimensions: { pieces: string; lengthCm: string; widthCm: string; heightCm: string; weightPerPcKg: string; volumePerPcM3: string | null; stackable: string; adrUn?: string | null; adrClass?: string | null }[];
 }
+
+/**
+ * The dangerous goods a shipment's cargo lines name, each once: "UN 1263 · class 3", or one of the
+ * two alone where a line gives only that. Empty when no line names any.
+ */
+export function adrOf(lines: readonly { adrUn?: string | null; adrClass?: string | null }[]): string[] {
+  const named = lines.map((l) => [l.adrUn?.trim() ? `UN ${l.adrUn.trim()}` : "", l.adrClass?.trim() ? `class ${l.adrClass.trim()}` : ""].filter(Boolean).join(" · ")).filter(Boolean);
+  return [...new Set(named)];
+}
+
+/** The dangerous-goods classes among these marks ("UN 1263 · class 3" → "3"), each once, in order. */
+export const adrClassesOf = (adr: readonly string[]): string[] => [...new Set(adr.flatMap((a) => /class (\S+)/.exec(a)?.[1] ?? []))].sort();
 
 const round = (n: number, decimals: number) => Math.round(n * 10 ** decimals) / 10 ** decimals;
 const yes = (v: string) => v.trim().toLowerCase() === "yes";
@@ -103,7 +115,9 @@ export function boxUtilization(containerType: string, capacity: ContainerCapacit
       weightSharePct: weightLimit ? round((weightKg / weightLimit) * 100, 1) : null,
       volumeSharePct: volumeLimit ? round((volumeCbm / volumeLimit) * 100, 1) : null,
       notStackable: s.cargoDimensions.some((d) => d.stackable === NOT_STACKABLE),
-      dangerous: yes(s.dangerous),
+      // A line that names a UN number or a class makes it dangerous cargo too, whatever the shipment's own tick says.
+      dangerous: yes(s.dangerous) || adrOf(s.cargoDimensions).length > 0,
+      adr: adrOf(s.cargoDimensions),
       outOfGauge: yes(s.outOfGauge),
       temperatureControlled: yes(s.temperatureControlled),
       odd: s.odd,

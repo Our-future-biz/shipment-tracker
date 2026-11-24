@@ -2611,6 +2611,7 @@ export namespace loadingPlanner {
             this.loadingPlanDelete = this.loadingPlanDelete.bind(this)
             this.loadingPlanGet = this.loadingPlanGet.bind(this)
             this.loadingPlanList = this.loadingPlanList.bind(this)
+            this.searchLoadingPlans = this.searchLoadingPlans.bind(this)
             this.loadingPlanUpdate = this.loadingPlanUpdate.bind(this)
             this.plannerSettingsGet = this.plannerSettingsGet.bind(this)
             this.plannerSettingsSet = this.plannerSettingsSet.bind(this)
@@ -2641,6 +2642,21 @@ export namespace loadingPlanner {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("GET", `/loading-plans/${encodeURIComponent(id)}`)
             return await resp.json() as controllers.LoadingPlanGetResponse
+        }
+
+        /**
+         * The main search (the top bar) in loading plans: by a plan's name or its linked job's reference.
+         */
+        public async searchLoadingPlans(params: interfaces.SearchMasterJobsRequest): Promise<{ items: interfaces.LoadingPlanSummary[]; total: number }> {
+            // Convert our params into the objects we need for the request
+            const query = makeRecord<string, string | string[]>({
+                limit: params.limit === undefined ? undefined : String(params.limit),
+                q:     params.q,
+            })
+
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/search/loading-plans`, undefined, {query})
+            return await resp.json() as { items: interfaces.LoadingPlanSummary[]; total: number }
         }
 
         /**
@@ -3417,6 +3433,9 @@ export namespace shipments {
             this.coLoadingSailingBoxCostsSave = this.coLoadingSailingBoxCostsSave.bind(this)
             this.coLoadingSailingDetails = this.coLoadingSailingDetails.bind(this)
             this.coLoadingSailingRemove = this.coLoadingSailingRemove.bind(this)
+            this.coLoadingBoard = this.coLoadingBoard.bind(this)
+            this.coLoadingBoardProfits = this.coLoadingBoardProfits.bind(this)
+            this.searchCoLoading = this.searchCoLoading.bind(this)
             this.coLoadingSailingMoveShipments = this.coLoadingSailingMoveShipments.bind(this)
             this.coLoadingSailingUnlinkShipments = this.coLoadingSailingUnlinkShipments.bind(this)
             this.coLoadingShipmentSailing = this.coLoadingShipmentSailing.bind(this)
@@ -3778,6 +3797,39 @@ export namespace shipments {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("POST", `/co-loading/sailings/${encodeURIComponent(id)}/remove-shipments`, JSON.stringify(params))
             return await resp.json() as { removed: number }
+        }
+
+        /**
+         * The board of all services: their sailings still to come and the shipments waiting for a box. No money.
+         */
+        public async coLoadingBoard(): Promise<interfaces.CoLoadingBoard> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/co-loading/board`)
+            return await resp.json() as interfaces.CoLoadingBoard
+        }
+
+        /**
+         * The profit of the board's sailings. Managers and admins.
+         */
+        public async coLoadingBoardProfits(): Promise<{ data: interfaces.SailingProfit[] }> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/co-loading/board/profits`)
+            return await resp.json() as { data: interfaces.SailingProfit[] }
+        }
+
+        /**
+         * The main search (the top bar) in Co-Loading Concept: services and sailings.
+         */
+        public async searchCoLoading(params: interfaces.SearchMasterJobsRequest): Promise<{ items: interfaces.SearchCoLoadingItem[]; total: number }> {
+            // Convert our params into the objects we need for the request
+            const query = makeRecord<string, string | string[]>({
+                limit: params.limit === undefined ? undefined : String(params.limit),
+                q:     params.q,
+            })
+
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/search/co-loading`, undefined, {query})
+            return await resp.json() as { items: interfaces.SearchCoLoadingItem[]; total: number }
         }
 
         /**
@@ -16366,6 +16418,10 @@ export namespace interfaces {
         volumeSharePct: number | null
         notStackable: boolean
         dangerous: boolean
+        /**
+         * The dangerous goods its cargo lines name, each once: "UN 1263 · class 3". Empty when none is named.
+         */
+        adr: string[]
         outOfGauge: boolean
         temperatureControlled: boolean
         /**
@@ -16473,6 +16529,72 @@ export namespace interfaces {
          * Those services' sailings still to come (no departure date, or one of today or later), the soonest first.
          */
         coming: ShipmentSailingItem[]
+    }
+
+    /**
+     * A sailing still to come, as the board of all services shows it (Council Outlay 14, A6). No money.
+     */
+    export interface CoLoadingBoardSailing extends ShipmentSailingItem {
+        /**
+         * The room left to its limits, in cbm and kg; negative when over; null where the box has no such meter.
+         */
+        free: { cbm: number | null; kg: number | null }
+
+        /**
+         * Cancelled shipments still linked: listed in the box, not counted.
+         */
+        cancelled: number
+
+        /**
+         * Counted shipments with dangerous cargo.
+         */
+        dangerous: number
+    }
+
+    /**
+     * A service on the board: what waits for a box, and how often it sails.
+     */
+    export interface CoLoadingBoardService {
+        id: string
+        name: string
+        /**
+         * weekly | bi_weekly | ad_hoc
+         */
+        frequency: string
+
+        /**
+         * Its shipments on no sailing yet: not cancelled, of the kind its box is for.
+         */
+        waiting: number
+    }
+
+    /**
+     * The board: every open service's sailings still to come, and each service's waiting shipments.
+     */
+    export interface CoLoadingBoard {
+        sailings: CoLoadingBoardSailing[]
+        services: CoLoadingBoardService[]
+    }
+
+    /**
+     * One thing of Co-Loading Concept the main search found: a service, or a sailing.
+     */
+    export interface SearchCoLoadingItem {
+        /**
+         * "service" | "sailing"
+         */
+        kind: string
+
+        id: string
+        serviceId: string
+        title: string
+        serviceLabel: string
+        serviceName: string
+        pol: string
+        pod: string
+        cutoffDate: string | null
+        departureDate: string | null
+        closed: boolean
     }
 
     /**

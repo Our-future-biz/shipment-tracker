@@ -28,8 +28,7 @@ import {
   usedOfLimit,
   type BoxMeter,
   type BoxUtilization,
-  type MeterKind,
-} from "../_lib/boxUtilization";
+  type MeterKind, specialCargoOf } from "../_lib/boxUtilization";
 
 const BAR_TONE = { indigo: "bg-indigo-500", amber: "bg-amber-500", red: "bg-red-500" } as const;
 const WORDS_TONE = { indigo: "text-slate-700", amber: "text-amber-700", red: "text-red-600" } as const;
@@ -133,6 +132,7 @@ export function BoxUtilizationTab({ sailingId, onOpenShipments }: BoxUtilization
   const { capacity, totals } = box;
   const missing = missingNote(box);
   const linked = box.rows.length;
+  const special = specialCargoOf(box);
 
   return (
     <div className="flex flex-col gap-4">
@@ -172,6 +172,51 @@ export function BoxUtilizationTab({ sailingId, onOpenShipments }: BoxUtilization
           hint={missing ? `${box.missing.weight} weight · ${box.missing.volume} volume` : "none"}
         />
       </div>
+
+      {/* Dangerous and special cargo (Council Outlay 14, A11): what the stuffing and the co-loader must know of, in one place. */}
+      {special && (
+        <SectionCard title="Dangerous and special cargo" extra={special.dangerous.length > 0 ? <CountChip count={special.dangerous.length} /> : undefined}>
+          <div className="flex flex-col gap-2.5">
+            {special.mixedClasses && (
+              <p className="m-0 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[13px] text-amber-800" role="status">
+                Classes {special.classes.join(" and ")} share this box: check the segregation with the co-loader before it is stuffed.
+              </p>
+            )}
+            {special.dangerous.length > 0 && (
+              <ul className="m-0 flex list-none flex-col gap-1.5 p-0">
+                {special.dangerous.map((d) => (
+                  <li key={d.shipmentId} className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px]">
+                    <Link href={`/shipments/${d.shipmentId}`} className={`${REF} ${LINK} font-semibold`}>
+                      {d.jobNumber || "(no number yet)"}
+                    </Link>
+                    {d.customer && <span className="text-slate-600">{d.customer}</span>}
+                    <span className="flex flex-wrap gap-1">
+                      {d.adr.length > 0 ? (
+                        d.adr.map((a) => (
+                          <Pill key={a} tone="amber">
+                            {a}
+                          </Pill>
+                        ))
+                      ) : (
+                        <Pill tone="red">Dangerous: no UN number or class on its cargo lines</Pill>
+                      )}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <p className={`${HINT} m-0`}>
+              {[
+                special.dangerous.length > 0 ? `${special.dangerous.length} with dangerous goods` : "No dangerous goods",
+                `${special.notStackable} not stackable`,
+                `${special.outOfGauge} out of gauge`,
+                `${special.temperatureControlled} temperature controlled`,
+              ].join(" · ")}
+              . The app names them; it does not check segregation.
+            </p>
+          </div>
+        </SectionCard>
+      )}
 
       <SectionCard title="Shipments in the box" bodyClassName="p-0" extra={linked > 0 ? <CountChip count={linked} /> : undefined}>
         {linked === 0 ? (

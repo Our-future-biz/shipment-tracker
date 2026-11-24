@@ -155,7 +155,7 @@ const row = (freightTons: number, more: Partial<BoxUtilizationRow> = {}): BoxUti
   weightSharePct: null,
   volumeSharePct: null,
   notStackable: false,
-  dangerous: false,
+  dangerous: false, adr: [],
   outOfGauge: false,
   temperatureControlled: false,
   odd: null,

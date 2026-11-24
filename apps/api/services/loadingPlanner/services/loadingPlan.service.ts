@@ -1,3 +1,4 @@
+import { hasEveryWord } from "../../../lib/mainSearch";
 import { APIError } from "encore.dev/api";
 import log from "encore.dev/log";
 import { quotes, shipments } from "~encore/clients";
@@ -89,6 +90,13 @@ class LoadingPlanService {
   async list(companyId: string, link?: { kind: PlanLinkKind; id: string }): Promise<{ plans: LoadingPlanSummary[]; capped: boolean }> {
     const { rows, capped } = await loadingPlanRepository.listLatest(companyId, link);
     return { plans: rows.map(toSummary), capped };
+  }
+
+  /** The main search: the plans that have every word typed in their name or their linked job's reference, the last saved first. Looked for among the plans the list shows. */
+  async searchMain(companyId: string, q: string, limit: number): Promise<{ items: LoadingPlanSummary[]; total: number }> {
+    const { rows } = await loadingPlanRepository.listLatest(companyId);
+    const found = rows.filter((r) => hasEveryWord([r.name, r.linkRef], q)).map(toSummary);
+    return { items: found.slice(0, limit), total: found.length };
   }
 
   // An id that is no id names no plan: answered so before Postgres refuses it with an error of its own.

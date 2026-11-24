@@ -7,12 +7,14 @@ import { BackLink } from "@/components/BackLink";
 import { useCoLoadingSailing, useCoLoadingService, useSailingEarnings, useSailingUtilization } from "@/hooks/useCoLoadingServices";
 import { apiErrorMessage } from "@/lib/api";
 import { useAuth } from "@/lib/auth/AuthContext";
-import { formatDate } from "@/lib/date";
+import { businessToday, formatDate } from "@/lib/date";
 import { BTN, CARD, EMPTY, LABEL_TEXT, PAGE_TITLE, REF } from "@/styles/ui";
 import { containersWords, fillOfBox } from "../_lib/boxUtilization";
 import { SAILING_TABS, sailingTabOf, sailingTabsFor, sailingTitle } from "../_lib/sailings";
 import { canManageServices } from "../_lib/services";
 import { profitGlance, sailingProfitOf } from "../_lib/earnings";
+import { sailingAttention } from "../_lib/attention";
+import { AttentionChips } from "./AttentionChips";
 import { BoxFillChip } from "./BoxFillChip";
 import { EditSailingModal } from "./EditSailingModal";
 import { BoxUtilizationTab } from "./BoxUtilizationTab";
@@ -71,6 +73,15 @@ export function CoLoadingSailingPage() {
   // A failed read says so (profitGlance of nothing); while it is still being read, a dash.
   const profit = earnings ? profitGlance(sailingProfitOf(sailing?.id ?? "", earnings)) : earningsFailed ? profitGlance(null) : null;
   const [editing, setEditing] = useState(false);
+  // What needs a look on this sailing, on every tab (Council Outlay 14, A7). Managers also hear of a box with no costs close to departure.
+  const flags =
+    sailing && box
+      ? sailingAttention(
+          { ...sailing, fill: fillOfBox(box), cancelled: box.notCounted, dangerous: box.rows.filter((r) => r.counted && r.dangerous).length },
+          businessToday(),
+          isManager && earnings ? sailingProfitOf(sailing.id, earnings).boxCostsSet : undefined,
+        )
+      : [];
   const openTab = (key: string) => {
     const params = new URLSearchParams(searchParams.toString());
     if (key === SAILING_TABS[0].key) params.delete("tab");
@@ -142,6 +153,13 @@ export function CoLoadingSailingPage() {
                 )}
               </div>
             </div>
+
+            {flags.length > 0 && (
+              <div className="mt-2.5 flex flex-wrap items-center gap-2">
+                <span className={LABEL_TEXT}>Needs a look</span>
+                <AttentionChips flags={flags} />
+              </div>
+            )}
 
             {/* Tabs, in the master job header's look */}
             <nav aria-label="Sailing sections" className="flex gap-0 mt-3.5 -mb-px overflow-x-auto">

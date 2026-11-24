@@ -128,6 +128,32 @@ export function rowNotes(row: BoxRow): { text: string; tone: "amber" | "red" | "
   return notes;
 }
 
+/** The dangerous and special cargo of a box (Council Outlay 14, A11): what the stuffing and the co-loader must know of. */
+export interface SpecialCargo {
+  /** The counted shipments with dangerous cargo, each with the UN numbers and classes its cargo lines name. */
+  dangerous: { shipmentId: string; jobNumber: string; customer: string; adr: string[] }[];
+  /** The classes among them, each once. */
+  classes: string[];
+  notStackable: number;
+  outOfGauge: number;
+  temperatureControlled: number;
+  /** Two or more classes share the box: segregation is to be checked. */
+  mixedClasses: boolean;
+  /** A dangerous shipment whose lines name no UN number or class. */
+  unnamed: number;
+}
+
+/** A box's dangerous and special cargo, from its counted rows; null when it holds none of it. */
+export function specialCargoOf(box: BoxUtilization): SpecialCargo | null {
+  const counted = box.rows.filter((r) => r.counted);
+  const dangerous = counted.filter((r) => r.dangerous).map((r) => ({ shipmentId: r.shipmentId, jobNumber: r.jobNumber, customer: r.customer, adr: r.adr ?? [] }));
+  const count = (pick: (r: BoxRow) => boolean) => counted.filter(pick).length;
+  const [notStackable, outOfGauge, temperatureControlled] = [count((r) => r.notStackable), count((r) => r.outOfGauge), count((r) => r.temperatureControlled)];
+  if (dangerous.length === 0 && notStackable + outOfGauge + temperatureControlled === 0) return null;
+  const classes = [...new Set(dangerous.flatMap((d) => d.adr.flatMap((a) => /class (\S+)/.exec(a)?.[1] ?? [])))].sort();
+  return { dangerous, classes, notStackable, outOfGauge, temperatureControlled, mixedClasses: classes.length > 1, unnamed: dangerous.filter((d) => d.adr.length === 0).length };
+}
+
 /** How full the box is, for the tile: "92% full", "Over: 104%", "Empty", or a dash when the type has no capacity. */
 export function fullWords(box: BoxUtilization): string {
   if (box.fullPct === null) return "—";

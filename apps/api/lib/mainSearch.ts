@@ -33,3 +33,13 @@ export function mainSearchInput(q: string | undefined, limit: number | undefined
   const asked = limit === undefined || !Number.isFinite(limit) ? MAIN_SEARCH_DEFAULT_LIMIT : Math.trunc(limit);
   return { q: text, limit: Math.min(Math.max(asked, 1), MAIN_SEARCH_MAX_LIMIT) };
 }
+
+/**
+ * Whether every word typed is somewhere in these texts, whatever the case: the main search's rule
+ * for a kind small enough to be matched in memory (Co-Loading services and sailings, loading plans).
+ */
+export function hasEveryWord(texts: readonly (string | null | undefined)[], q: string): boolean {
+  const hay = texts.filter(Boolean).join(" \u0000 ").toLowerCase();
+  const words = q.toLowerCase().split(/\s+/).filter(Boolean);
+  return words.length > 0 && words.every((w) => hay.includes(w));
+}
