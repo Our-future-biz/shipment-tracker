@@ -141,6 +141,7 @@ import { OVERWEIGHT_PAIR_ID, overweightUnexplained, withOverweight } from "../..
 import { QuoteHeavyPiecesDialogs } from "./_components/QuoteHeavyPiecesDialogs";
 import { QuoteChatDrawer, quoteThreadOf, useQuoteChatUnread } from "../../_components/QuoteChat";
 import { QuoteSection, QuoteStepTiles, type SectionStatus } from "./_components/QuoteSection";
+import { QuoteNextSailings } from "./_components/QuoteNextSailings";
 import { QuoteRoadCard } from "./_components/QuoteRoadCard";
 import { QuoteRoadPriceDrawer } from "./_components/QuoteRoadPriceDrawer";
 import { RailTariffsDrawer } from "./_components/RailTariffsDrawer";
@@ -1431,7 +1432,8 @@ export function QuoteWorkflow() {
       title: "Routing",
       subtitle: "Places of loading and delivery, ports and addresses",
       content: (
-        <div className={FIELD_COLUMNS_CLASS}>
+        <>
+          <div className={FIELD_COLUMNS_CLASS}>
           <div className="min-w-0">
             <InfoRow label="Place of Loading">
               <span className="flex items-center">
@@ -1470,7 +1472,12 @@ export function QuoteWorkflow() {
               <QuoteAddressField label="Delivery Address" type="Delivery" customerId={draft.customerId} value={draft.delivery} onChange={(delivery) => set({ delivery })} />
             </InfoRow>
           </div>
-        </div>
+          </div>
+          {/* A Sea LCL quote names its Co-Loading service and sees that service's next sailings (Council Outlay 14, C7). */}
+          {draft.serviceType === "Sea LCL" && (
+            <QuoteNextSailings serviceId={draft.coLoadingServiceId} direction={draft.direction} readOnly={quoteClosed} onPick={(coLoadingServiceId) => set({ coLoadingServiceId })} />
+          )}
+        </>
       ),
     },
     {
