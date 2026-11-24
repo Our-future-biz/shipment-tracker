@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { checksSummary, earningsChecks, unpricedShipments, lead, breakEvenWords, profitGlance, unsoldWords, profitProvisional, amountWords, boxCostWords, boxRateWords, changeWords, earningsNotes, earningsWarnings, invoicedHint, marginWords, type BoxCostChange, type EarningsAmount, type EarningsRow, type SailingBoxCosts, type SailingEarnings } from "./earnings";
+import { checksSummary, earningsChecks, unpricedShipments, lead, breakEvenWords, profitGlance, unsoldWords, profitProvisional, amountWords, boxCostWords, boxRateWords, changeWords, earningsNotes, earningsWarnings, invoicedHint, marginWords, sailingProfitOf, type BoxCostChange, type EarningsAmount, type EarningsRow, type SailingBoxCosts, type SailingEarnings } from "./earnings";
+// The server's own reading of a sailing's profit (shipments lib/coLoadingEarnings): pure, so it runs here
+// beside the header's copy, and the two cannot drift apart unseen.
+import { sailingProfit as serverSailingProfit } from "../../../../../api/services/shipments/lib/coLoadingEarnings";
 
 const amt = (czk: number, eur: number | null = czk / 25): EarningsAmount => ({ czk, eur });
 const row = (more: Partial<EarningsRow> = {}): EarningsRow => ({
@@ -39,6 +42,7 @@ const box = (more: Partial<SailingBoxCosts> = {}): SailingBoxCosts => ({
   rateDate: null,
   departureDate: null,
   rateProvisional: true,
+  ratesNotRead: false,
   missingCurrencies: [],
   notSet: [],
   ignoredContainers: [],
@@ -146,6 +150,11 @@ describe("the warnings about the box costs", () => {
       "Costs are kept for container 3, which the sailing no longer has. They are not counted.",
     ]);
   });
+  it("say the rates could not be read, not that a currency has no rate, when the rates service did not answer", () => {
+    expect(earningsWarnings(earnings({ boxCosts: box({ set: true, ratesNotRead: true, missingCurrencies: ["EUR", "USD"] }) }))).toEqual([
+      "The exchange rates could not be read just now, so the box costs in EUR, USD are left out and the profit is too high. Try again in a moment.",
+    ]);
+  });
   it("say when the box costs cannot be shared at all", () => {
     expect(earningsWarnings(earnings({ boxCosts: box({ set: true }), boxUnshared: true }))).toEqual([
       "No shipment has a weight or a volume, so the box costs cannot be shared: the total carries them, no shipment does.",
@@ -233,6 +242,10 @@ describe("break-even and unsold space in words", () => {
       "Break-even at 60 W/M: not reached, 50.1 W/M are loaded. 9.9 W/M more at today's average earning would cover the box.",
     );
     expect(breakEvenWords(earnings({ breakEven: { wm: null, loadedWm: 5, ofLoaded: null, reached: false, boxPct: null } }))).toBe("No break-even: the 5 W/M loaded earn nothing before the box costs.");
+  });
+  it("say why there is no break-even while a box cost could not be valued", () => {
+    expect(breakEvenWords(earnings({ boxCosts: box({ set: true, ratesNotRead: true, missingCurrencies: ["EUR"] }) }))).toBe("No break-even until the exchange rates can be read.");
+    expect(breakEvenWords(earnings({ boxCosts: box({ set: true, missingCurrencies: ["CNY"] }) }))).toBe("No break-even until every box cost has an exchange rate.");
   });
   it("say what the unsold space costs", () => {
     expect(unsoldWords(earnings({ unsold: { pct: 26, cost: amt(6500) } }))).toBe(
@@ -357,5 +370,55 @@ describe("fix step 5 of Council Review 7", () => {
     expect(checksSummary(earningsChecks(earnings({}, { noSelling: 1 })))).toBe("1 thing to fix before trusting these figures");
     expect(checksSummary(earningsChecks(earnings()))).toBeNull();
     expect(earningsChecks(earnings({ moneyKnown: false }))).toEqual([{ text: "The shipments' selling and costs could not be read just now, so no earnings are shown. Try again in a moment.", wrong: true }]);
+  });
+});
+
+describe("a sailing's profit read off its earnings, for its header", () => {
+  // The server's own case (api shipments tests/coLoadingBoxCosts.test.ts, "a sailing's profit at a glance"):
+  // one shipment earning 50,000 CZK before the box, Ocean Freight 1,000 EUR set, the departure day's rate fixed.
+  const line = (kind: "origin" | "ocean" | "destination", amount: number | null) => ({ kind, amount, currency: "EUR", note: "", czk: amount === null ? null : amount * 25 });
+  const setBox = (more: Partial<SailingBoxCosts> = {}) =>
+    box({
+      set: true,
+      containers: [{ containerNo: 1, lines: [line("origin", null), line("ocean", 1000), line("destination", null)], total: amt(25000) }],
+      total: amt(25000),
+      rateDate: "2026-11-20",
+      departureDate: "2026-11-20",
+      rateProvisional: false,
+      notSet: [
+        { containerNo: 1, kind: "origin" },
+        { containerNo: 1, kind: "destination" },
+      ],
+      ...more,
+    });
+  const priced = (more: Partial<SailingEarnings> = {}, notes: Partial<SailingEarnings["notes"]> = {}) =>
+    earnings({ boxCosts: setBox(), totals: { ...earnings().totals, selling: amt(50000), beforeBox: amt(50000), boxCosts: amt(25000), profit: amt(25000), marginPct: 50 }, ...more }, notes);
+
+  it("is the server's figure for the server's case", () => {
+    expect(sailingProfitOf("s1", priced())).toEqual({
+      sailingId: "s1",
+      moneyKnown: true,
+      boxCostsSet: true,
+      profit: { czk: 25000, eur: 1000 },
+      marginPct: 50,
+      complete: true,
+      boxCostsComplete: false,
+      revenueComplete: true,
+      provisional: false,
+    });
+  });
+
+  it("is what the server gives the list of sailings, whatever the earnings say", () => {
+    const cases: SailingEarnings[] = [
+      priced(),
+      priced({ moneyKnown: false }),
+      priced({ complete: false }),
+      priced({ boxCosts: setBox({ rateProvisional: true }) }),
+      priced({ boxCosts: setBox({ notSet: [], ignoredContainers: [2] }) }),
+      priced({ boxCosts: setBox({ notSet: [] }) }),
+      priced({}, { noSelling: 1 }),
+      earnings(),
+    ];
+    for (const e of cases) expect(sailingProfitOf("s1", e)).toEqual(serverSailingProfit("s1", e));
   });
 });

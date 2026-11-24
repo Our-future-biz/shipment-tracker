@@ -1,16 +1,17 @@
 import { APIError } from "encore.dev/api";
 import log from "encore.dev/log";
 import { fx, invoicing } from "~encore/clients";
+import { businessDay } from "../../../lib/businessDate";
 import { isUuid } from "../../../lib/uuid";
 import { capacityOf, containerCapacity } from "../../../lib/containerCapacity";
 import type { BoxCostChange, BoxUtilization, CoLoadingSailingItem, SailingEarnings, SailingProfit, SailingRemovedShipment } from "../interfaces/interfaces";
-import { boxCostsOf, checkBoxCosts, sailingDetailChanges, type BoxCostLineInput, type BoxCostStored, type BoxRates } from "../lib/coLoadingBoxCosts";
+import { boxCostsOf, checkBoxCosts, type BoxCostLineInput, type BoxCostStored, type BoxRates } from "../lib/coLoadingBoxCosts";
 import { canManageServices } from "../lib/coLoadingService";
 import { BoxCostsChangedMeanwhile, coLoadingBoxCostRepository as boxCostRepo } from "../repositories/coLoadingBoxCost.repository";
 import { sailingEarnings, sailingProfit, type ShipmentMoney } from "../lib/coLoadingEarnings";
 import { boxFillOf, boxUtilization } from "../lib/boxUtilization";
 import { CANCELLED_STATUS } from "../lib/fieldDefaults";
-import { checkSailingInput, linkRefusal, moveRefusal, oddInBox, sailingDetailsProblem, type SailingDetails, type SailingInput } from "../lib/coLoadingSailing";
+import { checkSailingInput, LINK_AT_ONCE_MAX, linkRefusal, moveRefusal, oddInBox, sailingEdit, type SailingDetails, type SailingInput } from "../lib/coLoadingSailing";
 import { userNameOf } from "../lib/userName";
 import { coLoadingSailingRepository as repo, type LinkedCargo } from "../repositories/coLoadingSailing.repository";
 import type { CoLoadingSailingRecord } from "../schemas/coLoadingSailing.schema";
@@ -32,12 +33,14 @@ const toItem = (r: CoLoadingSailingRecord): CoLoadingSailingItem => ({
   createdAt: r.createdAt.toISOString(),
 });
 
-/**
- * The fill of a sailing's containers together, on this service, holding these shipments, planned to the company's share of their volume. A cancelled
- * one is listed, not counted; one of another kind than the box is for is counted and remarked on.
- */
 /** How many shipments' money Invoicing answers in one call. */
 const MONEY_AT_ONCE = 500;
+
+/** How many days' rates the list of sailings reads at once: the rates service's connections are shared by every page. */
+const RATE_DAYS_AT_ONCE = 4;
+
+/** Today in Prague, YYYY-MM-DD: the day a departure date is judged against. */
+const today = () => businessDay(new Date());
 
 /** The shipments a master job shares costs into. */
 const mastersOf = (linked: readonly LinkedCargo[]) => new Set(linked.filter((s) => s.masterJobId).map((s) => s.id));
@@ -85,6 +88,17 @@ async function ratesOn(departureDate: string | null): Promise<BoxRates | null> {
   }
 }
 
+/** The rates of these departure dates ("" = no date: the latest rates), read RATE_DAYS_AT_ONCE at a time. */
+async function ratesOfDays(days: readonly string[]): Promise<Map<string, BoxRates | null>> {
+  const out = new Map<string, BoxRates | null>();
+  const left = [...days];
+  const reader = async () => {
+    for (let day = left.shift(); day !== undefined; day = left.shift()) out.set(day, await ratesOn(day || null));
+  };
+  await Promise.all(Array.from({ length: Math.min(RATE_DAYS_AT_ONCE, left.length) }, reader));
+  return out;
+}
+
 /** A stored box cost as the rules read it. */
 const storedCost = (r: { containerNo: number; kind: string; amount: string | null; currency: string; note: string }): BoxCostStored => ({
   containerNo: r.containerNo,
@@ -94,6 +108,10 @@ const storedCost = (r: { containerNo: number; kind: string; amount: string | nul
   note: r.note,
 });
 
+/**
+ * The fill of a sailing's containers together, on this service, holding these shipments, planned to the company's share of their volume. A cancelled
+ * one is listed, not counted; one of another kind than the box is for is counted and remarked on.
+ */
 const fillOf = (sailing: { containerType: string; containerCount: number }, service: { mode: string; inlandWeightKg: number | null }, planningPct: number, shipments: LinkedCargo[]) => {
   const one = containerCapacity(sailing.containerType, planningPct / 100);
   return boxUtilization(
@@ -153,8 +171,10 @@ class CoLoadingSailingService {
    * The profit of each of a service's sailings, for the list of sailings (D19). For managers: the
    * controller lets only them ask. Worked out as each sailing's Earnings tab does, but read
    * together (Council Review 7, K16): the cargo and the box costs of all sailings in one read each,
-   * the shipments' money in one call (500 shipments at a time), the rates once per departure date -
-   * about a dozen reads whatever the number of sailings.
+   * the shipments' money in one call per 500 shipments, and the rates once per departure date among
+   * the sailings with a box cost, four dates at a time. The rates reads grow with those dates, about
+   * one per sailing that has costs: the four at a time keep them from taking every connection of
+   * the rates service.
    */
   async profits(serviceId: string, companyId: string): Promise<SailingProfit[]> {
     const service = await coLoadingServiceService.get(serviceId, companyId);
@@ -166,9 +186,7 @@ class CoLoadingSailingService {
     for (const c of costs) costsOf.set(c.sailingId, [...(costsOf.get(c.sailingId) ?? []), storedCost(c)]);
     const money = await moneyOf([...cargo.values()].flat());
     // One read of the rates per departure date among the sailings that have a cost set ("" = no date: the latest rates).
-    const days = new Map<string, BoxRates | null>();
-    for (const r of rows) if (costsOf.get(r.id)?.some((c) => c.amount !== null)) days.set(r.departureDate ?? "", null);
-    await Promise.all([...days.keys()].map(async (date) => days.set(date, await ratesOn(date || null))));
+    const days = await ratesOfDays([...new Set(rows.filter((r) => costsOf.get(r.id)?.some((c) => c.amount !== null)).map((r) => r.departureDate ?? ""))]);
     return rows.map((r) => {
       const linked = cargo.get(r.id) ?? [];
       const box = fillOf(r, service, planningPct, linked);
@@ -235,19 +253,22 @@ class CoLoadingSailingService {
    * "Edit sailing": its number of containers, its cut-off and its departure date. Not while the
    * service is closed. The number of containers and the departure date move the box costs, so once
    * a box cost is set only managers and admins change them (Council Review 7, K13), and every such
-   * change goes into the record of changes.
+   * change goes into the record of changes, written with it. The change is judged on the sailing as
+   * it is under its lock (repository setDetailsRecorded), so no box cost is set in between.
    */
   async setDetails(id: string, details: SailingDetails, actor: { userID: string; companyID: string; role: string }): Promise<CoLoadingSailingItem> {
-    const problem = sailingDetailsProblem(details);
-    if (problem) throw APIError.invalidArgument(problem);
     const sailing = await this.get(id, actor.companyID);
     await coLoadingServiceService.requireOpen(sailing.serviceId, actor.companyID);
-    const moved = sailingDetailChanges(sailing, details);
-    if (moved.length > 0 && !canManageServices(actor.role) && (await boxCostRepo.costedContainers(sailing.id, actor.companyID)).length > 0)
-      throw APIError.permissionDenied("This sailing has box costs: only managers and admins change its number of containers or its departure date.");
-    const row = await repo.setDetails(sailing.id, actor.companyID, details);
+    // The name first: the record keeps it, and a lookup that fails must leave nothing written.
+    const by = { id: actor.userID, name: await userNameOf(actor.userID) };
+    const context = { today: today(), mayMoveCosts: canManageServices(actor.role) };
+    const row = await repo.setDetailsRecorded(sailing.id, actor.companyID, details, by, (now, costedContainers) => {
+      const edit = sailingEdit(now, details, { ...context, costedContainers });
+      if ("invalid" in edit) throw APIError.invalidArgument(edit.invalid);
+      if ("denied" in edit) throw APIError.permissionDenied(edit.denied);
+      return edit.changes;
+    });
     if (!row) throw APIError.notFound("Sailing not found");
-    await boxCostRepo.recordSailingChanges(sailing.id, actor.companyID, moved, { id: actor.userID, name: await userNameOf(actor.userID) });
     return toItem(row);
   }
 
@@ -277,6 +298,8 @@ class CoLoadingSailingService {
   async linkShipments(sailingId: string, shipmentIds: string[], actor: { userID: string; companyID: string }): Promise<{ linked: number }> {
     const ids = [...new Set(shipmentIds)];
     if (ids.length === 0) throw APIError.invalidArgument("Pick the shipments to link.");
+    // The API takes no more (MaxLen); never some of them in silence.
+    if (ids.length > LINK_AT_ONCE_MAX) throw APIError.invalidArgument(`Link at most ${LINK_AT_ONCE_MAX} shipments at once.`);
     const sailing = await this.get(sailingId, actor.companyID);
     const service = await coLoadingServiceService.requireOpen(sailing.serviceId, actor.companyID);
     const found = await repo.shipmentsToLink(ids.filter(isUuid), actor.companyID);
@@ -307,7 +330,7 @@ class CoLoadingSailingService {
   }
 
   async create(serviceId: string, input: SailingInput, actor: { userID: string; companyID: string }): Promise<CoLoadingSailingItem> {
-    const checked = checkSailingInput(input);
+    const checked = checkSailingInput(input, today());
     if ("error" in checked) throw APIError.invalidArgument(checked.error);
     // A closed service takes nothing new until it is reopened.
     const service = await coLoadingServiceService.requireOpen(serviceId, actor.companyID);

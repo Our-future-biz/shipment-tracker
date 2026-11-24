@@ -76,30 +76,8 @@ export const coLoadingBoxCostRepository = {
     });
   },
 
-  /** A change of the sailing itself that moves its box costs - its number of containers, its departure date - into the same record. */
-  async recordSailingChanges(
-    sailingId: string,
-    companyId: string,
-    changed: { kind: string; oldAmount: number | null; newAmount: number | null; oldNote: string; newNote: string }[],
-    by: { id: string; name: string },
-  ): Promise<void> {
-    if (!changed.length) return;
-    await db.insert(changes).values(
-      changed.map((c) => ({
-        companyId,
-        sailingId,
-        // 0: the change is of the sailing, not of one container.
-        containerNo: 0,
-        kind: c.kind,
-        oldAmount: c.oldAmount === null ? null : String(c.oldAmount),
-        newAmount: c.newAmount === null ? null : String(c.newAmount),
-        oldNote: c.oldNote,
-        newNote: c.newNote,
-        changedById: by.id,
-        changedByName: by.name,
-      })),
-    );
-  },
+  // A change of the sailing itself that moves its box costs (its number of containers, its departure
+  // date) goes into the same record, written with the change: coLoadingSailing.repository setDetailsRecorded.
 
   /** The containers of a sailing that have a cost with an amount. */
   async costedContainers(sailingId: string, companyId: string): Promise<number[]> {

@@ -2,6 +2,8 @@
 // sailing" on the service's page. For an import whose vessel is not known yet, the Vessel is the week
 // it sails ("WEEK 44"), and then the Voyage may be left out. Pure, so it is tested without the database.
 
+import { sailingDetailChanges } from "./coLoadingBoxCosts";
+
 /**
  * The container types a sailing takes: twins of the web's CONTAINER_TYPES (lib/cargo), size by size,
  * as a quote's and a shipment's containers are picked.
@@ -57,8 +59,8 @@ export type SailingValues = Required<Omit<SailingInput, "cutoffDate" | "departur
 
 const tidy = (s: string | undefined) => (s ?? "").trim().replace(/\s+/g, " ");
 
-/** The values to save, or what is wrong with the input, in words for the form. */
-export function checkSailingInput(input: SailingInput): { values: SailingValues } | { error: string } {
+/** The values to save, or what is wrong with the input, in words for the form. `today` is YYYY-MM-DD. */
+export function checkSailingInput(input: SailingInput, today: string): { values: SailingValues } | { error: string } {
   const typed = tidy(input.vessel);
   if (!typed) return { error: "Give the vessel, or the week it sails (WEEK 44)." };
   if (typed.length > VESSEL_MAX) return { error: `The vessel can be at most ${VESSEL_MAX} characters.` };
@@ -76,7 +78,7 @@ export function checkSailingInput(input: SailingInput): { values: SailingValues 
   const containerType = tidy(input.containerType);
   if (!(SAILING_CONTAINER_TYPES as readonly string[]).includes(containerType)) return { error: "Pick the container type." };
   const details = { containerCount: input.containerCount ?? 1, cutoffDate: input.cutoffDate || null, departureDate: input.departureDate || null };
-  const wrong = sailingDetailsProblem(details);
+  const wrong = sailingDetailsProblem(details, today);
   if (wrong) return { error: wrong };
   return { values: { vessel: week ?? typed, voyage, pol, pod, hub, containerType, ...details } };
 }
@@ -85,6 +87,8 @@ export function checkSailingInput(input: SailingInput): { values: SailingValues 
 
 export const CONTAINER_COUNT_MAX = 20;
 export const MOVE_REASON_MAX = 300;
+/** The most shipments linked in one go: what the Link shipments dialog can tick, and what the API takes (MaxLen). */
+export const LINK_AT_ONCE_MAX = 200;
 
 /** What "Edit sailing" changes. */
 export interface SailingDetails {
@@ -100,15 +104,44 @@ const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
 const farFrom = (day: string, today: string) => Math.abs(Date.parse(`${day}T00:00:00Z`) - Date.parse(`${today}T00:00:00Z`)) > 2 * 366 * 86_400_000;
 const notADay = (day: string) => !ISO_DAY.test(day) || Number.isNaN(Date.parse(`${day}T00:00:00Z`));
 
-/** Why these details cannot be saved, in words for the form; null when they can. */
-export function sailingDetailsProblem(d: SailingDetails, today: string = new Date().toISOString().slice(0, 10)): string | null {
+/**
+ * Why these details cannot be saved, in words for the form; null when they can. `today` is
+ * YYYY-MM-DD. `stored` is the sailing as it is, null for a new one: a departure date left out stays
+ * the stored one, so the cut-off is checked against that too.
+ */
+export function sailingDetailsProblem(d: SailingDetails, today: string, stored: { departureDate: string | null } | null = null): string | null {
   if (!Number.isInteger(d.containerCount) || d.containerCount < 1 || d.containerCount > CONTAINER_COUNT_MAX) return `Give the number of containers, from 1 to ${CONTAINER_COUNT_MAX}.`;
   if (d.cutoffDate !== null && notADay(d.cutoffDate)) return "The cut-off is not a date.";
   if (d.departureDate != null && notADay(d.departureDate)) return "The departure date is not a date.";
-  // A slip of the year (2025 for 2026) would value the box costs at an old rate, as if final.
-  if (d.departureDate != null && farFrom(d.departureDate, today)) return "The departure date is more than two years from today: check the year.";
-  if (d.cutoffDate !== null && d.departureDate != null && d.cutoffDate > d.departureDate) return "The cut-off cannot be after the departure date.";
+  const storedDeparture = stored?.departureDate ?? null;
+  const departure = d.departureDate === undefined ? storedDeparture : d.departureDate;
+  // A slip of the year (2025 for 2026) would value the box costs at an old rate, as if final. Only a
+  // date being typed can slip: a sailing that left long ago keeps its date and stays editable.
+  if (d.departureDate != null && d.departureDate !== storedDeparture && farFrom(d.departureDate, today)) return "The departure date is more than two years from today: check the year.";
+  if (d.cutoffDate !== null && departure !== null && d.cutoffDate > departure) return "The cut-off cannot be after the departure date.";
   return null;
+}
+
+/** What "Edit sailing" may do to a sailing, and the change it records. */
+export type SailingEdit = { invalid: string } | { denied: string } | { changes: ReturnType<typeof sailingDetailChanges> };
+
+/**
+ * "Edit sailing" judged on the sailing as it is when its row is locked: what is wrong with the
+ * details, or who may not make the change, or the changes that move the box costs, for the record.
+ * Once a container has box costs, only managers and admins change the number of containers or the
+ * departure date (Council Review 7, K13): `mayMoveCosts` says whether the editor is one of them.
+ */
+export function sailingEdit(
+  stored: { containerCount: number; departureDate: string | null },
+  details: SailingDetails,
+  context: { today: string; costedContainers: readonly number[]; mayMoveCosts: boolean },
+): SailingEdit {
+  const problem = sailingDetailsProblem(details, context.today, stored);
+  if (problem) return { invalid: problem };
+  const changes = sailingDetailChanges(stored, details);
+  if (changes.length > 0 && !context.mayMoveCosts && context.costedContainers.length > 0)
+    return { denied: "This sailing has box costs: only managers and admins change its number of containers or its departure date." };
+  return { changes };
 }
 
 /**
@@ -140,15 +173,17 @@ const BOX_IS_FOR: Record<string, string> = {
  * another mode of transport, or - in a consolidation box - a shipment with a container of its own
  * (Full Load) or a project shipment. Linking or moving such a shipment in is refused (Council Review 7,
  * K3); one that became odd after it was linked is remarked on.
+ * Both are read trimmed and in any case, as a job number's letters (lib/jobNumber) and the list's mode
+ * filter read them: a value typed before it was a list may differ in either.
  * The web holds the same rule (app/co-loading/_lib/boxUtilization.ts oddInBox).
  */
 export function oddInBox(serviceMode: string, shipment: { freightMode: string; loadType: string }): string | null {
+  const same = (value: string, name: string) => value.trim().toLowerCase() === name.toLowerCase();
   const mode = shipment.freightMode.trim();
-  const load = shipment.loadType.trim();
   const wanted: Record<string, string> = { sea_lcl: "Sea Freight", sea_fcl: "Sea Freight", air: "Air Freight", rail: "Rail Freight", road: "Road Freight" };
   const want = wanted[serviceMode];
-  if (want && mode && mode !== want) return mode;
-  if (serviceMode === "sea_lcl" && (load === "Full Load" || load === "Project Shipment")) return load;
+  if (want && mode && !same(mode, want)) return mode;
+  if (serviceMode === "sea_lcl") return ["Full Load", "Project Shipment"].find((load) => same(shipment.loadType, load)) ?? null;
   return null;
 }
 

@@ -95,6 +95,12 @@ describe("a sailing's box costs", () => {
     const b = boxCostsOf(1, [cost(1, "origin", 100), cost(1, "destination", 5000, "CZK")], null);
     expect(b.total).toEqual({ czk: 5000, eur: null });
     expect(b.missingCurrencies).toEqual(["EUR"]);
+    expect(b.ratesNotRead).toBe(true);
+  });
+  it("tell a currency with no rate from rates that could not be read at all", () => {
+    expect(boxCostsOf(1, [cost(1, "ocean", 500, "CNY")], RATES).ratesNotRead).toBe(false);
+    // With no cost set no rates are asked for: none were missed.
+    expect(boxCostsOf(1, [], null).ratesNotRead).toBe(false);
   });
   it("do not count costs kept for a container the sailing no longer has, and name it", () => {
     const b = boxCostsOf(1, [cost(1, "ocean", 100), cost(2, "ocean", 900)], RATES);
@@ -292,6 +298,21 @@ describe("break-even and the unsold space", () => {
     expect(sailingEarnings([a, unpriced], byId(money(a.shipmentId, 50000)), NONE, box(1000), 60).breakEvenWaitsFor).toBe(1);
     // Nothing waits while no box cost is set: there is no break-even to wait for.
     expect(sailingEarnings([a, unpriced], byId(money(a.shipmentId, 50000), money(unpriced.shipmentId, 0)), NONE).breakEvenWaitsFor).toBe(0);
+  });
+  it("are not shown while a box cost could not be valued: the total leaves it out, so both would read too low", () => {
+    const a = row(5);
+    const b = row(5);
+    const both = byId(money(a.shipmentId, 25000), money(b.shipmentId, 25000));
+    // The rates service did not answer: the 3,000 EUR of the box count as nothing.
+    const unread = sailingEarnings([a, b], both, NONE, boxCostsOf(1, [cost(1, "ocean", 3000)], null, "2026-12-10"), 40);
+    expect(unread.boxCosts).toMatchObject({ total: { czk: 0, eur: null }, ratesNotRead: true, missingCurrencies: ["EUR"] });
+    expect(unread.breakEven).toBeNull();
+    expect(unread.unsold).toBeNull();
+    expect(unread.complete).toBe(false);
+    // A currency with no rate is the same: its amount is left out of the total.
+    const noRate = sailingEarnings([a, b], both, NONE, boxCostsOf(1, [cost(1, "ocean", 3000), cost(1, "origin", 500, "CNY")], RATES), 40);
+    expect(noRate.breakEven).toBeNull();
+    expect(noRate.unsold).toBeNull();
   });
   it("cost the unsold space as its share of the box costs", () => {
     const a = row(2);

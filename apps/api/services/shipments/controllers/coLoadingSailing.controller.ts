@@ -84,7 +84,8 @@ export const coLoadingSailingRemoved = api(
 
 interface CoLoadingSailingLinkRequest {
   id: string;
-  shipmentIds: string[];
+  /** At most 200 (lib/coLoadingSailing LINK_AT_ONCE_MAX): more is refused, never cut short */
+  shipmentIds: string[] & MaxLen<200>;
 }
 
 // Links shipments to the sailing (its box), all or none: the service's own (its Service Name), each on
@@ -92,7 +93,7 @@ interface CoLoadingSailingLinkRequest {
 export const coLoadingSailingLinkShipments = api(
   { expose: true, auth: true, method: "POST", path: "/co-loading/sailings/:id/shipments" },
   async ({ id, shipmentIds }: CoLoadingSailingLinkRequest): Promise<{ linked: number }> => {
-    return service.linkShipments(id, shipmentIds.slice(0, 200), getAuthData()!);
+    return service.linkShipments(id, shipmentIds, getAuthData()!);
   },
 );
 

@@ -4,6 +4,7 @@ import { and, asc, eq } from "drizzle-orm";
 
 import { db } from "../../db/db";
 import { BoxCostsChangedMeanwhile, coLoadingBoxCostRepository as repo } from "../../repositories/coLoadingBoxCost.repository";
+import { coLoadingSailingRepository } from "../../repositories/coLoadingSailing.repository";
 import { coLoadingBoxCostChangeTable as changes } from "../../schemas/coLoadingBoxCost.schema";
 import { coLoadingSailingTable as sailings } from "../../schemas/coLoadingSailing.schema";
 
@@ -112,7 +113,9 @@ describe("a container's box costs, saved", () => {
   it("record a change of the sailing itself in the same record, under container 0", async () => {
     const companyId = randomUUID();
     const s = await newSailing(companyId);
-    await repo.recordSailingChanges(s.id, companyId, [{ kind: "containers", oldAmount: 2, newAmount: 1, oldNote: "", newNote: "" }, { kind: "departure", oldAmount: null, newAmount: null, oldNote: "", newNote: "2026-11-20" }], EVA);
+    // Edit sailing writes it with the change (coLoadingSailing.repository setDetailsRecorded).
+    const changed = [{ kind: "containers", oldAmount: 2, newAmount: 1, oldNote: "", newNote: "" }, { kind: "departure", oldAmount: null, newAmount: null, oldNote: "", newNote: "2026-11-20" }];
+    await coLoadingSailingRepository.setDetailsRecorded(s.id, companyId, { containerCount: 1, cutoffDate: null, departureDate: "2026-11-20" }, EVA, () => changed);
     expect((await repo.changes(s.id, companyId)).map((c) => [c.containerNo, c.kind, c.oldAmount, c.newAmount, c.newNote, c.changedByName]).sort()).toEqual([
       [0, "containers", "2.00", "1.00", "", "Eva Malá"],
       [0, "departure", null, null, "2026-11-20", "Eva Malá"],

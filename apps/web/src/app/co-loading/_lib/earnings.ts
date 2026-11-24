@@ -84,7 +84,10 @@ function boxWarnings(e: SailingEarnings): string[] {
   const box = e.boxCosts;
   if (!box.set) return [];
   const out: string[] = [];
-  if (box.missingCurrencies.length > 0)
+  // The rates service not answering is another matter than a currency with no rate: it goes by itself.
+  if (box.missingCurrencies.length > 0 && box.ratesNotRead)
+    out.push(`The exchange rates could not be read just now, so the box costs in ${box.missingCurrencies.join(", ")} are left out and the profit is too high. Try again in a moment.`);
+  else if (box.missingCurrencies.length > 0)
     out.push(`No exchange rate for the box costs in ${box.missingCurrencies.join(", ")}: those amounts are left out, so the profit is too high.`);
   if (box.notSet.length > 0)
     out.push(`Not set yet: ${box.notSet.map((n) => `${BOX_COST_LABEL[n.kind]}${containerOf(e, n.containerNo)}`).join(", ")}. The profit does not carry ${box.notSet.length === 1 ? "it" : "them"}.`);
@@ -101,6 +104,9 @@ const wm = (v: number) => v.toLocaleString("en-US", { maximumFractionDigits: 2 }
 /** The break-even in a sentence, or null while there is none to show. */
 export function breakEvenWords(e: SailingEarnings): string | null {
   const b = e.breakEven;
+  // The server works none out from box costs with amounts left out: it would read too low.
+  if (!b && e.boxCosts.set && e.boxCosts.missingCurrencies.length > 0)
+    return e.boxCosts.ratesNotRead ? "No break-even until the exchange rates can be read." : "No break-even until every box cost has an exchange rate.";
   if (!b) return null;
   if (b.wm === null) return `No break-even: the ${b.loadedWm === 1 ? "loaded W/M earns" : `${wm(b.loadedWm)} W/M loaded earn`} nothing before the box costs.`;
   if (b.reached) return `Break-even at ${wm(b.wm)} W/M: reached, ${wm(b.loadedWm)} W/M are loaded.`;

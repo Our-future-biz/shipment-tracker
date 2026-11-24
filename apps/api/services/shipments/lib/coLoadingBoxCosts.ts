@@ -104,7 +104,8 @@ export function sailingDetailChanges(
  * none) with the day of their fixing; null when the rates could not be read - then only CZK amounts
  * are valued. They are the rates of the sailing's departure date (D10); until it has one, or until
  * that day's fixing is out, the latest ones, and the valuation is provisional. An amount with no rate is left out and its currency named. Costs kept for a container
- * the sailing no longer has are not counted, and the container named.
+ * the sailing no longer has are not counted, and the container named. A `day` of null once a cost is
+ * set means the rates could not be read: `ratesNotRead` says so.
  */
 export function boxCostsOf(containerCount: number, stored: readonly BoxCostStored[], day: BoxRates | null, departureDate: string | null = null): SailingBoxCosts {
   const rates = day?.rates ?? null;
@@ -140,6 +141,8 @@ export function boxCostsOf(containerCount: number, stored: readonly BoxCostStore
     rateDate: day?.fixingDate ?? null,
     departureDate,
     rateProvisional: departureDate === null || (day?.provisional ?? true),
+    // Not one rate to go by (the rates service did not answer), which is not the same as a currency ČNB has no rate for.
+    ratesNotRead: set && day === null,
     missingCurrencies: [...missing].sort(),
     notSet: set ? containers.flatMap((c) => c.lines.filter((l) => l.amount === null).map((l) => ({ containerNo: c.containerNo, kind: l.kind }))) : [],
     ignoredContainers: [...new Set(stored.filter((s) => s.containerNo > containerCount && s.amount !== null).map((s) => s.containerNo))].sort((a, b) => a - b),

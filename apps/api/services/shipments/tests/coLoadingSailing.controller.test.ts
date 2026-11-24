@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 // user comes from a stubbed getAuthData. The role check itself (lib/rbac requireRole) is the real one.
 const COMPANY = "86f202b1-7449-441b-9c5b-5bf4d89f8d88";
 const who = vi.hoisted(() => ({ role: "user" }));
-const service = vi.hoisted(() => ({ earnings: vi.fn(), profits: vi.fn(), saveBoxCosts: vi.fn(), boxCostChanges: vi.fn(), utilization: vi.fn(), page: vi.fn(), list: vi.fn(), setDetails: vi.fn() }));
+const service = vi.hoisted(() => ({ earnings: vi.fn(), profits: vi.fn(), saveBoxCosts: vi.fn(), boxCostChanges: vi.fn(), utilization: vi.fn(), page: vi.fn(), list: vi.fn(), setDetails: vi.fn(), linkShipments: vi.fn() }));
 vi.mock("encore.dev/api", async () => ({ ...(await import("../../../lib/tests/encoreApi.stub")), api: (_opts: unknown, handler: unknown) => handler }));
 vi.mock("~encore/auth", () => ({ getAuthData: () => ({ userID: "u1", companyID: COMPANY, role: who.role }) }));
 vi.mock("../services/coLoadingSailing.service", () => ({ coLoadingSailingService: service }));
@@ -71,6 +71,13 @@ describe("a sailing's money, asked for over the API", () => {
     expect(service.page).toHaveBeenCalledWith("s1", COMPANY);
     expect(service.list).toHaveBeenCalledWith("s1", COMPANY);
     expect(service.utilization).toHaveBeenCalledWith("s1", COMPANY);
+  });
+
+  it("hands the shipments to link on as sent: more than 200 are refused by the request's MaxLen, never cut short here", async () => {
+    who.role = "user";
+    const shipmentIds = Array.from({ length: 250 }, (_, i) => `id-${i}`);
+    await call("coLoadingSailingLinkShipments", { shipmentIds });
+    expect(service.linkShipments).toHaveBeenCalledWith("s1", shipmentIds, expect.objectContaining({ companyID: COMPANY }));
   });
 
   it("hands \"Edit sailing\" on with the caller's role, which decides what they may change", async () => {

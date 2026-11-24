@@ -141,9 +141,12 @@ export function sailingEarnings(
   // Not while a loaded shipment is not priced (K11): its W/M would count with no earning, and the
   // break-even would read far too high until the last selling line is in.
   const breakEvenWaitsFor = box.set ? counted.filter((r) => r.noSelling || !r.moneyKnown).length : 0;
+  // Nor while a box cost could not be valued: it is left out of the total, and a break-even or an
+  // unused space worked out from what is left would be too low - "reached at 0 W/M" when no rate was read.
+  const boxValued = box.missingCurrencies.length === 0;
   const ofLoaded = covers ? boxCost / earned : null;
   const breakEven: SailingEarnings["breakEven"] =
-    box.set && loadedWm > 0 && breakEvenWaitsFor === 0
+    box.set && boxValued && loadedWm > 0 && breakEvenWaitsFor === 0
       ? {
           wm: covers ? Math.round((boxCost / (earned / loadedWm)) * 10) / 10 : null,
           loadedWm,
@@ -155,7 +158,7 @@ export function sailingEarnings(
       : null;
   const unsoldPct = fullPct === null ? null : Math.max(0, 100 - fullPct);
   const unsold: SailingEarnings["unsold"] =
-    box.set && unsoldPct !== null
+    box.set && boxValued && unsoldPct !== null
       ? { pct: unsoldPct, cost: { czk: round2((box.total.czk * unsoldPct) / 100), eur: box.total.eur === null ? null : round2((box.total.eur * unsoldPct) / 100) } }
       : null;
   return {

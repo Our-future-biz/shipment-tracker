@@ -1,15 +1,17 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const repo = vi.hoisted(() => ({
   get: vi.fn(),
   listByService: vi.fn(),
   boxShipments: vi.fn(),
   boxShipmentsOf: vi.fn(),
-  setDetails: vi.fn(),
+  setDetailsRecorded: vi.fn(),
   shipmentsToLink: vi.fn(),
   sailingsOf: vi.fn(),
   link: vi.fn(),
+  unlink: vi.fn(),
   move: vi.fn(),
+  create: vi.fn(),
 }));
 const boxCosts = vi.hoisted(() => {
   class BoxCostsChangedMeanwhile extends Error {
@@ -17,15 +19,16 @@ const boxCosts = vi.hoisted(() => {
       super("box costs changed meanwhile");
     }
   }
-  return { BoxCostsChangedMeanwhile, repo: { list: vi.fn(), listOf: vi.fn(), save: vi.fn(), changes: vi.fn(), costedContainers: vi.fn(), recordSailingChanges: vi.fn() } };
+  return { BoxCostsChangedMeanwhile, repo: { list: vi.fn(), listOf: vi.fn(), save: vi.fn(), changes: vi.fn(), costedContainers: vi.fn() } };
 });
 const services = vi.hoisted(() => ({ get: vi.fn(), requireOpen: vi.fn(), planningVolumePct: vi.fn() }));
 const fx = vi.hoisted(() => ({ fxRatesOn: vi.fn() }));
 const invoicing = vi.hoisted(() => ({ _internalCoLoadingMoney: vi.fn() }));
+const names = vi.hoisted(() => ({ userNameOf: vi.fn() }));
 vi.mock("encore.dev/log", () => ({ default: { warn: vi.fn() } }));
 vi.mock("encore.dev/api", () => import("../../../../lib/tests/encoreApi.stub"));
 vi.mock("~encore/clients", () => ({ fx, invoicing }));
-vi.mock("../../lib/userName", () => ({ userNameOf: async () => "Jana Nová" }));
+vi.mock("../../lib/userName", () => names);
 vi.mock("../../repositories/coLoadingSailing.repository", () => ({ coLoadingSailingRepository: repo }));
 vi.mock("../../repositories/coLoadingBoxCost.repository", () => ({ coLoadingBoxCostRepository: boxCosts.repo, BoxCostsChangedMeanwhile: boxCosts.BoxCostsChangedMeanwhile }));
 vi.mock("../../services/coLoadingService.service", () => ({ coLoadingServiceService: services }));
@@ -112,6 +115,7 @@ beforeEach(() => {
   services.requireOpen.mockResolvedValue({ id: SERVICE, mode: "sea_lcl", inlandWeightKg: null, serviceName: "ISHA", closedAt: null });
   services.planningVolumePct.mockResolvedValue(85);
   fx.fxRatesOn.mockResolvedValue(rates());
+  names.userNameOf.mockResolvedValue("Jana Nová");
   invoicing._internalCoLoadingMoney.mockImplementation(async ({ jobs }: { jobs: { shipmentId: string }[] }) => ({ items: jobs.map((j) => money(j.shipmentId, 50000)) }));
 });
 
@@ -292,47 +296,93 @@ describe("setting a container's box costs", () => {
 
 describe("\"Edit sailing\" once a container has box costs", () => {
   const details = (more = {}) => ({ containerCount: 1, cutoffDate: null, departureDate: null, ...more });
+  // The sailing and its costed containers as the transaction finds them under the lock, and what it writes.
+  let locked: { row: ReturnType<typeof sailing>; costed: number[] };
+  let written: { details: object; changes: unknown[]; by: unknown }[];
   beforeEach(() => {
-    repo.setDetails.mockImplementation(async (_id: string, _c: string, d: object) => sailing(d));
-    boxCosts.repo.costedContainers.mockResolvedValue([1]);
+    // Departure dates are judged against today: a fixed one, so the dates below never age.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-11-24T09:00:00Z"));
+    locked = { row: sailing(), costed: [1] };
+    written = [];
+    repo.setDetailsRecorded.mockImplementation(async (_id: string, _c: string, d: object, by: unknown, judge: (now: object, costed: number[]) => unknown[]) => {
+      const changes = judge(locked.row, locked.costed);
+      written.push({ details: d, changes, by });
+      return sailing({ ...locked.row, ...d });
+    });
   });
+  afterEach(() => vi.useRealTimers());
 
   it("refuses a plain user who changes the number of containers or the departure date: nothing is written", async () => {
     await expect(service.setDetails(SAILING, details({ containerCount: 2 }), USER)).rejects.toMatchObject({ code: "permission_denied" });
     await expect(service.setDetails(SAILING, details({ departureDate: "2026-11-20" }), USER)).rejects.toMatchObject({ code: "permission_denied" });
-    expect(repo.setDetails).not.toHaveBeenCalled();
-    expect(boxCosts.repo.recordSailingChanges).not.toHaveBeenCalled();
+    expect(written).toEqual([]);
   });
 
   it("lets a plain user change the cut-off alone", async () => {
     await service.setDetails(SAILING, details({ cutoffDate: "2026-11-18" }), USER);
-    expect(repo.setDetails).toHaveBeenCalledTimes(1);
-    expect(boxCosts.repo.recordSailingChanges).toHaveBeenCalledWith(SAILING, COMPANY, [], { id: "u-user", name: "Jana Nová" });
+    expect(written).toEqual([{ details: details({ cutoffDate: "2026-11-18" }), changes: [], by: { id: "u-user", name: "Jana Nová" } }]);
   });
 
-  it("lets a manager change both, and records the old and the new", async () => {
+  it("lets a manager change both, and records the old and the new with the change", async () => {
     await service.setDetails(SAILING, details({ containerCount: 2, departureDate: "2026-11-20" }), MANAGER);
-    expect(boxCosts.repo.recordSailingChanges).toHaveBeenCalledWith(
-      SAILING,
-      COMPANY,
-      [
-        { kind: "containers", oldAmount: 1, newAmount: 2, oldNote: "", newNote: "" },
-        { kind: "departure", oldAmount: null, newAmount: null, oldNote: "", newNote: "2026-11-20" },
-      ],
-      { id: "u-manager", name: "Jana Nová" },
-    );
+    expect(written).toEqual([
+      {
+        details: details({ containerCount: 2, departureDate: "2026-11-20" }),
+        changes: [
+          { kind: "containers", oldAmount: 1, newAmount: 2, oldNote: "", newNote: "" },
+          { kind: "departure", oldAmount: null, newAmount: null, oldNote: "", newNote: "2026-11-20" },
+        ],
+        by: { id: "u-manager", name: "Jana Nová" },
+      },
+    ]);
   });
 
   it("lets anyone change them while no container has costs, recorded all the same", async () => {
-    boxCosts.repo.costedContainers.mockResolvedValue([]);
+    locked.costed = [];
     await service.setDetails(SAILING, details({ containerCount: 3 }), USER);
-    expect(boxCosts.repo.recordSailingChanges.mock.calls[0]![2]).toEqual([{ kind: "containers", oldAmount: 1, newAmount: 3, oldNote: "", newNote: "" }]);
+    expect(written[0]!.changes).toEqual([{ kind: "containers", oldAmount: 1, newAmount: 3, oldNote: "", newNote: "" }]);
+  });
+
+  it("judges the costs as they are under the lock, not as they were read before it", async () => {
+    // Read before the lock: no costs. Set meanwhile by a manager: container 1 has one.
+    boxCosts.repo.costedContainers.mockResolvedValue([]);
+    locked.costed = [1];
+    await expect(service.setDetails(SAILING, details({ containerCount: 2 }), USER)).rejects.toMatchObject({ code: "permission_denied" });
+    expect(written).toEqual([]);
+  });
+
+  it("looks up who edits before anything is written: a failed lookup leaves the sailing as it was", async () => {
+    names.userNameOf.mockRejectedValueOnce(Object.assign(new Error("auth down"), { code: "unavailable" }));
+    await expect(service.setDetails(SAILING, details({ containerCount: 2 }), MANAGER)).rejects.toMatchObject({ code: "unavailable" });
+    expect(repo.setDetailsRecorded).not.toHaveBeenCalled();
+  });
+
+  it("checks the cut-off against the stored departure date when the request leaves the date out", async () => {
+    locked.row = sailing({ departureDate: "2026-12-10" });
+    await expect(service.setDetails(SAILING, { containerCount: 1, cutoffDate: "2026-12-31" }, MANAGER)).rejects.toMatchObject({
+      code: "invalid_argument",
+      message: "The cut-off cannot be after the departure date.",
+    });
+    expect(written).toEqual([]);
+  });
+
+  it("keeps a sailing that left more than two years ago editable: only a changed departure date is asked for its year", async () => {
+    locked.row = sailing({ departureDate: "2024-10-01" });
+    await service.setDetails(SAILING, details({ containerCount: 2, departureDate: "2024-10-01" }), MANAGER);
+    expect(written[0]!.changes).toEqual([{ kind: "containers", oldAmount: 1, newAmount: 2, oldNote: "", newNote: "" }]);
+    await expect(service.setDetails(SAILING, details({ departureDate: "2024-10-02" }), MANAGER)).rejects.toMatchObject({ code: "invalid_argument" });
   });
 
   it("is refused on a closed service, for a manager too", async () => {
     services.requireOpen.mockRejectedValue(Object.assign(new Error("closed"), { code: "failed_precondition" }));
     await expect(service.setDetails(SAILING, details({ departureDate: "2026-11-20" }), MANAGER)).rejects.toMatchObject({ code: "failed_precondition" });
-    expect(repo.setDetails).not.toHaveBeenCalled();
+    expect(repo.setDetailsRecorded).not.toHaveBeenCalled();
+  });
+
+  it("is not found when the sailing is gone by the time it is locked", async () => {
+    repo.setDetailsRecorded.mockResolvedValue(null);
+    await expect(service.setDetails(SAILING, details({ cutoffDate: "2026-11-18" }), MANAGER)).rejects.toMatchObject({ code: "not_found" });
   });
 });
 
@@ -351,5 +401,132 @@ describe("only what the box is for goes on a sailing", () => {
     repo.shipmentsToLink.mockResolvedValue([full]);
     await expect(service.moveShipment(SAILING, full.id, OTHER, "Box full", MANAGER)).rejects.toMatchObject({ code: "failed_precondition" });
     expect(repo.move).not.toHaveBeenCalled();
+  });
+});
+
+describe("linking shipments to a sailing", () => {
+  const ids = ["00000000-0000-4000-8000-0000000000a1", "00000000-0000-4000-8000-0000000000a2"];
+  const own = (id: string, more = {}) => ({ id, jobNumber: `CZLCL${id.slice(-8)}`, serviceName: "ISHA", freightMode: "Sea Freight", loadType: "Consolidation", ...more });
+  beforeEach(() => {
+    repo.shipmentsToLink.mockImplementation(async (asked: string[]) => asked.map((id) => own(id)));
+    repo.sailingsOf.mockResolvedValue([]);
+    repo.link.mockResolvedValue(true);
+  });
+
+  it("links them all, each once, as the one who links", async () => {
+    expect(await service.linkShipments(SAILING, [...ids, ids[0]!], USER)).toEqual({ linked: 2 });
+    expect(repo.link).toHaveBeenCalledWith(SAILING, ids, COMPANY, { id: "u-user", name: "Jana Nová" });
+  });
+
+  it("refuses a shipment of another Service Name, or one on another sailing: nothing is linked", async () => {
+    repo.shipmentsToLink.mockResolvedValue([own(ids[0]!, { serviceName: "Domestic" })]);
+    await expect(service.linkShipments(SAILING, [ids[0]!], USER)).rejects.toMatchObject({
+      code: "failed_precondition",
+      message: 'CZLCL000000a1 has the Service Name "Domestic": only ISHA shipments go on this sailing.',
+    });
+    repo.shipmentsToLink.mockImplementation(async (asked: string[]) => asked.map((id) => own(id)));
+    repo.sailingsOf.mockResolvedValue([{ shipmentId: ids[1]!, sailingId: OTHER, vessel: "MSC Anna", voyage: "445W" }]);
+    await expect(service.linkShipments(SAILING, ids, USER)).rejects.toMatchObject({ code: "failed_precondition", message: "CZLCL000000a2 is on MSC Anna 445W: remove it from there first." });
+    expect(repo.link).not.toHaveBeenCalled();
+  });
+
+  it("does not find a shipment of another company, or an id that is no id", async () => {
+    repo.shipmentsToLink.mockResolvedValue([own(ids[0]!)]);
+    await expect(service.linkShipments(SAILING, ids, USER)).rejects.toMatchObject({ code: "not_found" });
+    await expect(service.linkShipments(SAILING, [ids[0]!, "CZLCL00000001"], USER)).rejects.toMatchObject({ code: "not_found" });
+    expect(repo.link).not.toHaveBeenCalled();
+  });
+
+  it("says so when one was linked meanwhile: the database undid the others", async () => {
+    repo.link.mockResolvedValue(false);
+    await expect(service.linkShipments(SAILING, ids, USER)).rejects.toMatchObject({
+      code: "already_exists",
+      message: "A shipment was linked to a sailing meanwhile: nothing was linked. Try again.",
+    });
+  });
+
+  it("refuses more than 200 at once instead of linking some of them", async () => {
+    const many = Array.from({ length: 201 }, (_, i) => `00000000-0000-4000-8000-${String(i).padStart(12, "0")}`);
+    await expect(service.linkShipments(SAILING, many, USER)).rejects.toMatchObject({ code: "invalid_argument", message: "Link at most 200 shipments at once." });
+    expect(repo.shipmentsToLink).not.toHaveBeenCalled();
+    expect(repo.link).not.toHaveBeenCalled();
+  });
+
+  it("is refused on a closed service, and so is taking one off", async () => {
+    services.requireOpen.mockRejectedValue(Object.assign(new Error("closed"), { code: "failed_precondition" }));
+    await expect(service.linkShipments(SAILING, ids, USER)).rejects.toMatchObject({ code: "failed_precondition" });
+    await expect(service.unlinkShipment(SAILING, ids[0]!, USER)).rejects.toMatchObject({ code: "failed_precondition" });
+    expect(repo.link).not.toHaveBeenCalled();
+    expect(repo.unlink).not.toHaveBeenCalled();
+  });
+
+  it("takes one off as the one who does it, and does not find one that is not on the sailing", async () => {
+    repo.unlink.mockResolvedValue(true);
+    await service.unlinkShipment(SAILING, ids[0]!, USER);
+    expect(repo.unlink).toHaveBeenCalledWith(SAILING, ids[0], COMPANY, { id: "u-user", name: "Jana Nová" });
+    repo.unlink.mockResolvedValue(false);
+    await expect(service.unlinkShipment(SAILING, ids[0]!, USER)).rejects.toMatchObject({ code: "not_found" });
+  });
+});
+
+describe("moving a shipment on to another sailing", () => {
+  const moved = { id: "00000000-0000-4000-8000-0000000000c1", jobNumber: "CZLCL00000001", serviceName: "ISHA", freightMode: "Sea Freight", loadType: "Consolidation" };
+  beforeEach(() => {
+    repo.get.mockImplementation(async (id: string) => sailing({ id }));
+    repo.shipmentsToLink.mockResolvedValue([moved]);
+  });
+
+  it("moves it in one turn, with the reason trimmed and who moved it", async () => {
+    repo.move.mockResolvedValue(true);
+    await service.moveShipment(SAILING, moved.id, OTHER, "  Box full, rolled to next week ", MANAGER);
+    expect(repo.move).toHaveBeenCalledWith(SAILING, OTHER, moved.id, COMPANY, { id: "u-manager", name: "Jana Nová" }, "Box full, rolled to next week");
+  });
+
+  it("does not find a shipment that is not on the sailing", async () => {
+    repo.move.mockResolvedValue(false);
+    await expect(service.moveShipment(SAILING, moved.id, OTHER, "Box full", MANAGER)).rejects.toMatchObject({ code: "not_found" });
+  });
+
+  it("is refused to a sailing of another service", async () => {
+    repo.get.mockImplementation(async (id: string) => sailing({ id, serviceId: id === OTHER ? "55555555-5555-4555-8555-555555555555" : SERVICE }));
+    await expect(service.moveShipment(SAILING, moved.id, OTHER, "Box full", MANAGER)).rejects.toMatchObject({ code: "invalid_argument" });
+    expect(repo.move).not.toHaveBeenCalled();
+  });
+});
+
+describe("a new sailing", () => {
+  const input = { vessel: "WEEK 51", pol: "Shanghai (CNSHA)", pod: "Hamburg (DEHAM)", hub: "Praha (CZPRG)", containerType: "40' HC" };
+
+  it("is refused on a closed service: nothing is made", async () => {
+    services.requireOpen.mockRejectedValue(Object.assign(new Error("closed"), { code: "failed_precondition" }));
+    await expect(service.create(SERVICE, input, USER)).rejects.toMatchObject({ code: "failed_precondition" });
+    expect(repo.create).not.toHaveBeenCalled();
+  });
+
+  it("is made on an open service by the one who makes it", async () => {
+    repo.create.mockImplementation(async (values: object) => sailing(values));
+    await service.create(SERVICE, input, USER);
+    expect(repo.create).toHaveBeenCalledWith(expect.objectContaining({ companyId: COMPANY, serviceId: SERVICE, vessel: "WEEK 51", containerCount: 1, createdById: "u-user", createdByName: "Jana Nová" }));
+  });
+});
+
+describe("the rates of the service's sailings", () => {
+  it("are read once per departure date, at most four dates at a time", async () => {
+    const ids = Array.from({ length: 10 }, (_, i) => `66666666-6666-4666-8666-${String(i).padStart(12, "0")}`);
+    repo.listByService.mockResolvedValue(ids.map((id, i) => sailing({ id, departureDate: `2026-11-${String(i + 1).padStart(2, "0")}` })));
+    repo.boxShipmentsOf.mockResolvedValue(new Map());
+    boxCosts.repo.listOf.mockResolvedValue(ids.map((sailingId) => cost("ocean", "100.00", "EUR", { sailingId })));
+    let reading = 0;
+    let most = 0;
+    fx.fxRatesOn.mockImplementation(async ({ date }: { date?: string }) => {
+      most = Math.max(most, ++reading);
+      await new Promise((resolve) => setImmediate(resolve));
+      reading--;
+      return rates({ date, fixingDate: date });
+    });
+    const profits = await service.profits(SERVICE, COMPANY);
+    expect(fx.fxRatesOn).toHaveBeenCalledTimes(10);
+    expect(most).toBe(4);
+    expect(profits.every((p) => p.boxCostsSet)).toBe(true);
   });
 });

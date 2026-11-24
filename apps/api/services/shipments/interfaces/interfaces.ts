@@ -2517,7 +2517,8 @@ export interface SailingEarnings {
   boxUnshared: boolean;
   /**
    * How many W/M must be sold to cover the box costs, at what the loaded shipments earn per W/M
-   * before the box; null while no box cost is set or nothing is loaded.
+   * before the box; null while no box cost is set, nothing is loaded, a loaded shipment is not
+   * priced (`breakEvenWaitsFor`) or a box cost could not be valued (`boxCosts.missingCurrencies`).
    */
   breakEven: {
     /** null when the loaded shipments earn nothing before the box: no load would cover it. */
@@ -2531,7 +2532,7 @@ export interface SailingEarnings {
   } | null;
   /** How many loaded shipments are not priced yet (no selling lines, or money not known): break-even is not worked out until none is. */
   breakEvenWaitsFor: number;
-  /** The space of the box not sold, in % of the box, and its share of the box costs; null without box costs or a capacity. */
+  /** The space of the box not sold, in % of the box, and its share of the box costs; null without box costs or a capacity, or while a box cost could not be valued. */
   unsold: { pct: number; cost: EarningsAmount } | null;
   /** How many counted shipments each remark is about. */
   notes: {
@@ -2586,6 +2587,11 @@ export interface SailingBoxCosts {
   departureDate: string | null;
   /** The rates may still move: the sailing has no departure date, or its day's fixing is not out yet. */
   rateProvisional: boolean;
+  /**
+   * The ČNB rates could not be read at all (the rates service did not answer): every cost not in CZK
+   * is then in `missingCurrencies`, for that reason and not because the currency has no rate.
+   */
+  ratesNotRead: boolean;
   /** Currencies with no rate: their amounts are left out of the total. */
   missingCurrencies: string[];
   /** Costs still without an amount, once any is set. */

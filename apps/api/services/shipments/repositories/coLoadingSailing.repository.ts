@@ -7,9 +7,20 @@ import {
   type NewCoLoadingSailingRecord,
 } from "../schemas/coLoadingSailing.schema";
 import { coLoadingSailingShipmentTable as links } from "../schemas/coLoadingSailingShipment.schema";
+import { coLoadingBoxCostChangeTable as costChanges, coLoadingBoxCostTable as costs } from "../schemas/coLoadingBoxCost.schema";
 import { cargoDimensionTable as dimensions } from "../schemas/cargoDimension.schema";
 import { shipmentTable } from "../schemas/shipment.schema";
 import type { BoxShipment } from "../lib/boxUtilization";
+import type { SailingDetails } from "../lib/coLoadingSailing";
+
+/** A change of a sailing that moves its box costs, as the record of changes keeps it (lib/coLoadingBoxCosts sailingDetailChanges). */
+export interface SailingChange {
+  kind: string;
+  oldAmount: number | null;
+  newAmount: number | null;
+  oldNote: string;
+  newNote: string;
+}
 
 /** A linked shipment as stored: what the box's fill reads, and what kind of shipment it is. */
 export type LinkedCargo = Omit<BoxShipment, "cancelled" | "odd"> & {
@@ -110,14 +121,61 @@ class CoLoadingSailingRepository {
     return rows.length;
   }
 
-  /** Sets the sailing's number of containers, its cut-off and - when given - its departure date; the sailing as it is now, null when not found. */
-  async setDetails(id: string, companyId: string, details: { containerCount: number; cutoffDate: string | null; departureDate?: string | null }): Promise<CoLoadingSailingRecord | null> {
-    const [row] = await db
-      .update(sailings)
-      .set({ ...details, updatedAt: new Date() })
-      .where(and(eq(sailings.id, id), eq(sailings.companyId, companyId), isNull(sailings.deletedAt)))
-      .returning();
-    return row ?? null;
+  /**
+   * "Edit sailing" in one turn (Council Review 7, K13): sets the sailing's number of containers, its
+   * cut-off and - when given - its departure date, and records what moved its box costs, together or
+   * not at all. The sailing's row is locked first, the lock a save of its box costs takes
+   * (coLoadingBoxCost.repository save), so no cost is set between the judging and the writing.
+   * `judge` sees the sailing as it is then, with the containers that have a cost, and returns the
+   * changes to record or throws to refuse: nothing is written then. The sailing as it is now; null
+   * when it is not found.
+   */
+  async setDetailsRecorded(
+    id: string,
+    companyId: string,
+    details: SailingDetails,
+    by: { id: string; name: string },
+    judge: (now: CoLoadingSailingRecord, costedContainers: number[]) => SailingChange[],
+  ): Promise<CoLoadingSailingRecord | null> {
+    return db.transaction(async (tx) => {
+      const live = and(eq(sailings.id, id), eq(sailings.companyId, companyId), isNull(sailings.deletedAt));
+      const [now] = await tx.select().from(sailings).where(live).for("update");
+      if (!now) return null;
+      const costed = await tx
+        .selectDistinct({ containerNo: costs.containerNo })
+        .from(costs)
+        .where(and(eq(costs.companyId, companyId), eq(costs.sailingId, id), isNotNull(costs.amount)))
+        .orderBy(asc(costs.containerNo));
+      const changes = judge(now, costed.map((c) => c.containerNo));
+      const [row] = await tx
+        .update(sailings)
+        .set({
+          containerCount: details.containerCount,
+          cutoffDate: details.cutoffDate,
+          ...(details.departureDate !== undefined ? { departureDate: details.departureDate } : {}),
+          updatedAt: new Date(),
+        })
+        .where(live)
+        .returning();
+      if (changes.length > 0) {
+        await tx.insert(costChanges).values(
+          changes.map((c) => ({
+            companyId,
+            sailingId: id,
+            // 0: the change is of the sailing, not of one container.
+            containerNo: 0,
+            kind: c.kind,
+            oldAmount: c.oldAmount === null ? null : String(c.oldAmount),
+            newAmount: c.newAmount === null ? null : String(c.newAmount),
+            oldNote: c.oldNote,
+            newNote: c.newNote,
+            changedById: by.id,
+            changedByName: by.name,
+          })),
+        );
+      }
+      return row ?? null;
+    });
   }
 
   /**
