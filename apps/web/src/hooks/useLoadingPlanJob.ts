@@ -3,9 +3,10 @@
 import { useMutation } from "@tanstack/react-query";
 import { api, isNotFound } from "@/lib/api";
 import type { interfaces } from "@/lib/api/client";
-import { isUuid } from "@/lib/uuid";
+import { uuid } from "@/lib/uuid";
 import type { DraftLine } from "@/app/loading-planner/_lib/cargoForm";
-import { linesFromQuote, linesFromShipment, quotePackages, sameJobNumber } from "@/app/loading-planner/_lib/jobCargo";
+import { linesFromQuote, quotePackages } from "@/app/loading-planner/_lib/jobCargo";
+import { shipmentLines, shipmentLookup, shipmentWithJobNumber } from "@/app/loading-planner/_lib/plannerScreen";
 
 /** How a job is named when it is looked up: a shipment by its id or its job number, a quote by its reference. */
 export interface JobKey {
@@ -25,23 +26,19 @@ export interface PlanJob {
 /** There is no such shipment or quote; its message says which. */
 export class JobNotFound extends Error {}
 
-const newId = () => crypto.randomUUID();
+const newId = uuid;
+
+/** The id of the shipment with this job number: the list's search finds it by its digits, whatever letters it carries now. */
+async function shipmentIdOf(jobNumber: string): Promise<string> {
+  const found = shipmentWithJobNumber((await api.shipments.shipmentList({ search: jobNumber, limit: 100 })).data, jobNumber);
+  if (!found) throw new JobNotFound(`No shipment with the job number "${jobNumber}" was found.`);
+  return found.id;
+}
 
 async function readShipment(key: string): Promise<PlanJob> {
-  let id = key;
-  if (!isUuid(key)) {
-    // A job number: the list's search finds it by its digits, whatever letters it carries now
-    // (CZ00000053 is CZLCL00000053 once its Freight Mode is set), and the same number must come back.
-    const found = (await api.shipments.shipmentList({ search: key.trim(), limit: 100 })).data.find((s) => sameJobNumber(s.jobNumber ?? "", key));
-    if (!found) throw new JobNotFound(`No shipment with the job number "${key.trim()}" was found.`);
-    id = found.id;
-  }
-  const { shipment } = await api.shipments.shipmentGet(id);
-  // The Dimensions rows of Cargo Details; a shipment that has none yet is planned from the
-  // dimensions booked with its quote.
-  const own = linesFromShipment(shipment.cargoDimensions, newId);
-  const lines = own.length > 0 ? own : linesFromShipment(shipment.bookedDimensions, newId);
-  return { kind: "shipment", id: shipment.id, ref: shipment.jobNumber ?? "", lines };
+  const lookup = shipmentLookup(key);
+  const { shipment } = await api.shipments.shipmentGet("id" in lookup ? lookup.id : await shipmentIdOf(lookup.jobNumber));
+  return { kind: "shipment", id: shipment.id, ref: shipment.jobNumber ?? "", lines: shipmentLines(shipment, newId) };
 }
 
 async function readQuote(key: string): Promise<PlanJob> {

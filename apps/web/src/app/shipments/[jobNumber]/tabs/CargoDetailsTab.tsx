@@ -292,6 +292,9 @@ export function CargoDetailsTab({
   // A line save was refused and the lines read again not drawn yet: the next resync redraws them
   // even with a row open (redrawsDims), and the base follows the drawing (heldDims).
   const dimsRefused = useRef(false);
+  // The Dimensions save on its way, true once the server has it: a new loading plan reads the lines
+  // only after it (LoadingPlansCard). Null when none is.
+  const dimsSaving = useRef<Promise<boolean> | null>(null);
   // Kept in refs so resync, called from effects and timers, sees the current values.
   const openRef = useRef({ items: openItems.indexes, dims: openDims.indexes });
   openRef.current = { items: openItems.indexes, dims: openDims.indexes };
@@ -372,13 +375,28 @@ export function CargoDetailsTab({
     baseDims.current = payload;
     dimsRefused.current = false;
     const refused = { table: "dims" as const, rows: new Set(payload.map(rowKey)) };
-    onChange({ cargoDimensions: payload, expectedCargoDimensions }).catch(() => {
+    const sent = onChange({ cargoDimensions: payload, expectedCargoDimensions });
+    sent.catch(() => {
       dimsRefused.current = true;
       setTimeout(() => resync(refused), 50);
+    });
+    const saving = sent.then(
+      () => true,
+      () => false,
+    );
+    dimsSaving.current = saving;
+    void saving.then(() => {
+      if (dimsSaving.current === saving) dimsSaving.current = null;
     });
   };
   const persistItems = () => sendItems(itemsRef.current);
   const persistDims = () => sendDims(dimsRef.current);
+  // New loading plan: a line still being typed is sent, and the plan opens once the server has the
+  // lines. A refused save keeps the user here, where the refusal is shown.
+  const dimsSavedForPlan = () => {
+    persistDims();
+    return dimsSaving.current ?? Promise.resolve(true);
+  };
 
   // Both tables behave like the container rows: a filled row collapses to a read-only
   // line when focus leaves it, and a double-click opens it again. An empty row stays open.
@@ -932,7 +950,7 @@ export function CargoDetailsTab({
       <RemeasuredCard shipment={shipment} readOnly={readOnly} />
 
       {/* The loading plans made from these lines (Loading Planner). Air freight is not loaded into containers. */}
-      {!air && <LoadingPlansCard kind="shipment" id={shipment.id} newPlanKey={shipment.id} />}
+      {!air && <LoadingPlansCard kind="shipment" id={shipment.id} newPlanKey={shipment.id} beforeNewPlan={dimsSavedForPlan} />}
 
       <SectionCard title="Description">
         <div className="relative">

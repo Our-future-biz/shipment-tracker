@@ -8,8 +8,10 @@ import { PillTabs } from "@/components/SectionCard";
 import { useCargoReading } from "@/hooks/useCargoReading";
 import { apiErrorMessage } from "@/lib/api";
 import type { lib } from "@/lib/api/client";
+import { uuid } from "@/lib/uuid";
 import { BTN, EMPTY, HINT, TD, TH } from "@/styles/ui";
 import type { DraftLine } from "../_lib/cargoForm";
+import { alreadyInPlan } from "../_lib/plannerScreen";
 import { draftsFromReading, isReadLineComplete, MAX_READ_FILE_MB, READ_FILE_TYPES, readFileProblem } from "../_lib/readCargo";
 import { formatDim, type DimUnit } from "../_lib/units";
 
@@ -68,23 +70,13 @@ export function ReadCargoModal({ open, onClose, unit, existing, onAdd }: ReadCar
 
   const handleAdd = () => {
     if (!found) return;
-    onAdd(draftsFromReading(found.lines.filter((_, index) => kept[index]), () => crypto.randomUUID()));
+    onAdd(draftsFromReading(found.lines.filter((_, index) => kept[index]), uuid));
     close();
   };
 
   const keptCount = kept.filter(Boolean).length;
-  // A line whose name and figures are already in the plan: most likely the same document read twice.
-  const sameAs = (line: lib.CargoLineRead) =>
-    existing.some(
-      (have) =>
-        have.name.trim().toLowerCase() === line.name.trim().toLowerCase() &&
-        have.lengthMm === line.lengthMm &&
-        have.widthMm === line.widthMm &&
-        have.heightMm === line.heightMm &&
-        have.weightKg === line.weightKg &&
-        have.colli === line.colli,
-    );
-  const alreadyThere = found ? found.lines.filter((line) => isReadLineComplete(line) && sameAs(line)).length : 0;
+  // Lines whose name and figures are already in the plan: most likely the same document read twice.
+  const alreadyThere = found ? found.lines.filter((line) => alreadyInPlan(line, existing)).length : 0;
   const dim = (mm: number | null) => (mm === null ? <span className="font-medium text-amber-700">missing</span> : formatDim(mm, unit));
 
   return (

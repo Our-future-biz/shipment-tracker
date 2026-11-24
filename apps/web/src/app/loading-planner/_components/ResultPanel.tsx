@@ -7,7 +7,8 @@ import { Pill } from "@/components/Pill";
 import { SectionCard } from "@/components/SectionCard";
 import { BTN_BAR, CARD, EMPTY_STATE, HINT, LABEL_TEXT, TD, TH } from "@/styles/ui";
 import { BALANCE_RULE } from "../_lib/balance";
-import { balanceLimitText, END_WALLS_NOTE, floorOverloadText, outOfBalanceText, ruleWarnings, hasDoors, loadStats, planTotals, type PieceGroup } from "../_lib/loadStats";
+import { balanceLimitText, END_WALLS_NOTE, floorOverloadText, outOfBalanceText, ruleWarnings, hasDoors, loadStats, planTotals, startText, type PieceGroup } from "../_lib/loadStats";
+import type { ContainerSpec } from "../_lib/containers";
 import type { ContainerLoad, LoadPlan } from "../_lib/plan";
 import { formatDim, formatKg, formatSize, type DimUnit } from "../_lib/units";
 import { FloorPlan } from "./FloorPlan";
@@ -42,11 +43,12 @@ function overText(group: PieceGroup, unit: DimUnit): string {
 }
 
 /** What is worth saying about a row of the container's table. */
-function notesOf(group: PieceGroup, unit: DimUnit): string {
+function notesOf(group: PieceGroup, container: ContainerSpec, unit: DimUnit): string {
   return [
     group.crosswise && "crosswise",
     group.stacked > 0 && `${group.stacked} stacked, top at ${formatDim(group.topMm, unit)} ${unit}`,
-    group.count === 1 && `${formatDim(group.at.fromFront, unit)} ${unit} from the front wall`,
+    // Measured from where the PDF measures it: the front wall, or a flat rack's left end wall.
+    group.count === 1 && startText(group, container, unit),
     overText(group, unit),
   ]
     .filter(Boolean)
@@ -135,7 +137,7 @@ function LoadCard({ load, number, unit, colourOf, numberOf, onShow3D }: LoadCard
                 <td className={`${TD} text-right tabular-nums`}>{group.count}</td>
                 <td className={`${TD} tabular-nums`}>{formatSize(group.length, group.width, group.height, unit)}</td>
                 <td className={`${TD} text-right tabular-nums`}>{formatKg(group.weightKg)}</td>
-                <td className={TD}>{notesOf(group, unit)}</td>
+                <td className={TD}>{notesOf(group, container, unit)}</td>
               </tr>
             ))}
           </tbody>
@@ -166,7 +168,7 @@ function LoadCard({ load, number, unit, colourOf, numberOf, onShow3D }: LoadCard
           <span>{outOfBalanceText(container, unit)}</span>
         </p>
       )}
-      {!hasDoors(container) && <p className={`${HINT} m-0`}>A flat rack has no doors: positions are measured from the end wall on the left.</p>}
+      {!hasDoors(container) && <p className={`${HINT} m-0`}>A flat rack has no doors: positions are measured from the left end wall.</p>}
     </SectionCard>
   );
 }

@@ -5,7 +5,7 @@ import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { hasDoors } from "../_lib/loadStats";
 import type { ContainerLoad, PlacedPiece } from "../_lib/plan";
-import { cameraFor, sceneBalance, sceneBoxes, sceneFloor, type CameraView } from "../_lib/scene";
+import { cameraFor, pieceKey, sceneBalance, sceneBoxes, sceneFloor, type CameraView } from "../_lib/scene";
 import { HINT } from "@/styles/ui";
 
 interface Viewer3DProps {
@@ -21,9 +21,6 @@ interface Viewer3DProps {
   /** Said to screen readers: what the picture shows. */
   label: string;
 }
-
-/** A piece by its cargo line and place: it stays the same piece when the plan is worked out again. */
-export const pieceKey = (piece: PlacedPiece): string => `${piece.lineId}|${piece.x}|${piece.y}|${piece.z}`;
 
 // The picture's own colours (slate, indigo, emerald and red of the app's palette), as three.js takes them.
 const FLOOR = 0xe2e8f0;

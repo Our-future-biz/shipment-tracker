@@ -1,7 +1,7 @@
 "use client";
 
 import { PillTabs, SectionCard } from "@/components/SectionCard";
-import { CHIP, CHIP_ON, HINT, LABEL_TEXT } from "@/styles/ui";
+import { CHIP, CHIP_ON, HINT, LABEL_TEXT, LINK } from "@/styles/ui";
 import { CONTAINERS, floorText, GROUP_ORDER, type Clearance, type ContainerGroup, type PlanRules } from "../_lib/containers";
 import { formatDim, formatKg, type DimUnit } from "../_lib/units";
 
@@ -80,7 +80,7 @@ export function EquipmentCard({ nominated, unit, onChange, rules, onSettings }: 
       <p className={`${HINT} m-0 mt-3`}>
         Standard containers are planned with a clearance left free: {clearanceText(rules.clearance, unit)}. A single piece over {formatKg(rules.heavyPiece.moveKg)} is planned
         onto an open top or flat rack. A piece too heavy for the length of floor it rests on, even with 1 m of beams under each end, is not loaded.{" "}
-        <button type="button" className="cursor-pointer border-0 bg-transparent p-0 text-[13px] font-medium text-indigo-600 hover:underline" onClick={onSettings}>
+        <button type="button" className={`${LINK} cursor-pointer border-0 bg-transparent p-0 text-[13px] font-medium`} onClick={onSettings}>
           Settings
         </button>
       </p>

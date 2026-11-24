@@ -7,9 +7,8 @@ import { PillTabs, SectionCard } from "@/components/SectionCard";
 import { HINT, ICON_BTN, LABEL_TEXT } from "@/styles/ui";
 import { hasDoors } from "../_lib/loadStats";
 import type { LoadPlan, PlacedPiece } from "../_lib/plan";
-import type { CameraView } from "../_lib/scene";
+import { pieceKey, type CameraView } from "../_lib/scene";
 import { formatDim, formatKg, formatSize, type DimUnit } from "../_lib/units";
-import { pieceKey } from "./Viewer3D";
 
 const Unavailable = () => (
   <p className={`${HINT} m-0 rounded-lg bg-slate-50 px-4 py-6 text-center`}>The 3D view could not be loaded. Reload the page to try again; the floor plans below show the same loads.</p>

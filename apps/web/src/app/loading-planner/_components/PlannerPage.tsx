@@ -16,7 +16,8 @@ import type { interfaces } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { businessToday, formatDate, formatDateTime } from "@/lib/date";
 import { useMessages } from "@/lib/toast";
-import { BTN, BTN_PRIMARY, HINT, PAGE_SUBTITLE, REF } from "@/styles/ui";
+import { uuid } from "@/lib/uuid";
+import { BTN, BTN_PRIMARY, HINT, LINK, PAGE_SUBTITLE, REF } from "@/styles/ui";
 import { useUnsavedGuard } from "@/app/warehouse-concept/_lib/useUnsavedGuard";
 import {
   cargoLinesOf,
@@ -35,7 +36,8 @@ import { CONTAINERS } from "../_lib/containers";
 import { JOB_KIND_LABEL, jobHref } from "../_lib/jobCargo";
 import { lineColour } from "../_lib/loadStats";
 import { planLoad, type LoadPlan } from "../_lib/plan";
-import { DIM_UNITS, type DimUnit } from "../_lib/units";
+import { linkAfterSave, linkOf, newerVersionStep, rememberedUnit, rememberUnit } from "../_lib/plannerScreen";
+import type { DimUnit } from "../_lib/units";
 import { CargoCard } from "./CargoCard";
 import { EquipmentCard } from "./EquipmentCard";
 import { LinkJobModal } from "./LinkJobModal";
@@ -43,29 +45,8 @@ import { PlannerSettingsModal } from "./PlannerSettingsModal";
 import { ReadCargoModal } from "./ReadCargoModal";
 import { ResultPanel } from "./ResultPanel";
 
-const newId = () => crypto.randomUUID();
+const newId = uuid;
 const NO_PLAN: LoadPlan = { loads: [], notLoaded: [] };
-
-const linkOf = (plan: interfaces.LoadingPlanItem | null): JobLink | null =>
-  plan?.linkKind && plan.linkId ? { kind: plan.linkKind, id: plan.linkId, ref: plan.linkRef } : null;
-
-// The unit a user last typed sizes in is kept in their browser: a convenience, so the page works without it.
-const UNIT_KEY = "loading-planner-unit";
-const rememberedUnit = (): DimUnit => {
-  try {
-    const unit = window.localStorage.getItem(UNIT_KEY);
-    return DIM_UNITS.find((u) => u === unit) ?? "mm";
-  } catch {
-    return "mm";
-  }
-};
-const rememberUnit = (unit: DimUnit) => {
-  try {
-    window.localStorage.setItem(UNIT_KEY, unit);
-  } catch {
-    // Private windows and blocked storage: the unit is simply not remembered.
-  }
-};
 
 // A loading plan's page, new (/loading-planner/new) or saved (/loading-planner/<id>). A new plan
 // opened from a job (/loading-planner/new?shipment=<id> or ?quote=<reference>) starts linked to it,
@@ -135,9 +116,9 @@ function PlanEditor({ saved }: { saved: interfaces.LoadingPlanItem | null }) {
   // The plan is read again whenever its page opens. A version newer than the one on screen is
   // taken over at once while nothing is unsaved here; otherwise the user is told and chooses.
   useEffect(() => {
-    if (!saved || !stored || saved.updatedAt <= stored.updatedAt) return;
-    if (dirty) setNewer(saved);
-    else adopt(saved);
+    const step = newerVersionStep(saved, stored, dirty);
+    if (step === "offer") setNewer(saved);
+    else if (step === "adopt" && saved) adopt(saved);
     // Only a new version from the server sets this off, not every keystroke.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [saved?.updatedAt]);
@@ -275,7 +256,8 @@ function PlanEditor({ saved }: { saved: interfaces.LoadingPlanItem | null }) {
         // The server refuses the save when a colleague saved the plan after this version was opened.
         const savedNow = await updatePlan({ id: stored.id, updatedAt: stored.updatedAt, ...input });
         setStored(savedNow);
-        setLink(linkOf(savedNow));
+        // The job as it is called now; a link changed while the save was on its way stays changed.
+        setLink((onScreen) => linkAfterSave(onScreen, savedNow));
         setNewer(null);
         message.success("Plan saved");
       } else {
@@ -361,7 +343,7 @@ function PlanEditor({ saved }: { saved: interfaces.LoadingPlanItem | null }) {
             <>
               <span className="text-[13px] text-slate-700">
                 Linked to {jobWord}{" "}
-                <Link href={jobHref(link.kind, link.id, link.ref)} className={`${REF} font-semibold !text-indigo-600 hover:!underline`}>
+                <Link href={jobHref(link.kind, link.id, link.ref)} className={`${REF} ${LINK} font-semibold`}>
                   {link.ref || "(no job number yet)"}
                 </Link>
               </span>

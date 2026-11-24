@@ -28,6 +28,12 @@ export interface SceneBalance {
 
 const m = (mm: number) => mm / 1000;
 
+/**
+ * A piece by its cargo line and place: it stays the same piece when the plan is worked out again.
+ * Kept here, not beside the 3D view, so the page names a piece without loading the 3D library.
+ */
+export const pieceKey = (piece: PlacedPiece): string => `${piece.lineId}|${piece.x}|${piece.y}|${piece.z}`;
+
 export const sceneFloor = (load: ContainerLoad): SceneFloor => ({
   length: m(load.container.internalL),
   width: m(load.container.internalW),

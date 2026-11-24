@@ -1,10 +1,18 @@
 "use client";
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import type { controllers, interfaces } from "@/lib/api/client";
 
-const LOADING_PLANS_KEY = ["loading-plans"];
+/** Every query of loading plans starts with this: the lists (all, or one job's) and the opened plans. */
+export const LOADING_PLANS_KEY = ["loading-plans"];
+
+/**
+ * After a write elsewhere that moved plans (a quote revised: its plans go to the revision), every
+ * list and opened plan is marked out of date without being read now; each is read again when it is
+ * next shown, the revision's own card among them.
+ */
+export const markLoadingPlansStale = (queryClient: QueryClient) => queryClient.invalidateQueries({ queryKey: LOADING_PLANS_KEY, refetchType: "none" });
 
 /** A shipment or quote whose plans are wanted; leave out for all plans of the company. */
 export interface PlanLink {

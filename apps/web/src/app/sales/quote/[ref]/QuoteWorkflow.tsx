@@ -6,6 +6,7 @@ import { useParams, usePathname, useRouter, useSearchParams } from "next/navigat
 import { Alert, Badge, Button, Checkbox, ConfigProvider, DatePicker, Dropdown, Input, InputNumber, Select, Spin, Tooltip } from "antd";
 import type { MenuProps } from "antd";
 import dayjs from "dayjs";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   ContainerOutlined,
   CopyOutlined,
@@ -30,6 +31,7 @@ import { LoadingPlansCard } from "@/components/LoadingPlansCard";
 import { Pill } from "@/components/Pill";
 import { LINK_CLASS } from "@/components/linkClass";
 import { PillTabs } from "@/components/SectionCard";
+import { markLoadingPlansStale } from "@/hooks/useLoadingPlans";
 import { useQuoteFamily } from "@/hooks/useQuoteFamily";
 import { useSalesQuoteDraft } from "@/hooks/useSalesQuoteDraft";
 import { useSalesQuotes } from "@/hooks/useSalesQuotes";
@@ -258,6 +260,7 @@ export function QuoteWorkflow() {
     router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
   }, [searchParams, router, pathname]);
   const toast = useToast();
+  const queryClient = useQueryClient();
   // Loading, autosave and everything about not losing or overwriting data live in the hook.
   // `draft` is the document being edited; `quote` is the quote as the server last returned it,
   // with everything the server owns - status, validity, owner - and what may be done with them.
@@ -735,6 +738,8 @@ export function QuoteWorkflow() {
     }, { versioned: true });
     if (refused) return refused;
     if (revision) {
+      // The quote's loading plans went to the revision with it: the plan lists read them again.
+      void markLoadingPlansStale(queryClient);
       toast.success(`${ref} revised as ${revision}`);
       router.push(hrefOf(revision));
     }
@@ -1521,7 +1526,16 @@ export function QuoteWorkflow() {
           {(!containerQuote || packages.length > 0) && <QuotePackageLines lines={packages} onChange={updatePackages} readOnly={quoteClosed} />}
 
           {/* The loading plans made from the package lines (Loading Planner): for a quote that holds some, or that has plans already. */}
-          {quote && <LoadingPlansCard kind="quote" id={quote.id} newPlanKey={quote.quoteNumber} onlyWithPlans={packages.length === 0} />}
+          {quote && (
+            <LoadingPlansCard
+              kind="quote"
+              id={quote.id}
+              newPlanKey={quote.quoteNumber}
+              onlyWithPlans={packages.length === 0}
+              // The plan reads the package lines from the server: what was typed is saved first, and a refused save (the hook says why) stops there.
+              beforeNewPlan={async () => !(await saveNow()).problem}
+            />
+          )}
 
           {/* Freight metrics. Weight and volume are the lines' sum - the containers' declared
               cargo, else the packages'; where the lines give none they are typed here for the

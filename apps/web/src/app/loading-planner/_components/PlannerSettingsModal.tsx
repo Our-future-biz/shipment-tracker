@@ -7,19 +7,16 @@ import { usePlannerSettings } from "@/hooks/usePlannerSettings";
 import { apiErrorMessage } from "@/lib/api";
 import { useMessages } from "@/lib/toast";
 import { HINT, LABEL_TEXT } from "@/styles/ui";
-import { CONTAINERS, DEFAULT_RULES, MAX_CLEARANCE_MM, passHeight, passWidth, usableLength, type PlanRules } from "../_lib/containers";
+import { CONTAINERS, DEFAULT_RULES, MAX_CLEARANCE_MM, passHeight, passWidth, usableLength } from "../_lib/containers";
+import { draftOf, heavyOrderWrong, rulesOf, sameAsStored, type SettingsDraft, type SettingsField } from "../_lib/settingsForm";
 
 interface PlannerSettingsModalProps {
   open: boolean;
   onClose: () => void;
 }
 
-/** The form: every figure of the rules under one name, empty while the user clears a field. */
-type Draft = Record<FieldKey, number | null>;
-type FieldKey = "doorWidthMm" | "doorHeightMm" | "lengthMm" | "oogWidthMm" | "oogOverEndMm" | "oogHeightMm" | "warnKg" | "moveKg";
-
 interface Field {
-  key: FieldKey;
+  key: SettingsField;
   label: string;
   hint: string;
   unit: "mm" | "kg";
@@ -55,27 +52,6 @@ const GROUPS: { title: string; about: string; fields: Field[] }[] = [
     ],
   },
 ];
-const FIELDS = GROUPS.flatMap((group) => group.fields);
-
-const draftOf = (rules: PlanRules): Draft => ({
-  ...rules.clearance,
-  oogWidthMm: rules.oogWarning.widthMm,
-  oogOverEndMm: rules.oogWarning.overEndMm,
-  oogHeightMm: rules.oogWarning.heightMm,
-  ...rules.heavyPiece,
-});
-
-/** The rules a filled-in form holds; null while a field is empty. */
-function rulesOf(draft: Draft): PlanRules | null {
-  if (FIELDS.some(({ key }) => draft[key] === null)) return null;
-  const d = draft as Record<FieldKey, number>;
-  return {
-    clearance: { doorWidthMm: d.doorWidthMm, doorHeightMm: d.doorHeightMm, lengthMm: d.lengthMm },
-    oogWarning: { widthMm: d.oogWidthMm, overEndMm: d.oogOverEndMm, heightMm: d.oogHeightMm },
-    heavyPiece: { warnKg: d.warnKg, moveKg: d.moveKg },
-  };
-}
-
 const mm = (value: number) => `${value.toLocaleString("en-US")} mm`;
 const EXAMPLE = CONTAINERS.find((c) => c.id === "40hc");
 
@@ -84,7 +60,7 @@ const EXAMPLE = CONTAINERS.find((c) => c.id === "40hc");
 export function PlannerSettingsModal({ open, onClose }: PlannerSettingsModalProps) {
   const { rules, changed, canEdit, isLoading, isError, saveRules, isSaving } = usePlannerSettings();
   const message = useMessages();
-  const [draft, setDraft] = useState<Draft>(() => draftOf(rules));
+  const [draft, setDraft] = useState<SettingsDraft>(() => draftOf(rules));
   // The stored figures fill the form each time it opens.
   useEffect(() => {
     if (open) setDraft(draftOf(rules));
@@ -93,9 +69,8 @@ export function PlannerSettingsModal({ open, onClose }: PlannerSettingsModalProp
   }, [open, isLoading]);
 
   const filled = rulesOf(draft);
-  const stored = draftOf(rules);
-  const same = FIELDS.every(({ key }) => draft[key] === stored[key]);
-  const wrongOrder = filled !== null && filled.heavyPiece.moveKg < filled.heavyPiece.warnKg;
+  const same = sameAsStored(draft, rules);
+  const wrongOrder = heavyOrderWrong(filled);
 
   const handleSave = async () => {
     if (!filled) return;
