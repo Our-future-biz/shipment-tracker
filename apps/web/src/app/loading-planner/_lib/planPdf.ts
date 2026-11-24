@@ -1,6 +1,6 @@
 import { jsPDF } from "jspdf";
 import { NO_CLEARANCE, type ContainerSpec, type PlanRules } from "./containers";
-import { dgWarning, dgWords, isDangerous, lashingNotes } from "./dangerous";
+import { dgWarning, dgWords, isDangerous, lashingNotes, pinWords } from "./dangerous";
 import { standardLabel, type CargoLine } from "./gauge";
 import { balanceLimitText, END_WALLS_NOTE, floorOverloadText, outOfBalanceText, ruleWarnings, hasDoors, lineColour, loadStats, planTotals, startText, type PieceGroup } from "./loadStats";
 import type { ContainerLoad, LoadPlan } from "./plan";
@@ -376,6 +376,11 @@ function summaryPage(doc: jsPDF, input: PlanPdfInput, colourOf: (lineId: string)
     y = paragraph(doc, text, y, "bold", AMBER, newPage);
   }
   y += 2;
+
+  // Pins the plan could not keep, and the lines that are pinned: the gang loads by them (Council Outlay 14, P8).
+  for (const text of plan.pinNotes ?? []) y = paragraph(doc, `Pin not kept - ${text}`, y, "bold", AMBER, newPage);
+  const pinned = input.lines.filter((line) => pinWords(line));
+  if (pinned.length > 0) y = paragraph(doc, `Pinned: ${pinned.map((line) => `${numberOf(line.id)} ${line.name || "Cargo"} ${pinWords(line)}`).join("; ")}.`, y, "normal", BODY, newPage) + 2;
 
   if (plan.notLoaded.length > 0) {
     setFont(doc, "bold", 9, RED);

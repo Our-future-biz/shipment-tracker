@@ -179,7 +179,7 @@ function slideToMiddleAlong(pieces: PlacedPiece[], container: ContainerSpec): vo
  * moves to the middle of the width. Moving the heavy part closes the gaps between the bands, so
  * that way is taken only when the floor still carries the cargo that then stands end to end.
  */
-export function centreLoad(pieces: PlacedPiece[], container: ContainerSpec): void {
+export function centreLoad(pieces: PlacedPiece[], container: ContainerSpec, keepOrder = false): void {
   if (pieces.length === 0) return;
   const settle = (reorder: boolean) => {
     const copy = pieces.map((piece) => ({ ...piece }));
@@ -191,13 +191,14 @@ export function centreLoad(pieces: PlacedPiece[], container: ContainerSpec): voi
     // Slide first, so a change of places is judged on the load where it will stand.
     slideToMiddleAlong(copy, container);
     bandsToMiddleAcross(copy, container);
-    heavyStacksToMiddle(copy, container, offCentre);
+    // With pieces pinned to an end of the container, nothing changes places along it: the load only slides as a whole.
+    if (!keepOrder) heavyStacksToMiddle(copy, container, offCentre);
     slideToMiddleAlong(copy, container);
     bandsToMiddleAcross(copy, container);
     return { copy, off: offCentre() };
   };
-  const [asPacked, reordered] = [settle(false), settle(true)];
-  const best = reordered.off < asPacked.off - 0.01 && floorHolds(reordered.copy, container) ? reordered.copy : asPacked.copy;
+  const [asPacked, reordered] = [settle(false), keepOrder ? null : settle(true)];
+  const best = reordered && reordered.off < asPacked.off - 0.01 && floorHolds(reordered.copy, container) ? reordered.copy : asPacked.copy;
   pieces.forEach((piece, index) => {
     piece.x = best[index]?.x ?? piece.x;
     piece.z = best[index]?.z ?? piece.z;

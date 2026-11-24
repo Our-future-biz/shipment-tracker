@@ -1,18 +1,25 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Button, Checkbox, Input } from "antd";
+import { Button, Checkbox, Input, Select } from "antd";
 import { AppModal } from "@/components/AppModal";
 import { HINT, LABEL_TEXT } from "@/styles/ui";
 import type { DraftLine } from "../_lib/cargoForm";
-import { dgProblem, LASHING_MAX } from "../_lib/dangerous";
+import { dgProblem, LASHING_MAX, PIN_BOX_MAX } from "../_lib/dangerous";
+
+const END_OPTIONS = [
+  { value: "", label: "Anywhere" },
+  { value: "front", label: "At the front wall (loaded first, out last)" },
+  { value: "doors", label: "At the doors (loaded last, out first)" },
+];
+const BOX_OPTIONS = [{ value: 0, label: "Any container" }, ...Array.from({ length: PIN_BOX_MAX }, (_, i) => ({ value: i + 1, label: `Container no. ${i + 1}` }))];
 
 interface LineNotesModalProps {
   /** The line being edited; null keeps the dialog closed. */
   line: DraftLine | null;
   label: string;
   onClose: () => void;
-  onSave: (patch: Pick<DraftLine, "dg" | "un" | "dgClass" | "lashing">) => void;
+  onSave: (patch: Pick<DraftLine, "dg" | "un" | "dgClass" | "lashing" | "pinEnd" | "pinBox">) => void;
 }
 
 // A cargo line's dangerous goods and lashing note (Council Outlay 14, P11): its UN number and class,
@@ -24,12 +31,16 @@ export function LineNotesModal({ line, label, onClose, onSave }: LineNotesModalP
   const [un, setUn] = useState("");
   const [dgClass, setDgClass] = useState("");
   const [lashing, setLashing] = useState("");
+  const [pinEnd, setPinEnd] = useState<"" | "front" | "doors">("");
+  const [pinBox, setPinBox] = useState(0);
   useEffect(() => {
     if (!line) return;
     setDg(line.dg === true || !!line.un || !!line.dgClass);
     setUn(line.un ?? "");
     setDgClass(line.dgClass ?? "");
     setLashing(line.lashing ?? "");
+    setPinEnd(line.pinEnd ?? "");
+    setPinBox(line.pinBox ?? 0);
     // Only opening for a line sets this off.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [line?.id]);
@@ -37,7 +48,7 @@ export function LineNotesModal({ line, label, onClose, onSave }: LineNotesModalP
 
   const save = () => {
     // Not dangerous: the mark, the UN number and the class go together.
-    onSave({ dg: dg || undefined, un: dg && un.trim() ? un.trim() : undefined, dgClass: dg && dgClass.trim() ? dgClass.trim().toUpperCase() : undefined, lashing: lashing.trim() || undefined });
+    onSave({ dg: dg || undefined, un: dg && un.trim() ? un.trim() : undefined, dgClass: dg && dgClass.trim() ? dgClass.trim().toUpperCase() : undefined, lashing: lashing.trim() || undefined, pinEnd: pinEnd || undefined, pinBox: pinBox || undefined });
     onClose();
   };
 
@@ -45,8 +56,8 @@ export function LineNotesModal({ line, label, onClose, onSave }: LineNotesModalP
     <AppModal
       open={line !== null}
       onClose={onClose}
-      title={`Dangerous goods and lashing · ${label}`}
-      subtitle="Shown on the line and printed on the plan. The planner does not plan by them."
+      title={`Pins, dangerous goods and lashing · ${label}`}
+      subtitle="Where the line goes in the plan, and what is shown and printed about it."
       footer={
         <div className="flex justify-end gap-2">
           <Button onClick={onClose}>Cancel</Button>
@@ -57,6 +68,21 @@ export function LineNotesModal({ line, label, onClose, onSave }: LineNotesModalP
       }
     >
       <div className="flex flex-col gap-4">
+        {/* Pins (Council Outlay 14, P8): the planner places pinned lines first and plans the rest around them. */}
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <label className="flex flex-col gap-1.5">
+            <span className={LABEL_TEXT}>Place in the container</span>
+            <Select aria-label="Place in the container" value={pinEnd} options={END_OPTIONS} onChange={setPinEnd} />
+          </label>
+          <label className="flex flex-col gap-1.5">
+            <span className={LABEL_TEXT}>Container</span>
+            <Select aria-label="Container number" value={pinBox} options={BOX_OPTIONS} onChange={setPinBox} />
+          </label>
+        </div>
+        <p className={`${HINT} m-0 -mt-2`}>
+          Lines with the same container number travel in one container, and lines with different numbers in different ones; pinned containers come first in the plan. What does not fit its
+          pinned container is listed as not loaded, never moved to another one. A plan with a line pinned to an end is not rearranged for balance.
+        </p>
         <Checkbox checked={dg} onChange={(e) => setDg(e.target.checked)}>
           Dangerous goods
         </Checkbox>

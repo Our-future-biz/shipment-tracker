@@ -20,6 +20,9 @@ export interface DraftLine {
   un?: string;
   dgClass?: string;
   lashing?: string;
+  /** Pins: the end of the container it stands at, and the container number it shares with other lines (1 to 9). */
+  pinEnd?: "front" | "doors";
+  pinBox?: number;
 }
 
 /** The most a plan holds; the server refuses more. */
@@ -48,7 +51,7 @@ const positive = (value: number | null): value is number => value !== null && va
 export function completeLine(line: DraftLine): CargoLine | null {
   const { lengthMm, widthMm, heightMm, weightKg, colli } = line;
   if (!positive(lengthMm) || !positive(widthMm) || !positive(heightMm) || !positive(weightKg) || !positive(colli)) return null;
-  return { id: line.id, name: line.name.trim(), lengthMm, widthMm, heightMm, weightKg, colli, canTurn: line.canTurn, stackable: line.stackable, ...(line.dg ? { dg: true } : {}), ...(line.group ? { group: line.group } : {}), ...(line.un ? { un: line.un } : {}), ...(line.dgClass ? { dgClass: line.dgClass } : {}), ...(line.lashing?.trim() ? { lashing: line.lashing.trim() } : {}) };
+  return { id: line.id, name: line.name.trim(), lengthMm, widthMm, heightMm, weightKg, colli, canTurn: line.canTurn, stackable: line.stackable, ...(line.dg ? { dg: true } : {}), ...(line.group ? { group: line.group } : {}), ...(line.un ? { un: line.un } : {}), ...(line.dgClass ? { dgClass: line.dgClass } : {}), ...(line.lashing?.trim() ? { lashing: line.lashing.trim() } : {}), ...(line.pinEnd ? { pinEnd: line.pinEnd } : {}), ...(line.pinBox ? { pinBox: line.pinBox } : {}) };
 }
 
 /** The figures a typed line still lacks, in the cargo table's words; none for a complete or a blank line. */
@@ -87,7 +90,7 @@ export interface JobLink {
 export function planFingerprint(name: string, drafts: DraftLine[], nominated: string[] | null, link: JobLink | null, note = ""): string {
   const lines = drafts
     .filter((line) => !isBlank(line))
-    .map((l) => [l.name.trim(), l.lengthMm, l.widthMm, l.heightMm, l.weightKg, l.colli, l.canTurn, l.stackable, l.dg === true, l.group ?? "", l.un ?? "", l.dgClass ?? "", (l.lashing ?? "").trim()]);
+    .map((l) => [l.name.trim(), l.lengthMm, l.widthMm, l.heightMm, l.weightKg, l.colli, l.canTurn, l.stackable, l.dg === true, l.group ?? "", l.un ?? "", l.dgClass ?? "", (l.lashing ?? "").trim(), l.pinEnd ?? "", l.pinBox ?? 0]);
   return JSON.stringify([name.trim(), lines, nominated, link?.kind ?? null, link?.id ?? null, note.trim()]);
 }
 

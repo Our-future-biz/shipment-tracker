@@ -13,6 +13,8 @@ export const UN_NUMBER = /^(\d{4})?$/;
 export const DG_CLASS = /^([1-9](\.\d)?[A-S]?)?$/;
 export const LASHING_MAX = 200;
 export const NOTE_MAX = 1000;
+/** The highest container number a line is pinned to (Council Outlay 14, P8). */
+export const PIN_BOX_MAX = 9;
 
 /** A plan as it is stored: cleaned, with nothing the user did not mean. */
 export type CleanPlan = PlanInput;
@@ -28,6 +30,8 @@ function lineProblem(line: PlanCargoLine, n: number): string | null {
   if (line.group !== undefined && (typeof line.group !== "string" || line.group.length > 60)) return `Cargo line ${n}: the shipment it belongs to is not valid`;
   if (line.un !== undefined && !UN_NUMBER.test(String(line.un).trim())) return `Cargo "${name}": the UN number is four digits, like 1263`;
   if (line.dgClass !== undefined && !DG_CLASS.test(String(line.dgClass).trim())) return `Cargo "${name}": the class is like 3, 2.1 or 1.4S`;
+  if (line.pinEnd !== undefined && line.pinEnd !== "front" && line.pinEnd !== "doors") return `Cargo "${name}": it is pinned to the front wall or to the doors`;
+  if (line.pinBox !== undefined && !(Number.isInteger(line.pinBox) && line.pinBox >= 1 && line.pinBox <= PIN_BOX_MAX)) return `Cargo "${name}": the container number it is pinned to is from 1 to ${PIN_BOX_MAX}`;
   if (line.lashing !== undefined && (typeof line.lashing !== "string" || line.lashing.length > LASHING_MAX)) return `Cargo "${name}": keep the lashing note to ${LASHING_MAX} characters`;
   for (const [label, value] of [["length", line.lengthMm], ["width", line.widthMm], ["height", line.heightMm]] as const) {
     if (!wholeIn(value, MAX_SIZE_MM)) return `Cargo "${name}": the ${label} must be between 1 mm and 100 m`;
@@ -104,6 +108,8 @@ export function cleanPlan(input: PlanInput): { plan: CleanPlan } | { problem: st
         ...(line.un?.trim() ? { un: line.un.trim() } : {}),
         ...(line.dgClass?.trim() ? { dgClass: line.dgClass.trim() } : {}),
         ...(line.lashing?.trim() ? { lashing: line.lashing.trim() } : {}),
+        ...(line.pinEnd ? { pinEnd: line.pinEnd } : {}),
+        ...(line.pinBox ? { pinBox: line.pinBox } : {}),
       })),
       nominated,
       result: cleanResult(input.result),

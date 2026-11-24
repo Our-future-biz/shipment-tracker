@@ -30,8 +30,10 @@ export interface Spot {
  * - "area": the smallest free rectangle that takes the piece.
  * - "mirror": the first cargo line is laid out in two mirrored columns (see `mirroredSlots`),
  *   everything after it as "snug".
+ * - "doors": the free place nearest the door end, the piece set against that end of it. Not one of
+ *   the layouts tried: it is how a piece pinned to the doors is placed, whatever the layout.
  */
-export type PlaceRule = "snug" | "front" | "area" | "mirror";
+export type PlaceRule = "snug" | "front" | "area" | "mirror" | "doors";
 export const PLACE_RULES: readonly PlaceRule[] = ["snug", "front", "area", "mirror"];
 
 /** A place worked out in advance for one piece. */
@@ -87,9 +89,13 @@ export function findSpot(floor: Floor, length: number, width: number, rule: Plac
     let score = Math.min(rect.width - needWidth, rect.length - needLength);
     if (rule === "front") score = rect.z * 100_000 + rect.x;
     if (rule === "area") score = rect.width * rect.length - needWidth * needLength;
+    // The further its far end reaches, the better; then the nearest the left side.
+    if (rule === "doors") score = -(rect.z + rect.length) * 100_000 + rect.x;
     const better = !best || score < best.score || (score === best.score && (rect.z < best.rect.z || (rect.z === best.rect.z && rect.x < best.rect.x)));
     if (!better) continue;
-    const [x, z] = [Math.round(rect.x + (needWidth - width) / 2), Math.round(rect.z + (needLength - length) / 2)];
+    // Against the door end of the free place for "doors", at its start otherwise.
+    const startZ = rule === "doors" ? rect.z + rect.length - needLength : rect.z;
+    const [x, z] = [Math.round(rect.x + (needWidth - width) / 2), Math.round(startZ + (needLength - length) / 2)];
     if (!allowed || allowed(x, z)) best = { x, z, score, rect };
   }
   return best && { x: best.x, z: best.z, score: best.score };

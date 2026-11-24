@@ -21,6 +21,13 @@ export interface CargoLine {
   un?: string;
   dgClass?: string;
   lashing?: string;
+  /**
+   * Pins (Council Outlay 14, P8). `pinEnd`: its pieces stand at the front wall (loaded first, out
+   * last) or at the doors (loaded last, out first). `pinBox`: lines with the same number travel in
+   * one container, and lines with different numbers in different ones.
+   */
+  pinEnd?: "front" | "doors";
+  pinBox?: number;
 }
 
 /** How a piece sits on the floor: `length` runs along the container. */

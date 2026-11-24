@@ -253,6 +253,21 @@ export function ResultPanel({ plan, unit, colourOf, numberOf, unplanned, tooMuch
         />
       </div>
 
+      {/* Pins the plan could not keep (Council Outlay 14, P8): said, never hidden. */}
+      {(plan.pinNotes?.length ?? 0) > 0 && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3" role="status">
+          <div className="flex items-center gap-2 text-[13px] font-semibold text-amber-800">
+            <WarningOutlined />
+            Pins not kept
+          </div>
+          <ul className="m-0 mt-1.5 list-none p-0 text-[13px] text-amber-800">
+            {plan.pinNotes!.map((text) => (
+              <li key={text}>{text}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       {plan.notLoaded.length > 0 && (
         <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3" role="status">
           <div className="flex items-center gap-2 text-[13px] font-semibold text-red-700">

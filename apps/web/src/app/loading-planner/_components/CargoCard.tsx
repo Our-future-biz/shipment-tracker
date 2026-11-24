@@ -11,7 +11,7 @@ import { completeLine, isBlank, lineLabel, MAX_COLLI, missingFigures, type Draft
 import { duplicateLine, moveLine, pastedLines, STANDARD_UNITS, withStandardUnit } from "../_lib/cargoTools";
 import type { PlanRules } from "../_lib/containers";
 import { standardLabel } from "../_lib/gauge";
-import { dgWords, isDangerous } from "../_lib/dangerous";
+import { dgWords, isDangerous, pinWords } from "../_lib/dangerous";
 import { lineColour } from "../_lib/loadStats";
 import { LineNotesModal } from "./LineNotesModal";
 import { DIM_DECIMALS, DIM_UNITS, fromMm, toMm, type DimUnit } from "../_lib/units";
@@ -158,6 +158,8 @@ export function CargoCard({ lines, unit, onUnitChange, onChange, onAdd, newId, o
                         </Pill>
                       )}
                     </span>
+                    {/* Where the line is pinned in the plan (Council Outlay 14, P8). */}
+                    {pinWords(line) && <span className="mt-0.5 block text-[11px] font-medium text-indigo-600">Pinned: {pinWords(line)}</span>}
                     {/* How the line is to be lashed, as typed in its "Dangerous goods and lashing" dialog (Council Outlay 14, P11). */}
                     {line.lashing?.trim() && <span className="mt-0.5 block max-w-[320px] truncate text-[11px] text-slate-500" title={line.lashing}>Lashing: {line.lashing}</span>}
                   </td>
@@ -208,7 +210,7 @@ export function CargoCard({ lines, unit, onUnitChange, onChange, onAdd, newId, o
                             { key: "copy", icon: <CopyOutlined />, label: "Duplicate line" },
                             { key: "up", icon: <ArrowUpOutlined />, label: "Move up", disabled: index === 0 },
                             { key: "down", icon: <ArrowDownOutlined />, label: "Move down", disabled: index === lines.length - 1 },
-                            { key: "notes", icon: <WarningOutlined />, label: "Dangerous goods and lashing…" },
+                            { key: "notes", icon: <WarningOutlined />, label: "Pins, dangerous goods and lashing…" },
                             { type: "divider" },
                             { key: "units", type: "group", label: "Standard unit: fills the sizes", children: STANDARD_UNITS.map((u) => ({ key: `unit:${u.key}`, label: u.label })) },
                           ],
@@ -224,7 +226,7 @@ export function CargoCard({ lines, unit, onUnitChange, onChange, onAdd, newId, o
                           },
                         }}
                       >
-                        <button type="button" className="flex h-7 w-7 cursor-pointer items-center justify-center rounded border-0 bg-transparent text-slate-500 hover:bg-slate-100 hover:text-slate-900" aria-label={`More for ${lineLabel(line, index)}: duplicate, move, dangerous goods and lashing, standard unit`}>
+                        <button type="button" className="flex h-7 w-7 cursor-pointer items-center justify-center rounded border-0 bg-transparent text-slate-500 hover:bg-slate-100 hover:text-slate-900" aria-label={`More for ${lineLabel(line, index)}: duplicate, move, pins, dangerous goods and lashing, standard unit`}>
                           <EllipsisOutlined />
                         </button>
                       </Dropdown>

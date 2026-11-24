@@ -21525,6 +21525,12 @@ export namespace interfaces {
         un?: string
         dgClass?: string
         lashing?: string
+
+        /**
+         * Pins: the end of the container its pieces stand at, and the container number it shares with the lines of the same number (1 to 9).
+         */
+        pinEnd?: "front" | "doors"
+        pinBox?: number
     }
 
     export interface LoadingPlanItem {

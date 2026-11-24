@@ -160,3 +160,20 @@ describe("dangerous goods and lashing notes on a plan (Council Outlay 14, P11)",
     expect(problemOf({ note: "x".repeat(1001) })).toContain("plan's note to 1,000 characters");
   });
 });
+
+describe("pins on a plan's lines (Council Outlay 14, P8)", () => {
+  it("keeps a line's end and container number, and stores none as no field", () => {
+    const result = cleanPlan(input({ lines: [line({ id: "a", pinEnd: "doors", pinBox: 2 }), line({ id: "b" })] }));
+    if ("problem" in result) throw new Error(result.problem);
+    expect(result.plan.lines[0]).toMatchObject({ pinEnd: "doors", pinBox: 2 });
+    expect(result.plan.lines[1]).not.toHaveProperty("pinEnd");
+    expect(result.plan.lines[1]).not.toHaveProperty("pinBox");
+  });
+
+  it("refuses an end that is none and a container number out of 1 to 9", () => {
+    expect(problemOf({ lines: [line({ pinEnd: "middle" as "front" })] })).toContain("front wall or to the doors");
+    expect(problemOf({ lines: [line({ pinBox: 0 })] })).toContain("from 1 to 9");
+    expect(problemOf({ lines: [line({ pinBox: 10 })] })).toContain("from 1 to 9");
+    expect(problemOf({ lines: [line({ pinBox: 1.5 })] })).toContain("from 1 to 9");
+  });
+});

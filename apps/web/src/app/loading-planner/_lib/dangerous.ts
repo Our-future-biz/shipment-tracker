@@ -73,3 +73,11 @@ export function dgWarning(load: ContainerLoad, factsOf: (lineId: string) => DgFa
 export function lashingNotes(lines: readonly { id: string; name: string; lashing?: string }[], numberOf: (lineId: string) => number): string[] {
   return lines.filter((l) => l.lashing?.trim()).map((l) => `${numberOf(l.id)} · ${l.name || "Cargo"}: ${l.lashing!.trim()}`);
 }
+
+/** The highest container number a line is pinned to. The server holds the same. */
+export const PIN_BOX_MAX = 9;
+
+/** A line's pins in a few words: "at the doors · container no. 2"; "" for none (Council Outlay 14, P8). */
+export function pinWords(line: { pinEnd?: "front" | "doors"; pinBox?: number }): string {
+  return [line.pinEnd === "front" ? "at the front wall" : line.pinEnd === "doors" ? "at the doors" : "", line.pinBox ? `container no. ${line.pinBox}` : ""].filter(Boolean).join(" · ");
+}
