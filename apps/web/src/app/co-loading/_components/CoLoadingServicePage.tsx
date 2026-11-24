@@ -23,7 +23,7 @@ import { CoLoadingServiceShipments } from "./CoLoadingServiceShipments";
 // it. A closed one still opens from a link, saying it is closed: it stays in the app.
 export function CoLoadingServicePage() {
   const { serviceId } = useParams<{ serviceId: string }>();
-  const { service, isLoading, notFound } = useCoLoadingService(serviceId);
+  const { service, isLoading, notFound, isError, error, refetch } = useCoLoadingService(serviceId);
   const { close, reopen } = useCoLoadingServiceClosing();
   const { user } = useAuth();
   const isManager = canManageServices(user?.role);
@@ -69,6 +69,14 @@ export function CoLoadingServicePage() {
         </Link>
         {isLoading ? (
           <p className={`${HINT} m-0`}>Loading the service…</p>
+        ) : isError ? (
+          // "Not found" only when the server says so; any other failure in its own words, to try again.
+          <p className={`${HINT} m-0 flex flex-wrap items-center gap-2`} role="alert">
+            Could not load the service - {apiErrorMessage(error)}.
+            <button type="button" onClick={() => void refetch()} className={BTN}>
+              Try again
+            </button>
+          </p>
         ) : notFound || !service ? (
           <p className={`${HINT} m-0`}>This service was not found.</p>
         ) : (

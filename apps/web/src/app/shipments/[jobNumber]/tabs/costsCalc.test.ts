@@ -167,7 +167,7 @@ describe("the CZK figures, as the server's job profit has them (mock council S7-
 });
 
 describe("a quantity of 0 (Council Review 7, K19)", () => {
-  it("is 0, as on invoices and in Job Profit; only a blank quantity is 1", () => {
+  it("is 0, as on invoices, in the job's cost totals and in a sailing's Earnings; only a blank quantity is 1", () => {
     expect(qtyOrOne("")).toBe(1);
     expect(qtyOrOne("  ")).toBe(1);
     expect(qtyOrOne(null)).toBe(1);
@@ -184,6 +184,7 @@ describe("a quantity of 0 (Council Review 7, K19)", () => {
     expect(t.sellRowTotals).toMatchObject({ a: 0, b: 300, c: 200 });
   });
 
+  // A real cost with quantity 0 falls back to the estimate, as in lib/jobCostTotals; the Job Profit report counts it 0 instead.
   it("adds nothing to the buying total: an estimate with quantity 0, and a real cost with quantity 0 falls back to the estimate", () => {
     const none = computeCosts([buy({ id: "a", estQty: "0", estAmount: "400" })], [], "CZK", rates);
     expect(none.buyTotal).toBe(0);

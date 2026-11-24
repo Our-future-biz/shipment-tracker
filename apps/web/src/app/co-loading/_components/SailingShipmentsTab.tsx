@@ -7,43 +7,37 @@ import {
   DisconnectOutlined,
   SwapOutlined,
   EllipsisOutlined,
-  InboxOutlined,
   PlusOutlined,
   SearchOutlined,
   WarningOutlined,
 } from "@ant-design/icons";
-import { useQuery } from "@tanstack/react-query";
-import { api, apiErrorMessage } from "@/lib/api";
+import { apiErrorMessage } from "@/lib/api";
 import { useDebounced } from "@/hooks/useDebounced";
 import { useShipments, type ShipmentItem } from "@/hooks/useShipments";
-import { useSailingRemoved, useSailingShipmentLinks, useSailingUtilization, type CoLoadingSailing } from "@/hooks/useCoLoadingServices";
+import { useSailingCandidates, useSailingRemoved, useSailingShipmentLinks, useSailingUtilization, type CoLoadingSailing } from "@/hooks/useCoLoadingServices";
 import { linkedCount } from "@/app/shipments/_components/MasterJobDialog";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { EMPTY_CELL } from "@/components/EmptyCell";
+import { CountChip, SectionCard } from "@/components/SectionCard";
 import { businessToday, formatDate, formatDateTime } from "@/lib/date";
 import { placeCodeOf } from "@/lib/places";
 import { useMessages } from "@/lib/toast";
-import { CARD, EMPTY_STATE, HINT, LINK, MODAL_TITLE, REF, TD, TD_TOTAL, TH } from "@/styles/ui";
-import { cutoffWarning, oddInBox, oddWarning, overfillWarning, removedReasonWords, tableCbm, tableKg, type BoxUtilization } from "../_lib/boxUtilization";
+import { ADD_BTN, EMPTY_STATE, HINT, LINK, MODAL_TITLE, REF, TD, TD_TOTAL, TH } from "@/styles/ui";
+import { boxCargoOf, cutoffWarning, oddInBox, oddWarning, overfillWarning, removedReasonWords, tableCbm, tableKg, type BoxUtilization } from "../_lib/boxUtilization";
 import { sailingTitle } from "../_lib/sailings";
 import { MoveShipmentModal } from "./MoveShipmentModal";
 
 // The picker's head stays put while its rows scroll, as the master job's picker does.
 const PICK_TH = `${TH} sticky top-0 z-10 bg-white`;
 
-/** A figure typed on a shipment (free text, a comma for the decimal point): 0 when there is none. */
-const typedNumber = (v: string | number | null | undefined): number => {
-  const n = parseFloat(String(v ?? "").replace(/[^0-9.,-]/g, "").replace(",", "."));
-  return Number.isFinite(n) ? n : 0;
-};
-
 // A cell's text, cut short with the whole of it on hover, or a dash.
 const cell = (v: string | null | undefined) => (v ? <span title={v}>{v}</span> : EMPTY_CELL);
 
 /**
- * A sailing's Linked shipments tab: the shipments in its box, in the master job's Linked shipments
- * look, with "+" to link more and "⋯ → Remove from sailing" on each. Only the service's own shipments
- * (its Service Name) that are on no sailing yet are offered: a shipment sits in one box at a time.
+ * A sailing's Linked shipments tab: the shipments in its box, in a section card as the sailing's
+ * other tabs have, with "+" to link more and "⋯ → Remove from sailing" on each. Only the service's
+ * own shipments (its Service Name) that are on no sailing yet are offered: a shipment sits in one
+ * box at a time.
  * Anyone links and removes; nothing while the service is closed.
  */
 export function SailingShipmentsTab({
@@ -62,7 +56,7 @@ export function SailingShipmentsTab({
   const { link, unlink, move } = useSailingShipmentLinks(sailing.id);
   const [toMove, setToMove] = useState<ShipmentItem | null>(null);
   // The figures are the box's own (Box utilization): each shipment's cargo lines, else its typed
-  // totals, in kg. While they are read, the shipment's typed totals stand in.
+  // totals, in kg. While they are read, the same rule is applied to the shipment here (boxCargoOf).
   const { box } = useSailingUtilization(sailing.id);
   const partOf = new Map((box?.rows ?? []).map((row) => [row.shipmentId, row]));
   const { removed } = useSailingRemoved(sailing.id);
@@ -74,25 +68,27 @@ export function SailingShipmentsTab({
     "The service is closed: nothing can be linked or removed until it is reopened.";
 
   return (
-    <section className={CARD} aria-label="Linked shipments">
-      <div className="flex items-center justify-between gap-3 px-5 py-3 border-b border-slate-100 bg-indigo-50/60 rounded-t-xl">
-        <h2 className="m-0 flex items-center gap-2 text-[13px] font-semibold uppercase tracking-wide text-slate-900">
-          <InboxOutlined className="text-indigo-600" />
-          Linked shipments ({shipments.length})
-        </h2>
-        <Tooltip title={closed ? closedHint : "Link shipments"}>
-          <Button
-            size="small"
-            type="primary"
-            icon={<PlusOutlined className="text-[11px]" />}
-            aria-label="Link shipments"
-            disabled={closed}
-            onClick={() => setPicking(true)}
-            className="!w-[22px] !h-[22px] !min-w-0 !p-0"
-          />
-        </Tooltip>
-      </div>
-      <div className="px-5 py-3 overflow-x-auto">
+    <SectionCard
+      title="Linked shipments"
+      bodyClassName="p-0"
+      extra={
+        <>
+          {shipments.length > 0 && <CountChip count={shipments.length} />}
+          <Tooltip title={closed ? closedHint : "Link shipments"}>
+            <Button
+              size="small"
+              type="primary"
+              icon={<PlusOutlined className="text-[11px]" />}
+              aria-label="Link shipments"
+              disabled={closed}
+              onClick={() => setPicking(true)}
+              className={ADD_BTN}
+            />
+          </Tooltip>
+        </>
+      }
+    >
+      <div className="px-4 py-3 overflow-x-auto">
         <table className="w-full min-w-[940px] table-fixed border-collapse">
           <thead>
             <tr>
@@ -112,9 +108,7 @@ export function SailingShipmentsTab({
           <tbody>
             {shipments.map((s) => {
               const part = partOf.get(s.id);
-              const colli = part ? part.colli : typedNumber(s.pcs);
-              const weightKg = part ? part.weightKg : typedNumber(s.totalWeightTons) * 1000;
-              const volumeCbm = part ? part.volumeCbm : typedNumber(s.totalVolumeCbm);
+              const { colli, weightKg, volumeCbm } = part ?? boxCargoOf(s);
               return (
               <tr key={s.id} className={part && !part.counted ? "text-slate-400" : ""}>
                 <td className={`${TD} truncate`}>
@@ -198,7 +192,7 @@ export function SailingShipmentsTab({
 
       {/* What was taken off this sailing: who did it, when and why. */}
       {removed.length > 0 && (
-        <details className="border-t border-slate-100 px-5 py-3">
+        <details className="border-t border-slate-100 px-4 py-3">
           <summary className="cursor-pointer text-[13px] font-medium text-slate-700">Taken off this sailing ({removed.length})</summary>
           <div className="mt-2 overflow-x-auto">
             <table className="w-full min-w-[640px] border-collapse">
@@ -272,7 +266,7 @@ export function SailingShipmentsTab({
           message.success(`Linked ${linkedCount(ids.length)} to ${name}`);
         }}
       />
-    </section>
+    </SectionCard>
   );
 }
 
@@ -308,21 +302,13 @@ function LinkSailingShipmentsModal({
   const [cargoOf, setCargoOf] = useState<Record<string, { weightKg: number; volumeCbm: number; odd: string | null }>>({});
   const [linking, setLinking] = useState(false);
   const search = useDebounced(query, 300);
-  const results = useQuery({
-    queryKey: ["shipments", "sailing-picker", serviceName, search],
-    queryFn: () =>
-      api.shipments.shipmentList({
-        search: search.trim() || undefined,
-        serviceName,
-        sailing: "none",
-        limit: 100,
-      }),
-    enabled: open && !!serviceName,
-  });
-  const candidates = results.data?.data ?? [];
+  const results = useSailingCandidates(serviceName, search, open);
+  const candidates = results.candidates;
   const toggle = (s: ShipmentItem) => {
     setSelected((prev) => (prev.includes(s.id) ? prev.filter((x) => x !== s.id) : [...prev, s.id]));
-    setCargoOf((prev) => ({ ...prev, [s.id]: { weightKg: typedNumber(s.totalWeightTons) * 1000, volumeCbm: typedNumber(s.totalVolumeCbm), odd: oddInBox(serviceMode, s) } }));
+    // What the box will count of it: its Dimensions lines first, then its typed totals.
+    const { weightKg, volumeCbm } = boxCargoOf(s);
+    setCargoOf((prev) => ({ ...prev, [s.id]: { weightKg, volumeCbm, odd: oddInBox(serviceMode, s) } }));
   };
   // A warning only: the overflow is the user's decision.
   const warning = box
@@ -332,7 +318,7 @@ function LinkSailingShipmentsModal({
         volumeCbm: selected.reduce((total, id) => total + (cargoOf[id]?.volumeCbm ?? 0), 0),
       })
     : null;
-  // A shipment of another kind than the box is for (another mode, a container of its own) is remarked on, not refused.
+  // A shipment of another kind than the box is for (another mode, a container of its own) is not linked: the server refuses it (K3).
   const odd = oddWarning(selected.flatMap((id) => cargoOf[id]?.odd ?? []));
 
   const close = () => {
@@ -425,6 +411,8 @@ function LinkSailingShipmentsModal({
                   .map((p) => placeCodeOf(p) ?? p)
                   .join(" → ");
                 const party = s.customer || s.shipper || s.consignee;
+                // As the box will count it: its Dimensions lines first, then its typed totals.
+                const cargo = boxCargoOf(s);
                 return (
                   <tr
                     key={s.id}
@@ -463,8 +451,8 @@ function LinkSailingShipmentsModal({
                     <td className={`${TD} whitespace-nowrap tabular-nums`}>
                       {formatDate(s.estimatedDeparture) || EMPTY_CELL}
                     </td>
-                    <td className={`${TD} text-right tabular-nums`}>{typedNumber(s.totalWeightTons) > 0 ? tableKg(typedNumber(s.totalWeightTons) * 1000) : EMPTY_CELL}</td>
-                    <td className={`${TD} text-right tabular-nums !pr-3`}>{typedNumber(s.totalVolumeCbm) > 0 ? tableCbm(typedNumber(s.totalVolumeCbm)) : EMPTY_CELL}</td>
+                    <td className={`${TD} text-right tabular-nums`}>{cargo.weightKg > 0 ? tableKg(cargo.weightKg) : EMPTY_CELL}</td>
+                    <td className={`${TD} text-right tabular-nums !pr-3`}>{cargo.volumeCbm > 0 ? tableCbm(cargo.volumeCbm) : EMPTY_CELL}</td>
                   </tr>
                 );
               })}

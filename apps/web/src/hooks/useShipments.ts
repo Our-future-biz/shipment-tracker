@@ -6,6 +6,7 @@ import { useQuery, useMutation, useQueryClient, type QueryClient } from "@tansta
 import { invalidateQuoteLists } from "./useSalesQuotes";
 import { NEEDS_ATTENTION_KEY } from "./useShipmentsNeedingAttention";
 import { INVOICE_KEYS } from "./useInvoiceQueue";
+import { CO_LOADING_KEY } from "./useCoLoadingServices";
 import { api } from "@/lib/api";
 import { releasedEditStop, releaseElsewhereText, type ReleaseStop } from "@/lib/paymentWarnings";
 import { atdEditWarning } from "@/app/shipments/[jobNumber]/tabs/tracking/milestoneFollowUp";
@@ -167,6 +168,19 @@ export function invalidateMasterJobViews(queryClient: QueryClient) {
   queryClient.invalidateQueries({ queryKey: ["master-job-tracking"] });
 }
 
+/** What a Co-Loading box reads of a shipment: its cargo, a cancelled status, and whether it belongs in the box. */
+const BOX_FIELDS = ["status", "pcs", "totalWeightTons", "totalVolumeCbm", "cargoDimensions", "cargoItems", "containers", "freightMode", "loadType"] as const;
+
+/**
+ * The Co-Loading screens a shipment write leaves stale: a box's fill on the list of sailings and on
+ * the sailing, its earnings, its "Taken off" list. All are marked stale, to be read when next shown;
+ * a write that moves a box (`movesBox`) also reads again those on screen - a service's list of
+ * sailings stands over its shipments grid, where a status is set to Cancelled.
+ */
+export function invalidateCoLoadingViews(queryClient: QueryClient, movesBox: boolean) {
+  queryClient.invalidateQueries({ queryKey: CO_LOADING_KEY, refetchType: movesBox ? "active" : "none" });
+}
+
 /**
  * What a saved (or refused) shipment edit leaves stale. The shipments are read again once the last
  * pending write is done: a refetch between two queued writes would show the first one's data over
@@ -183,6 +197,8 @@ export function invalidateAfterShipmentUpdate(queryClient: QueryClient, data: co
   if (data.salesNumber !== undefined) invalidateQuoteLists(queryClient);
   // A master job shows its houses' container numbers (a Full Load its containers too).
   if (data.containers !== undefined) queryClient.invalidateQueries({ queryKey: ["master-jobs"] });
+  // A Co-Loading box counts its shipments' cargo and leaves a cancelled one out.
+  invalidateCoLoadingViews(queryClient, BOX_FIELDS.some((field) => data[field] !== undefined));
 }
 
 /** A shipment linked to a master job or taken off one: the shipments, and what the master jobs show of their houses. */
@@ -291,7 +307,8 @@ export const useShipmentMutations = () => {
     onSettled: (_data, _err, { data }) => invalidateAfterShipmentUpdate(queryClient, data),
   });
 
-  // A deleted shipment also leaves its master job (whose houses and costs it was among) and the Invoicing queue.
+  // A deleted shipment also leaves its master job (whose houses and costs it was among), the Invoicing
+  // queue and the Co-Loading box it was in.
   const deleteMutation = useMutation({
     mutationFn: (id: string) => api.shipments.shipmentDelete(id),
     onSuccess: () => {
@@ -299,6 +316,7 @@ export const useShipmentMutations = () => {
       invalidateDerivedViews();
       invalidateQuoteViews();
       invalidateMasterJobViews(queryClient);
+      invalidateCoLoadingViews(queryClient, true);
       queryClient.invalidateQueries({ queryKey: INVOICE_KEYS.queueAll });
       return queryClient.invalidateQueries({ queryKey: ["shipments"] });
     },

@@ -9,7 +9,7 @@ import { Pill } from "@/components/Pill";
 import { CountChip, SectionCard } from "@/components/SectionCard";
 import { useSailingEarnings, useSailingUtilization } from "@/hooks/useCoLoadingServices";
 import { useAuth } from "@/lib/auth/AuthContext";
-import { BTN, CARD, EMPTY_STATE, HINT, LABEL_TEXT, LINK, REF, TD, TD_TOTAL, TH } from "@/styles/ui";
+import { BTN, CARD, EMPTY_STATE, HINT, KPI_VALUE, LABEL_TEXT, LINK, REF, TD, TD_TOTAL, TH } from "@/styles/ui";
 import { canManageServices } from "../_lib/services";
 import {
   breakEvenMark,
@@ -40,7 +40,7 @@ function NoMeter({ kind, total, reason }: { kind: MeterKind; total: string; reas
   return (
     <section className={`${CARD} flex flex-col gap-1.5 px-5 py-4`} aria-label={METER_TITLE[kind]}>
       <div className={LABEL_TEXT}>{METER_TITLE[kind]}</div>
-      <div className="text-[20px] leading-7 font-bold tabular-nums text-slate-900">{total}</div>
+      <div className={KPI_VALUE}>{total}</div>
       <p className={`${HINT} m-0`}>{reason}</p>
     </section>
   );
@@ -62,9 +62,9 @@ function Meter({ kind, meter, capacity, breakEvenOfLoaded }: { kind: MeterKind; 
       <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
         <div>
           <div className={LABEL_TEXT}>{METER_TITLE[kind]}</div>
-          <div className="text-[20px] leading-7 font-bold tabular-nums text-slate-900">{usedOfLimit(kind, meter)}</div>
+          <div className={KPI_VALUE}>{usedOfLimit(kind, meter)}</div>
         </div>
-        <div className={`text-[20px] leading-7 font-bold tabular-nums ${tone === "red" ? "text-red-600" : "text-slate-900"}`}>{meter.pct}%</div>
+        <div className={`${KPI_VALUE} ${tone === "red" ? "!text-red-600" : ""}`}>{meter.pct}%</div>
       </div>
       <div
         className="relative h-3 rounded-full bg-slate-100"

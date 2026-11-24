@@ -19,6 +19,20 @@ describe("what a shipment write leaves stale", () => {
     expect(invalidatedBy((queryClient) => invalidateAfterShipmentUpdate(queryClient, { containers: [] }))).toContainEqual(["master-jobs"]);
   });
 
+  it("an edit: Co-Loading marked stale, and read again on screen when it moves a box (cargo, status)", () => {
+    const coLoading = (data: Parameters<typeof invalidateAfterShipmentUpdate>[1]) => {
+      const queryClient = new QueryClient();
+      const invalidate = vi.spyOn(queryClient, "invalidateQueries").mockResolvedValue();
+      invalidateAfterShipmentUpdate(queryClient, data);
+      return invalidate.mock.calls.map(([filters]) => filters).find((f) => f?.queryKey?.[0] === "co-loading-services");
+    };
+    expect(coLoading({ status: "Cancelled" })).toEqual({ queryKey: ["co-loading-services"], refetchType: "active" });
+    expect(coLoading({ totalWeightTons: "2.5" })).toEqual({ queryKey: ["co-loading-services"], refetchType: "active" });
+    expect(coLoading({ cargoDimensions: [] })).toEqual({ queryKey: ["co-loading-services"], refetchType: "active" });
+    // Any other field: only marked stale, so a cell edit on a service's grid does not read every box again.
+    expect(coLoading({ shipper: "Alfa" })).toEqual({ queryKey: ["co-loading-services"], refetchType: "none" });
+  });
+
   it("a link to a master job or off one: the master jobs' list, houses and tracking, with the shipments", () => {
     expect(invalidatedBy(invalidateAfterMasterJobLink)).toEqual(expect.arrayContaining([["shipments"], ["master-jobs"], ["master-job-tracking"]]));
   });

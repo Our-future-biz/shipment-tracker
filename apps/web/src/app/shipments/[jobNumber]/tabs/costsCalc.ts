@@ -26,9 +26,12 @@ import { money, num, round2 } from "@/lib/money";
 
 /**
  * The quantity of a cost or selling row: a blank quantity means 1 (a lump sum), but a 0 typed on
- * purpose stays 0 - that row then adds nothing. The server holds the same rule for invoices, Job
- * Profit and a sailing's Earnings (api invoicing lib/invoiceCalc qtyOrOne), so the Costs tab's
- * totals agree with them (Council Review 7, K19).
+ * purpose stays 0 - that row then adds nothing (Council Review 7, K19). The server holds the same
+ * rule (api invoicing lib/invoiceCalc qtyOrOne), so the Costs tab's totals agree with invoices (the
+ * selling lines), the job's cost totals (lib/jobCostTotals) and a sailing's Earnings. In the last
+ * two, as here, a real cost that comes to 0 falls back to the estimate. The Job Profit report
+ * (lib/jobProfitReport) differs there: it counts a real cost once its amount is typed, so a real
+ * amount at quantity 0 is 0 in it, where this tab shows the estimate.
  */
 export function qtyOrOne(v: string | number | null | undefined): number {
   if (v === null || v === undefined || (typeof v === "string" && v.trim() === "")) return 1;

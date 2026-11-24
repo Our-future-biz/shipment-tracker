@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button, Input, Modal, Select, Space } from "antd";
 import { GeoSelect } from "@/components/GeoSelect";
 import { apiErrorMessage } from "@/lib/api";
@@ -46,20 +46,32 @@ export function NewServiceModal({
     setError(null);
   };
 
+  // Each opening starts without the last one's error line.
+  useEffect(() => {
+    if (open) setError(null);
+  }, [open]);
+
   const close = () => {
     setForm(EMPTY);
     setError(null);
     onClose();
   };
+  // One create at a time: Enter pressed twice in the name must not send the service twice (the
+  // second would be refused as a name the company has already). A ref, as `saving` only follows a render later.
+  const sending = useRef(false);
   const save = async () => {
+    if (saving || sending.current) return;
     if (!form.name.trim()) return setError("Give the service a name.");
     if (!form.serviceName) return setError("Pick the Service Name.");
     if (!form.frequency) return setError("Pick the frequency.");
+    sending.current = true;
     try {
       await onCreate(form);
       close();
     } catch (err) {
       setError(apiErrorMessage(err));
+    } finally {
+      sending.current = false;
     }
   };
 

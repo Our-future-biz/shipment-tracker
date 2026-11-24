@@ -26,8 +26,8 @@ const CONTAINER_TYPE_GROUPS = containerTypeOptions("");
 
 // "Create new sailing" on a Co-Loading Concept service's page: the vessel its cargo goes on. For an
 // import whose vessel is not known yet, the Vessel is the week it sails (WEEK 44) and the Voyage may
-// be left out. Every other field is needed, but the cut-off: a sailing has one container unless more
-// are given, and both can be changed later with Edit sailing.
+// be left out. Every other field is needed, but the cut-off and the departure date: a sailing has one
+// container unless more are given, and the three can be changed later with Edit sailing.
 export function CreateSailingModal({
   open,
   onClose,

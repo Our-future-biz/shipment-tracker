@@ -10,6 +10,9 @@ export type CoLoadingServiceNew = controllers.CoLoadingServiceCreateRequest;
 
 const LIST_KEY = ["co-loading-services"] as const;
 
+/** What every Co-Loading query's key starts with: a shipment write elsewhere marks them all stale (useShipments). */
+export const CO_LOADING_KEY = LIST_KEY;
+
 /** The company's Co-Loading Concept services, the oldest first: the module's tiles (closed ones a manager's only). */
 export function useCoLoadingServices() {
   const qc = useQueryClient();
@@ -61,17 +64,36 @@ export function useCoLoadingService(id: string) {
     enabled: isId,
     retry: (failures, err) => !isNotFound(err) && failures < 1,
   });
-  return { service: query.data ?? null, isLoading: isId && query.isLoading, notFound: !isId || isNotFound(query.error) };
+  const notFound = !isId || isNotFound(query.error);
+  return {
+    service: query.data ?? null,
+    isLoading: isId && query.isLoading,
+    notFound,
+    // A read that failed for any other reason than a missing service: said with the server's words, never as "not found".
+    isError: isId && query.isError && !notFound,
+    error: query.error,
+    refetch: query.refetch,
+  };
 }
 
 export type CoLoadingSailing = interfaces.CoLoadingSailingItem;
 export type CoLoadingSailingNew = controllers.CoLoadingSailingCreateRequest;
 
-/** A Co-Loading Concept service's sailings, the newest first, and "Create new sailing". */
+/**
+ * A Co-Loading Concept service's sailings, the newest first, and "Create new sailing". Each carries
+ * its box's fill, which moves with the shipments' cargo and status changed elsewhere: read anew as
+ * the profits beside it are, on every showing and on coming back to the window.
+ */
 export function useCoLoadingSailings(serviceId: string) {
   const qc = useQueryClient();
   const key = [...LIST_KEY, "sailings", serviceId];
-  const query = useQuery({ queryKey: key, queryFn: () => api.shipments.coLoadingSailingList(serviceId), enabled: isUuid(serviceId) });
+  const query = useQuery({
+    queryKey: key,
+    queryFn: () => api.shipments.coLoadingSailingList(serviceId),
+    enabled: isUuid(serviceId),
+    staleTime: 0,
+    refetchOnWindowFocus: true,
+  });
   const create = useMutation({
     mutationFn: (input: CoLoadingSailingNew) => api.shipments.coLoadingSailingCreate(serviceId, input),
     onSuccess: () => qc.invalidateQueries({ queryKey: key }),
@@ -200,4 +222,17 @@ export function useSailingShipmentLinks(sailingId: string) {
     onSuccess: () => Promise.all([qc.invalidateQueries({ queryKey: ["shipments"] }), qc.invalidateQueries({ queryKey: LIST_KEY })]),
   });
   return { link, unlink, move };
+}
+
+/**
+ * What Link shipments offers: the service's own shipments (its Service Name) on no sailing yet,
+ * searched on the server, the newest 100. A shipments list, so a link or a removal reads it again.
+ */
+export function useSailingCandidates(serviceName: string, search: string, enabled: boolean) {
+  const query = useQuery({
+    queryKey: ["shipments", "sailing-picker", serviceName, search],
+    queryFn: () => api.shipments.shipmentList({ search: search.trim() || undefined, serviceName, sailing: "none", limit: 100 }),
+    enabled: enabled && !!serviceName,
+  });
+  return { candidates: query.data?.data ?? [], isLoading: query.isLoading, isError: query.isError, error: query.error, refetch: query.refetch };
 }

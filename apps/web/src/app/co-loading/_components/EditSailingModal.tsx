@@ -12,7 +12,8 @@ import { sailingTitle } from "../_lib/sailings";
 // "Edit sailing": how many containers of its type the sailing has - their capacity is added up in
 // Box utilization - its cut-off, the day cargo must be in by, and its departure date, whose ČNB
 // rates value its box costs on Earnings. Past the cut-off, linking a shipment is remarked on, never
-// refused. Anyone changes these; nothing while the service is closed.
+// refused. Anyone changes these - but once a container has box costs, only managers and admins
+// change the number of containers and the departure date (below); nothing while the service is closed.
 export function EditSailingModal({ open, onClose, sailing, isManager }: { open: boolean; onClose: () => void; sailing: CoLoadingSailing; isManager: boolean }) {
   // Once a container has box costs, the number of containers and the departure date move the
   // managers' figures: only they change them (Council Review 7, K13).

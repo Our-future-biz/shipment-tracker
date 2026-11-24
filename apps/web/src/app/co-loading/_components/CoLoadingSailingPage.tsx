@@ -5,6 +5,7 @@ import { useParams, usePathname, useRouter, useSearchParams } from "next/navigat
 import { Spin } from "antd";
 import { BackLink } from "@/components/BackLink";
 import { useCoLoadingSailing, useCoLoadingService, useSailingEarnings, useSailingUtilization } from "@/hooks/useCoLoadingServices";
+import { apiErrorMessage } from "@/lib/api";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { formatDate } from "@/lib/date";
 import { BTN, CARD, EMPTY, LABEL_TEXT, PAGE_TITLE, REF } from "@/styles/ui";
@@ -56,7 +57,7 @@ const text = (v: string | null | undefined) =>
 export function CoLoadingSailingPage() {
   const { sailingId } = useParams<{ serviceId: string; sailingId: string }>();
   const { sailing, isLoading, notFound } = useCoLoadingSailing(sailingId);
-  const { service } = useCoLoadingService(sailing?.serviceId ?? "");
+  const { service, isLoading: serviceLoading, error: serviceError, refetch: refetchService } = useCoLoadingService(sailing?.serviceId ?? "");
   // How full the box is stands in the header on every tab.
   const { box } = useSailingUtilization(sailing?.id ?? "");
   const router = useRouter();
@@ -87,7 +88,7 @@ export function CoLoadingSailingPage() {
           <BackLink href={sailing ? `/co-loading/${sailing.serviceId}` : "/co-loading"}>
             {service?.name ?? "Co-Loading Concept"}
           </BackLink>
-          {/* Its number of containers and its cut-off; not while the service is closed. */}
+          {/* Its number of containers, its cut-off and its departure date; not while the service is closed. */}
           {sailing && service && !service.closedAt && (
             <button type="button" className={BTN} onClick={() => setEditing(true)}>
               Edit sailing
@@ -179,9 +180,17 @@ export function CoLoadingSailingPage() {
               serviceMode={service.mode}
               closed={!!service.closedAt}
             />
-          ) : (
+          ) : serviceLoading ? (
             <div className="flex justify-center p-20">
               <Spin size="large" />
+            </div>
+          ) : (
+            // Without the service nothing can be linked: said in the server's words, to try again, never a spinner that stays.
+            <div className={`${CARD} flex flex-col items-center gap-3 px-5 py-8 text-center`} role="alert">
+              <p className="m-0 text-[13px] text-slate-700">Could not load the sailing&apos;s service - {apiErrorMessage(serviceError)}.</p>
+              <button type="button" className={BTN} onClick={() => void refetchService()}>
+                Try again
+              </button>
             </div>
           )
         ) : sailing && tab === "box" ? (

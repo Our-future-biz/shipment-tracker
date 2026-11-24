@@ -1,4 +1,5 @@
 import type { interfaces } from "@/lib/api/client";
+import { shipmentCargoFigures } from "@/app/shipments/[jobNumber]/tabs/warehouse/remeasuredLines";
 
 // The words and figures of a sailing's Box utilization tab (Council Outlay 12). The server works
 // the fill out (lib/boxUtilization); here it is only put into words, the same on every screen that
@@ -95,6 +96,12 @@ export function missingNote(box: BoxUtilization): string | null {
   return weight > 0 ? `${of(weight, "weight")}: the box is heavier than shown.` : `${of(volume, "volume")}: the box is fuller than shown.`;
 }
 
+/**
+ * A percentage as a whole one, as the server gives the box's meters (lib/boxUtilization wholePct):
+ * never rounded up to 100 - 99.6% is 99, not the whole box - and anything over 100 at least 101.
+ */
+export const wholePct = (pct: number): number => (pct > 100 ? Math.max(101, Math.round(pct)) : Math.floor(pct + 1e-9));
+
 /** A shipment's share of the box, by the measure it takes more of: "24% of weight". */
 export function shareWords(row: BoxRow): string | null {
   const [w, v] = [row.weightSharePct, row.volumeSharePct];
@@ -102,7 +109,7 @@ export function shareWords(row: BoxRow): string | null {
   const byWeight = v === null || (w !== null && w > v);
   const pct = byWeight ? w! : v!;
   if (!(pct > 0)) return null;
-  return `${pct < 1 ? "under 1" : Math.round(pct)}% of ${byWeight ? "weight" : "volume"}`;
+  return `${pct < 1 ? "under 1" : wholePct(pct)}% of ${byWeight ? "weight" : "volume"}`;
 }
 
 /** What is worth saying about a shipment's row, each as a short label with its tone. */
@@ -157,6 +164,13 @@ export function fillWords(fill: BoxFill): string {
   return parts.filter(Boolean).join(" · ");
 }
 
+/**
+ * What a shipment brings into a box, by the box's own rule (server lib/boxUtilization,
+ * dimensionFiguresFilled): its Dimensions lines, a figure they lack from its typed totals. Link
+ * shipments and a row whose box is still being read say what the box will count.
+ */
+export const boxCargoOf = (s: Parameters<typeof shipmentCargoFigures>[0]): { colli: number; weightKg: number; volumeCbm: number } => shipmentCargoFigures(s);
+
 /** What shipments about to be linked would add to the box. */
 export interface AddedCargo {
   shipments: number;
@@ -181,16 +195,17 @@ export function overfillWarning(box: BoxUtilization, added: AddedCargo): string 
 /**
  * Why a shipment is an odd one in a box of a service of this mode, or null when it belongs there:
  * another mode of transport, or - in a consolidation box - a shipment with a container of its own
- * (Full Load) or a project shipment. Such a shipment is not linked. The server holds the same rule
- * (lib/coLoadingSailing oddInBox).
+ * (Full Load) or a project shipment. Such a shipment is not linked. Both are read trimmed and in any
+ * case, as the server reads them: the server holds the same rule (lib/coLoadingSailing oddInBox).
  */
 export function oddInBox(serviceMode: string, shipment: { freightMode?: string | null; loadType?: string | null }): string | null {
+  const same = (value: string, name: string) => value.trim().toLowerCase() === name.toLowerCase();
   const mode = (shipment.freightMode ?? "").trim();
-  const load = (shipment.loadType ?? "").trim();
+  const load = shipment.loadType ?? "";
   const wanted: Record<string, string> = { sea_lcl: "Sea Freight", sea_fcl: "Sea Freight", air: "Air Freight", rail: "Rail Freight", road: "Road Freight" };
   const want = wanted[serviceMode];
-  if (want && mode && mode !== want) return mode;
-  if (serviceMode === "sea_lcl" && (load === "Full Load" || load === "Project Shipment")) return load;
+  if (want && mode && !same(mode, want)) return mode;
+  if (serviceMode === "sea_lcl") return ["Full Load", "Project Shipment"].find((name) => same(load, name)) ?? null;
   return null;
 }
 

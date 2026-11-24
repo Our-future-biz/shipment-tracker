@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { breakEvenMark, fillOfBox, fillWords, fullWords, meterBar, meterScale, meterTone, meterWords, missingNote, noVolumeWords, containersWords, cutoffWarning, oddInBox, oddWarning, overfillWarning, removedReasonWords, rowNotes, shareWords, usedOfLimit, type BoxMeter, type BoxRow, type BoxUtilization } from "./boxUtilization";
+import { boxCargoOf, breakEvenMark, fillOfBox, fillWords, fullWords, meterBar, meterScale, meterTone, meterWords, missingNote, noVolumeWords, containersWords, cutoffWarning, oddInBox, oddWarning, overfillWarning, removedReasonWords, rowNotes, shareWords, usedOfLimit, type BoxMeter, type BoxRow, type BoxUtilization } from "./boxUtilization";
 
 const HC = { containerType: "40' HC", insideCbm: 76.4, planningCbm: 64.9, standardKg: 26200, heavyTestedKg: 28400, maxKg: 28400, inlandKg: null as number | null, planningPct: 85, containers: 1 };
 const OT = { containerType: "40' OT", insideCbm: 67.3, planningCbm: 57.2, standardKg: 26600, heavyTestedKg: null, maxKg: 28550, inlandKg: null, planningPct: 85, containers: 1 };
@@ -105,11 +105,18 @@ describe("missing figures", () => {
 describe("a shipment's row", () => {
   it("gives its share by the measure it takes more of", () => {
     expect(shareWords(row({ weightSharePct: 24.4, volumeSharePct: 17.3 }))).toBe("24% of weight");
-    expect(shareWords(row({ weightSharePct: 3.8, volumeSharePct: 14.8 }))).toBe("15% of volume");
+    expect(shareWords(row({ weightSharePct: 3.8, volumeSharePct: 14.8 }))).toBe("14% of volume");
     expect(shareWords(row({ weightSharePct: 36.2, volumeSharePct: null }))).toBe("36% of weight");
     expect(shareWords(row({ weightSharePct: 0.4, volumeSharePct: 0.2 }))).toBe("under 1% of weight");
     expect(shareWords(row({ weightSharePct: 0, volumeSharePct: 0 }))).toBeNull();
     expect(shareWords(row({ weightSharePct: null, volumeSharePct: null }))).toBeNull();
+  });
+
+  it("never rounds a share up to the whole box, and says over it as at least 101%, as the meters do", () => {
+    expect(shareWords(row({ weightSharePct: 99.6, volumeSharePct: 10 }))).toBe("99% of weight");
+    expect(shareWords(row({ weightSharePct: 100, volumeSharePct: 10 }))).toBe("100% of weight");
+    expect(shareWords(row({ weightSharePct: 100.4, volumeSharePct: 10 }))).toBe("101% of weight");
+    expect(shareWords(row({ weightSharePct: 10, volumeSharePct: 104.6 }))).toBe("105% of volume");
   });
 
   it("notes what is missing, what to check and what makes the cargo awkward", () => {
@@ -165,6 +172,20 @@ describe("a box's fill in short", () => {
     );
     expect(overfillWarning(box(), { shipments: 2, weightKg: 99999, volumeCbm: 999 })).toBeNull();
   });
+
+  it("counts a shipment to link as the box will: its Dimensions lines first, then its typed totals", () => {
+    const lines = [{ pieces: "4", lengthCm: "120", widthCm: "100", heightCm: "150", weightPerPcKg: "800", packageType: "Pallet(s)", stackable: "" }];
+    // Its cargo only in its lines, no typed totals: 3,200 kg and 7.2 cbm, not nothing.
+    const onlyLines = boxCargoOf({ cargoDimensions: lines, pcs: "", totalWeightTons: "", totalVolumeCbm: "" });
+    expect(onlyLines).toEqual({ colli: 4, weightKg: 3200, volumeCbm: 7.2 });
+    // 24,100 kg in the box and 3,200 kg more: over the 26,200 kg limit, which typed totals alone (none) never said.
+    expect(overfillWarning(filled, { shipments: 1, weightKg: onlyLines.weightKg, volumeCbm: onlyLines.volumeCbm })).toBe(
+      "Linking this shipment would bring the box's weight to 104% (over by 1,100 kg). You can still link it.",
+    );
+    // The lines win over a typed total that says otherwise; typed totals, a decimal comma too, stand in where there are no lines.
+    expect(boxCargoOf({ cargoDimensions: lines, pcs: "4", totalWeightTons: "5", totalVolumeCbm: "3" }).weightKg).toBe(3200);
+    expect(boxCargoOf({ cargoDimensions: [], pcs: "2", totalWeightTons: "2,5", totalVolumeCbm: "4,5" })).toEqual({ colli: 2, weightKg: 2500, volumeCbm: 4.5 });
+  });
 });
 
 describe("a shipment of another kind than the box is for", () => {
@@ -177,6 +198,9 @@ describe("a shipment of another kind than the box is for", () => {
     expect(oddInBox("sea_fcl", { freightMode: "Sea Freight", loadType: "Full Load" })).toBeNull();
     expect(oddInBox("air", { freightMode: "Sea Freight", loadType: "" })).toBe("Sea Freight");
     expect(oddInBox("road", { freightMode: "Road Freight", loadType: "Full Load" })).toBeNull();
+    // Read trimmed and in any case, as the server reads them.
+    expect(oddInBox("sea_lcl", { freightMode: " sea freight ", loadType: "consolidation" })).toBeNull();
+    expect(oddInBox("sea_lcl", { freightMode: "SEA FREIGHT", loadType: " full load" })).toBe("Full Load");
   });
 
   it("is remarked on in its row, and is not linked", () => {

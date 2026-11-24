@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { CONTAINER_TYPES } from "@/lib/cargo";
+// The server's list of the types a sailing takes (shipments lib/coLoadingSailing): pure, so it is read here.
+import { SAILING_CONTAINER_TYPES } from "../../../../../api/services/shipments/lib/coLoadingSailing";
 import {
   SAILING_TABS,
   sailingFormError,
@@ -53,21 +55,9 @@ describe("a Co-Loading Concept sailing", () => {
   });
 
   it("offers the container types the server takes (api lib/coLoadingSailing SAILING_CONTAINER_TYPES)", () => {
-    expect(CONTAINER_TYPES).toEqual([
-      "20' DC",
-      "20' RF",
-      "20' OT",
-      "20' HOT",
-      "20' FR",
-      "40' DC",
-      "40' HC",
-      "40' HRF",
-      "40' OT",
-      "40' HOT",
-      "40' FR",
-      "40' HFR",
-      "45' HQ",
-    ]);
+    // The server's own list, not a copy of it: a type added or dropped on either side fails here.
+    expect([...CONTAINER_TYPES]).toEqual([...SAILING_CONTAINER_TYPES]);
+    expect(CONTAINER_TYPES).toHaveLength(13);
   });
 });
 
