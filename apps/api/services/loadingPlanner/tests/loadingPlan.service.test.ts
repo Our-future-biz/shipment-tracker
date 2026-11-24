@@ -88,6 +88,15 @@ describe("create", () => {
     expect(clients.quotes._internalQuoteLinkRef).not.toHaveBeenCalled();
   });
 
+  it("refuses the plan, in a sentence of ours, when the owning service cannot be asked - and saves nothing", async () => {
+    clients.quotes._internalQuoteLinkRef.mockRejectedValue(new Error("connect ECONNREFUSED 10.0.0.7:4000"));
+    await expect(loadingPlanService.create(COMPANY, USER, input({ linkKind: "quote", linkId: QUOTE, linkRef: "QCZ20261109001" }))).rejects.toMatchObject({
+      code: "unavailable",
+      message: "Whether the linked quote exists could not be checked just now, so the plan was not saved. Save it again in a moment.",
+    });
+    expect(repository.createForCompany).not.toHaveBeenCalled();
+  });
+
   it("refuses a plan without a name, in the words the screen uses", async () => {
     await expect(loadingPlanService.create(COMPANY, USER, input({ name: " " }))).rejects.toMatchObject({ code: "invalid_argument", message: "Give the plan a name before saving." });
   });
@@ -100,6 +109,24 @@ describe("update", () => {
     await expect(loadingPlanService.update(PLAN, COMPANY, USER, linked({ linkId: OTHER_SHIPMENT }), OPENED)).rejects.toMatchObject({ code: "invalid_argument" });
     expect(clients.shipments._internalShipmentJobRef).toHaveBeenCalledWith({ shipmentId: OTHER_SHIPMENT });
     expect(repository.updateIfUnchanged).not.toHaveBeenCalled();
+  });
+
+  it("refuses a changed link, in a sentence of ours, when the shipments service cannot be asked", async () => {
+    repository.getByIdForCompany.mockResolvedValue(stored(linked()));
+    clients.shipments._internalShipmentJobRef.mockRejectedValue(new Error("deadline exceeded"));
+    await expect(loadingPlanService.update(PLAN, COMPANY, USER, linked({ linkId: OTHER_SHIPMENT }), OPENED)).rejects.toMatchObject({
+      code: "unavailable",
+      message: "Whether the linked shipment exists could not be checked just now, so the plan was not saved. Save it again in a moment.",
+    });
+    expect(repository.updateIfUnchanged).not.toHaveBeenCalled();
+  });
+
+  it("unlinks a plan saved without a link, asking no service about the job it had", async () => {
+    repository.getByIdForCompany.mockResolvedValue(stored(linked()));
+    const plan = await loadingPlanService.update(PLAN, COMPANY, USER, input({ linkRef: "CZ00000053" }), OPENED);
+    expect(clients.shipments._internalShipmentJobRef).not.toHaveBeenCalled();
+    expect(repository.updateIfUnchanged).toHaveBeenCalledWith(PLAN, COMPANY, new Date(OPENED), expect.objectContaining({ linkKind: null, linkId: null, linkRef: "" }));
+    expect(plan).toMatchObject({ linkKind: null, linkId: null, linkRef: "", linkGone: false });
   });
 
   it("does not refuse a kept link whose job is gone: the plan is saved, still linked, and says so", async () => {
@@ -207,5 +234,10 @@ describe("list, delete and a revised quote", () => {
     await expect(loadingPlanService.moveQuote(COMPANY, USER, QUOTE, { id: REVISION, reference: " QCZLCL20261109001-R1 " })).resolves.toBe(2);
     expect(repository.moveQuote).toHaveBeenCalledWith(COMPANY, QUOTE, { id: REVISION, reference: "QCZLCL20261109001-R1" }, "petr@example.com");
     await expect(loadingPlanService.moveQuote(COMPANY, USER, "nope", { id: REVISION, reference: "X" })).rejects.toMatchObject({ code: "invalid_argument" });
+  });
+
+  it("moves nothing when a quote is moved onto itself", async () => {
+    await expect(loadingPlanService.moveQuote(COMPANY, USER, QUOTE, { id: QUOTE, reference: "QCZ20261109001" })).resolves.toBe(0);
+    expect(repository.moveQuote).not.toHaveBeenCalled();
   });
 });

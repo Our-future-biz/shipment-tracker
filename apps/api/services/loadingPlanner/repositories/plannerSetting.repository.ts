@@ -3,13 +3,6 @@ import { db } from "../db/db";
 import type { PlannerSettings } from "../interfaces/interfaces";
 import { plannerSettingTable as t, type PlannerSettingRecord } from "../schemas/plannerSetting.schema";
 
-/** The settings a stored row holds. */
-export const settingsOfRow = (row: PlannerSettingRecord): PlannerSettings => ({
-  clearance: { doorWidthMm: row.doorWidthMm, doorHeightMm: row.doorHeightMm, lengthMm: row.lengthMm },
-  oogWarning: { widthMm: row.oogWidthMm, overEndMm: row.oogOverEndMm, heightMm: row.oogHeightMm },
-  heavyPiece: { warnKg: row.heavyWarnKg, moveKg: row.heavyMoveKg },
-});
-
 // The one settings row of a company. Every statement names the company.
 export const plannerSettingRepository = {
   async get(companyId: string): Promise<PlannerSettingRecord | null> {

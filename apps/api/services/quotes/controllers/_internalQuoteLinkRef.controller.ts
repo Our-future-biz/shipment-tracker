@@ -1,7 +1,7 @@
 import { api } from "encore.dev/api";
 import type { MaxLen } from "encore.dev/validate";
 import { getAuthData } from "~encore/auth";
-import { salesQuoteRepository } from "../repositories/salesQuote.repository";
+import { quoteLinkRef } from "../services/quoteLinkRef.service";
 
 interface QuoteLinkRefRequest {
   quoteId: string;
@@ -20,7 +20,6 @@ interface QuoteLinkRefResponse {
 export const _internalQuoteLinkRef = api(
   { expose: false, auth: true, method: "POST", path: "/internal/quotes/link-ref" },
   async ({ quoteId, reference }: QuoteLinkRefRequest): Promise<QuoteLinkRefResponse> => {
-    const quote = await salesQuoteRepository.loadLive(getAuthData()!.companyID, reference.trim());
-    return { quoteNumber: quote && quote.id === quoteId ? quote.quoteNumber : null };
+    return { quoteNumber: await quoteLinkRef(getAuthData()!.companyID, quoteId, reference) };
   },
 );

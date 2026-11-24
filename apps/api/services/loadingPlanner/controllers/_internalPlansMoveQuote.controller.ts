@@ -23,7 +23,7 @@ interface PlansMoveQuoteResponse {
  * revision instead. Company and user from the caller's auth.
  */
 export const _internalPlansMoveQuote = api(
-  { expose: false, auth: true, method: "POST", path: "/internal/loading-plans/move-quote" },
+  { expose: false, auth: true, method: "POST", path: "/internal/loading-planner/move-quote" },
   async (req: PlansMoveQuoteRequest): Promise<PlansMoveQuoteResponse> => {
     const { companyID, userID } = getAuthData()!;
     return { moved: await loadingPlanService.moveQuote(companyID, userID, req.fromQuoteId, { id: req.toQuoteId, reference: req.toReference }) };

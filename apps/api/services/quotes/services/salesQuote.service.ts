@@ -811,7 +811,8 @@ class SalesQuoteService {
   // A Won quote is revised the same way - a delayed shipment, a validity running out - but its
   // revision stays Won and takes over the shipments that named the quote: their Sales Number is
   // moved to the revision once it exists. Should that fail, the revision is still made and the
-  // answer says so (`warning`): the shipments then still name the Replaced quote.
+  // answer says so (`warning`): the shipments then still name the Replaced quote. The loading plans
+  // linked to any revised quote move the same way, and a failed move is told in `warning` too.
   async revise(
     actor: Actor,
     quoteNumber: string,
@@ -879,12 +880,15 @@ class SalesQuoteService {
         warning = `The shipments of ${revised.quoteNumber} could not be moved to ${revision.quoteNumber} - change their Sales Reference to ${revision.quoteNumber}`;
       }
     }
-    // The loading plans linked to the quote go with it to its revision. Best effort: a plan left
-    // behind still opens, linked to the replaced quote, and can be linked again by hand.
+    // The loading plans linked to the quote go with it to its revision, Won or not. Should that
+    // fail, the revision still stands and the answer says so, as for the shipments: a plan left
+    // behind still opens, linked to the Replaced quote, until someone links it to the revision.
     try {
       await loadingPlanner._internalPlansMoveQuote({ fromQuoteId: revised.id, toQuoteId: revision.id, toReference: revision.quoteNumber });
     } catch (err) {
       log.warn(err, "the loading plans of a revised quote could not be moved to its revision", { quoteNumber: revised.quoteNumber, revision: revision.quoteNumber });
+      const plans = `The loading plans of ${revised.quoteNumber} could not be moved to ${revision.quoteNumber} - link them to ${revision.quoteNumber} in the Loading Planner`;
+      warning = warning ? `${warning}. ${plans}` : plans;
     }
     const margins = await marginsFor(actor.companyID, [revised, revision], at);
     return {

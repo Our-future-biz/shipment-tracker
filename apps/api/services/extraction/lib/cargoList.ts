@@ -87,10 +87,14 @@ export function cargoFileProblem(fileName: string, fileBase64: string): string |
 }
 
 /**
- * A .csv or .txt file as text. Read as UTF-8; a file that is not (Excel on a Czech Windows saves
- * .csv in windows-1250) shows as replacement characters, and is then read as windows-1250.
+ * A .csv or .txt file as text. A file saved as Unicode (Excel's "Unicode Text", Notepad's UTF-16)
+ * starts with its byte order mark and is read as UTF-16; read as anything else, every letter would
+ * come with a zero byte. Otherwise it is read as UTF-8; a file that is not (Excel on a Czech Windows
+ * saves .csv in windows-1250) shows as replacement characters, and is then read as windows-1250.
  */
 export function cargoTextOfFile(buffer: Buffer): string {
+  if (buffer.length >= 2 && buffer[0] === 0xff && buffer[1] === 0xfe) return new TextDecoder("utf-16le").decode(buffer);
+  if (buffer.length >= 2 && buffer[0] === 0xfe && buffer[1] === 0xff) return new TextDecoder("utf-16be").decode(buffer);
   const utf8 = new TextDecoder("utf-8").decode(buffer);
   return utf8.includes("�") ? new TextDecoder("windows-1250").decode(buffer) : utf8;
 }

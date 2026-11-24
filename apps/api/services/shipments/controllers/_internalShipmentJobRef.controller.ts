@@ -1,6 +1,6 @@
 import { api } from "encore.dev/api";
 import { getAuthData } from "~encore/auth";
-import { shipmentRepository } from "../repositories/shipment.repository";
+import { shipmentJobNumberOf } from "../services/shipmentJobRef.service";
 
 interface ShipmentJobRefRequest {
   shipmentId: string;
@@ -16,7 +16,6 @@ interface ShipmentJobRefResponse {
 export const _internalShipmentJobRef = api(
   { expose: false, auth: true, method: "POST", path: "/internal/shipments/job-ref" },
   async ({ shipmentId }: ShipmentJobRefRequest): Promise<ShipmentJobRefResponse> => {
-    const shipment = await shipmentRepository.getByIdForCompany(shipmentId, getAuthData()!.companyID);
-    return { jobNumber: shipment ? shipment.jobNumber : null };
+    return { jobNumber: await shipmentJobNumberOf(shipmentId, getAuthData()!.companyID) };
   },
 );

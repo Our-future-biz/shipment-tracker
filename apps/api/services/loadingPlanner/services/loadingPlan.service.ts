@@ -48,11 +48,18 @@ async function linkRefNow(kind: PlanLinkKind, id: string, reference: string): Pr
 /**
  * The plan's link as the server vouches for it: the shipment or quote exists in the caller's
  * company, and the reference is what the job is called now, not what the browser sent. A plan
- * without a link passes as it is.
+ * without a link passes as it is. When the owning service does not answer, the plan is not saved
+ * and the user is told so in a sentence of ours - not in that call's own error text.
  */
 async function withCheckedLink(plan: CleanPlan): Promise<CleanPlan> {
   if (!plan.linkKind || !plan.linkId) return plan;
-  const linkRef = await linkRefNow(plan.linkKind, plan.linkId, plan.linkRef);
+  let linkRef: string | null;
+  try {
+    linkRef = await linkRefNow(plan.linkKind, plan.linkId, plan.linkRef);
+  } catch (err) {
+    log.warn(err, "whether a loading plan's linked job exists could not be checked; the plan was not saved", { linkKind: plan.linkKind });
+    throw APIError.unavailable(`Whether the linked ${plan.linkKind} exists could not be checked just now, so the plan was not saved. Save it again in a moment.`);
+  }
   if (linkRef === null) {
     throw APIError.invalidArgument(`The ${plan.linkKind} this plan is linked to was not found. Link the plan again, or unlink it.`);
   }

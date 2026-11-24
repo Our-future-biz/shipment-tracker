@@ -705,6 +705,8 @@ describe("revise", () => {
       },
     });
   // The plan the service hands the repository, run on the stored quote and the references there are.
+  // The revision is a row of its own, with its own id.
+  const REVISION_ID = "0b8d5a0e-6a43-4f4a-9a53-5d0d3a2b6c22";
   let planned: ReturnType<Parameters<typeof salesQuoteRepository.revise>[3]> | undefined;
   beforeEach(() => {
     planned = undefined;
@@ -713,7 +715,7 @@ describe("revise", () => {
       planned = plan(stored, [REF, `${REF}-2`, `${REF}-R1`]);
       return {
         quote: { ...stored, ...columnsOf(planned.write.state) },
-        revision: { ...stored, ...planned.row, quoteNumber: planned.reference } as SalesQuoteRecord,
+        revision: { ...stored, ...planned.row, id: REVISION_ID, quoteNumber: planned.reference } as SalesQuoteRecord,
       };
     });
   });
@@ -808,15 +810,31 @@ describe("revise", () => {
   });
 
   it("takes the quote's loading plans along to the revision, Won or not", async () => {
-    stored = sent();
-    await salesQuoteService.revise(martin, REF);
-    expect(loadingPlanner._internalPlansMoveQuote).toHaveBeenCalledWith(expect.objectContaining({ toReference: `${REF}-R2` }));
+    const revised = sent();
+    stored = revised;
+    const result = await salesQuoteService.revise(martin, REF);
+    // From the quote to its revision, by their ids - never the other way round.
+    expect(loadingPlanner._internalPlansMoveQuote).toHaveBeenCalledWith({ fromQuoteId: revised.id, toQuoteId: REVISION_ID, toReference: `${REF}-R2` });
+    expect(result.warning).toBeUndefined();
   });
 
-  it("still makes the revision when the loading plans cannot be moved", async () => {
+  it("still makes the revision when the loading plans cannot be moved, and says what to do", async () => {
     stored = sent();
     vi.mocked(loadingPlanner._internalPlansMoveQuote).mockRejectedValue(new Error("down"));
-    await expect(salesQuoteService.revise(martin, REF)).resolves.toMatchObject({ revision: { quoteNumber: `${REF}-R2` } });
+    const result = await salesQuoteService.revise(martin, REF);
+    expect(result.revision).toMatchObject({ quoteNumber: `${REF}-R2` });
+    expect(result.warning).toBe(`The loading plans of ${REF} could not be moved to ${REF}-R2 - link them to ${REF}-R2 in the Loading Planner`);
+  });
+
+  it("says both when neither the shipments nor the loading plans of a Won quote could be moved", async () => {
+    stored = quote({ status: "won", sentAt: SENT, firstSentAt: SENT, decidedAt: SENT, data: { reference: REF, quoteStatus: "won" } });
+    vi.mocked(shipments._internalShipmentsMoveQuote).mockRejectedValue(new Error("down"));
+    vi.mocked(loadingPlanner._internalPlansMoveQuote).mockRejectedValue(new Error("down"));
+    const result = await salesQuoteService.revise(martin, REF);
+    expect(result.warning).toBe(
+      `The shipments of ${REF} could not be moved to ${REF}-R2 - change their Sales Reference to ${REF}-R2. ` +
+        `The loading plans of ${REF} could not be moved to ${REF}-R2 - link them to ${REF}-R2 in the Loading Planner`,
+    );
   });
 });
 

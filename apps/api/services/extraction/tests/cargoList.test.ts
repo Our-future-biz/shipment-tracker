@@ -112,6 +112,13 @@ describe("files", () => {
     const cp1250 = Buffer.from([0x44, 0xf8, 0x65, 0x76, 0xec, 0x6e, 0xe1, 0x3b, 0x31, 0x32, 0x30, 0x30]);
     expect(cargoTextOfFile(cp1250)).toBe("Dřevěná;1200");
   });
+
+  it("reads a text file saved as Unicode by its byte order mark, little- or big-endian", () => {
+    // Excel's "Unicode Text": FF FE, then two bytes a letter. Read as windows-1250 it was "˙ţD\0ř\0…".
+    const le = Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from("Dřevěná;1200", "utf16le")]);
+    expect(cargoTextOfFile(le)).toBe("Dřevěná;1200");
+    expect(cargoTextOfFile(Buffer.from(le).swap16())).toBe("Dřevěná;1200");
+  });
 });
 
 describe("workbookText", () => {

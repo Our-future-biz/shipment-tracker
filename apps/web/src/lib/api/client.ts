@@ -12300,7 +12300,7 @@ export namespace controllers {
         revision: interfaces.SalesQuoteItem
 
         /**
-         * Set when the shipments of a Won quote could not be moved to its revision: what to do by hand.
+         * Set when the shipments of a Won quote, or the loading plans of the quote, could not be moved to its revision: what to do by hand.
          */
         warning?: string
     }

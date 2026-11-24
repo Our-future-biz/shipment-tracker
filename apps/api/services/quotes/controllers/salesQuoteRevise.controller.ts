@@ -24,7 +24,7 @@ interface SalesQuoteReviseResponse {
    * sent. The revision of a Won quote stays Won and takes over the quote's shipments.
    */
   revision: SalesQuoteItem;
-  /** Set when the shipments of a Won quote could not be moved to its revision: what to do by hand. */
+  /** Set when the shipments of a Won quote, or the loading plans of the quote, could not be moved to its revision: what to do by hand. */
   warning?: string;
 }
 
