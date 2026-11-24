@@ -10,6 +10,7 @@ import { containersWords } from "../_lib/boxUtilization";
 import { profitGlance } from "../_lib/earnings";
 import { CUTOFF_TONE, cutoffState, cutoffWords, sailingHref, sailingTitle } from "../_lib/sailings";
 import { AttentionChips } from "./AttentionChips";
+import { SailingStagePill } from "./SailingStageControl";
 import { BoxFillChip } from "./BoxFillChip";
 
 // The board of all services (Council Outlay 14, A6): every open service's sailings still to come in
@@ -87,7 +88,8 @@ export function SailingsBoard({ isManager }: { isManager: boolean }) {
                       <td className={TD}>
                         <Link href={sailingHref(s)} onClick={(e) => e.stopPropagation()} className={`${LINK} ${REF} font-semibold`}>
                           {sailingTitle(s)}
-                        </Link>
+                        </Link>{" "}
+                        <SailingStagePill sailing={s} />
                         <span className="block text-[11px] text-slate-500">{containersWords(s)}</span>
                       </td>
                       <td className={`${TD} whitespace-nowrap tabular-nums`}>

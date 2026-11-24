@@ -1,4 +1,5 @@
-import { date, index, integer, pgTable, text, uuid } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
+import { check, date, index, integer, pgTable, text, uuid } from "drizzle-orm/pg-core";
 import { defaultTableColumns, defaultTableIndexes, tenantColumns, tenantIndex } from "../../../lib/db/defaults";
 
 // A Co-Loading Concept service's sailing (lib/coLoadingSailing): the vessel the service's cargo goes on,
@@ -25,6 +26,9 @@ export const coLoadingSailingTable = pgTable(
     cutoffDate: date("cutoff_date", { mode: "string" }),
     // The day the sailing leaves; null while not known. Its ČNB rates value the box costs on Earnings (Council Outlay 13, D10).
     departureDate: date("departure_date", { mode: "string" }),
+    // Where the sailing stands, set by hand (Council Outlay 14, C3): open, closed (for cargo), departed,
+    // arrived, devanned. From "closed" on, linking a shipment asks for a reason.
+    stage: text("stage").notNull().default("open"),
     createdById: uuid("created_by_id"),
     createdByName: text("created_by_name").notNull().default(""),
   },
@@ -32,6 +36,7 @@ export const coLoadingSailingTable = pgTable(
     ...defaultTableIndexes("co_loading_sailing", table),
     tenantIndex("co_loading_sailing", table),
     index("co_loading_sailing_service_idx").on(table.companyId, table.serviceId, table.createdAt),
+    check("co_loading_sailing_stage_check", sql`${table.stage} IN ('open', 'closed', 'departed', 'arrived', 'devanned')`),
   ],
 );
 

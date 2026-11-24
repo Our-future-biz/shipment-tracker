@@ -2,7 +2,14 @@ import { describe, expect, it } from "vitest";
 import { CONTAINER_TYPES } from "@/lib/cargo";
 // The server's list of the types a sailing takes (shipments lib/coLoadingSailing): pure, so it is read here.
 import { SAILING_CONTAINER_TYPES } from "../../../../../api/services/shipments/lib/coLoadingSailing";
+import { sailingAttention } from "./attention";
 import {
+  linkNeedsReason,
+  SAILING_STAGES,
+  stageBehind,
+  stageHasLeft,
+  stageOf,
+  statusBeforeDeparture,
   cutoffState,
   isoWeek,
   nextSailingAfter,
@@ -218,5 +225,48 @@ describe("the sailing cargo is rolled to (Council Outlay 14, A9)", () => {
 
   it("is none when nothing else is to come", () => {
     expect(nextSailingAfter(all[0]!, [all[0]!, all[3]!], TODAY)).toBeNull();
+  });
+});
+
+describe("a sailing's stage (Council Outlay 14, C3)", () => {
+  const TODAY = "2026-11-24";
+  it("reads a sailing with no stage as open, and knows the stages that have left", () => {
+    expect(stageOf({})).toBe("open");
+    expect(stageOf({ stage: "nonsense" })).toBe("open");
+    expect(SAILING_STAGES.filter((stage) => stageHasLeft({ stage }))).toEqual(["departed", "arrived", "devanned"]);
+    expect(SAILING_STAGES.filter((stage) => linkNeedsReason({ stage }))).toEqual(["closed", "departed", "arrived", "devanned"]);
+  });
+
+  it("counts a sailing as left by its stage or by its date", () => {
+    expect(sailingDeparted({ departureDate: null, stage: "departed" }, TODAY)).toBe(true);
+    expect(sailingDeparted({ departureDate: "2026-12-01", stage: "arrived" }, TODAY)).toBe(true);
+    expect(sailingDeparted({ departureDate: "2026-12-01", stage: "closed" }, TODAY)).toBe(false);
+    expect(sailingDeparted({ departureDate: "2026-11-20", stage: "open" }, TODAY)).toBe(true);
+    // Left by hand with no date: among the departed, first.
+    const order = sailingsInOrder(
+      [
+        { id: "a", departureDate: "2026-11-10", createdAt: "1", stage: "departed" },
+        { id: "b", departureDate: null, createdAt: "2", stage: "departed" },
+        { id: "c", departureDate: null, createdAt: "3", stage: "closed" },
+      ],
+      TODAY,
+    );
+    expect(order.coming.map((s) => s.id)).toEqual(["c"]);
+    expect(order.departed.map((s) => s.id)).toEqual(["b", "a"]);
+  });
+
+  it("says when the date has passed and the stage was not moved on", () => {
+    expect(stageBehind({ departureDate: "2026-11-20", stage: "open" }, TODAY)).toBe(true);
+    expect(stageBehind({ departureDate: "2026-11-20", stage: "departed" }, TODAY)).toBe(false);
+    expect(stageBehind({ departureDate: "2026-11-24", stage: "closed" }, TODAY)).toBe(false);
+    expect(sailingAttention({ cutoffDate: null, departureDate: "2026-11-20", stage: "closed" }, TODAY)).toEqual([{ key: "stage", tone: "amber", text: "Departure date passed, still closed for cargo" }]);
+    expect(sailingAttention({ cutoffDate: null, departureDate: "2026-11-20", stage: "departed" }, TODAY)).toEqual([]);
+  });
+
+  it("knows a shipment status from before departure", () => {
+    expect(statusBeforeDeparture("Booking Confirmation Pending [EXP]")).toBe(true);
+    expect(statusBeforeDeparture("All Done - Waiting To Be Shipped [IMP]")).toBe(true);
+    expect(statusBeforeDeparture("Pre-Alert Sent [EXP]")).toBe(false);
+    expect(statusBeforeDeparture(null)).toBe(false);
   });
 });

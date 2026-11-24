@@ -38,20 +38,46 @@ export function sailingFormError(f: {
   return null;
 }
 
-/** A sailing has left: its departure date is before `today` (both YYYY-MM-DD). One with no date is still to come. */
-export const sailingDeparted = (s: { departureDate: string | null }, today: string): boolean => s.departureDate !== null && s.departureDate < today;
+/** Where a sailing stands, set by hand, in order (Council Outlay 14, C3). The server holds the same list. */
+export const SAILING_STAGES = ["open", "closed", "departed", "arrived", "devanned"] as const;
+export type SailingStage = (typeof SAILING_STAGES)[number];
+export const SAILING_STAGE_LABEL: Record<SailingStage, string> = { open: "Open", closed: "Closed for cargo", departed: "Departed", arrived: "Arrived", devanned: "Devanned" };
+/** A stage's colour as a pill: open says nothing, closed warns, the rest are done. */
+export const SAILING_STAGE_TONE: Record<SailingStage, "green" | "amber" | "slate"> = { open: "green", closed: "amber", departed: "slate", arrived: "slate", devanned: "slate" };
+/** The stage of a sailing read before stages existed is open. */
+export const stageOf = (s: { stage?: string | null }): SailingStage => ((SAILING_STAGES as readonly string[]).includes(s.stage ?? "") ? (s.stage as SailingStage) : "open");
+/** The stage says the sailing has left. */
+export const stageHasLeft = (s: { stage?: string | null }): boolean => SAILING_STAGES.indexOf(stageOf(s)) >= SAILING_STAGES.indexOf("departed");
+/** Linking to it asks for a reason: closed for cargo, or any later stage. */
+export const linkNeedsReason = (s: { stage?: string | null }): boolean => stageOf(s) !== "open";
+/** Its departure date has passed and nobody has set it to Departed: a stage to bring up to date, or a date to correct. */
+export const stageBehind = (s: { stage?: string | null; departureDate: string | null }, today: string): boolean => !stageHasLeft(s) && s.departureDate !== null && s.departureDate < today;
+
+/**
+ * The shipment statuses from before a departure: on a sailing that has left, a shipment still at one
+ * of these has a status to bring up to date.
+ */
+const BEFORE_DEPARTURE = /^(Booking Confirmation Pending|Pick Up Date Pending From Customer|All Done - Waiting To Be Shipped)\b/;
+export const statusBeforeDeparture = (status: string | null | undefined): boolean => BEFORE_DEPARTURE.test((status ?? "").trim());
+
+/**
+ * A sailing has left: its stage says so, or its departure date is before `today` (both YYYY-MM-DD).
+ * One with no date and an early stage is still to come.
+ */
+export const sailingDeparted = (s: { departureDate: string | null; stage?: string | null }, today: string): boolean => stageHasLeft(s) || (s.departureDate !== null && s.departureDate < today);
 
 /**
  * A service's sailings as its list shows them (Council Outlay 14, A2): those still to come by
  * departure, the soonest first and the ones with no date after them; then those that have left,
  * the last one to leave first. Within the same day, the one made first.
  */
-export function sailingsInOrder<T extends { departureDate: string | null; createdAt: string }>(sailings: readonly T[], today: string): { coming: T[]; departed: T[] } {
+export function sailingsInOrder<T extends { departureDate: string | null; createdAt: string; stage?: string | null }>(sailings: readonly T[], today: string): { coming: T[]; departed: T[] } {
   const byMade = (a: T, b: T) => a.createdAt.localeCompare(b.createdAt);
   const coming = sailings
     .filter((s) => !sailingDeparted(s, today))
     .sort((a, b) => (a.departureDate === null ? (b.departureDate === null ? byMade(a, b) : 1) : b.departureDate === null ? -1 : a.departureDate.localeCompare(b.departureDate) || byMade(a, b)));
-  const departed = sailings.filter((s) => sailingDeparted(s, today)).sort((a, b) => b.departureDate!.localeCompare(a.departureDate!) || byMade(a, b));
+  // One set to Departed with no date stands first among them: it left, and its date is still to be typed.
+  const departed = sailings.filter((s) => sailingDeparted(s, today)).sort((a, b) => (b.departureDate ?? "9999").localeCompare(a.departureDate ?? "9999") || byMade(a, b));
   return { coming, departed };
 }
 
@@ -110,7 +136,7 @@ export function nextSailingStart(
  * sailing with no departure date yet, the first one to come that was made after it - an earlier
  * week is never offered as "next". Null when there is none: then the sailing is picked by hand.
  */
-export function nextSailingAfter<T extends { id: string; departureDate: string | null; createdAt: string }>(sailing: { id: string; departureDate: string | null; createdAt: string }, sailings: readonly T[], today: string): T | null {
+export function nextSailingAfter<T extends { id: string; departureDate: string | null; createdAt: string; stage?: string | null }>(sailing: { id: string; departureDate: string | null; createdAt: string }, sailings: readonly T[], today: string): T | null {
   const coming = sailingsInOrder(sailings, today).coming.filter((s) => s.id !== sailing.id);
   if (!sailing.departureDate) return coming.find((s) => s.createdAt > sailing.createdAt) ?? null;
   return coming.find((s) => s.departureDate === null || s.departureDate >= sailing.departureDate!) ?? null;

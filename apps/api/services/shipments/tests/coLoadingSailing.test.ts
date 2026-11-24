@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { checkSailingInput, linkRefusal, moveRefusal, oddInBox, sailingDetailsProblem, sailingEdit, sailingRemovalRefusal, shipmentFactsDiff, SAILING_CONTAINER_TYPES, sailingWeek, VESSEL_MAX } from "../lib/coLoadingSailing";
+import { checkSailingInput, isSailingStage, LINK_REASON_MAX, linkReasonRefusal, linkRefusal, SAILING_STAGES, stageChange, stageHasLeft, moveRefusal, oddInBox, sailingDetailsProblem, sailingEdit, sailingRemovalRefusal, shipmentFactsDiff, SAILING_CONTAINER_TYPES, sailingWeek, VESSEL_MAX } from "../lib/coLoadingSailing";
 
 const PORTS = { pol: "Shanghai (CNSHA)", pod: "Hamburg (DEHAM)", hub: "Praha (CZPRG)", containerType: "40' HC" };
 // A sailing made without them has one container and no cut-off.
@@ -291,5 +291,31 @@ describe("a sailing's facts beside one of its shipments (Council Outlay 14, A3)"
   it("names a port that differs and never copies it; the same port written another way is the same", () => {
     expect(shipmentFactsDiff(named, job({ pol: "Ningbo (CNNGB)", pod: "HAMBURG (deham)" }), CANCELLED).mismatches).toEqual([{ label: "Port of Loading", shipment: "Ningbo (CNNGB)", sailing: "Shanghai (CNSHA)" }]);
     expect(shipmentFactsDiff(named, job({ pol: "", pod: "" }), CANCELLED).mismatches).toEqual([]);
+  });
+});
+
+describe("a sailing's stage (Council Outlay 14, C3)", () => {
+  it("records a change of stage in words, and nothing for the stage it has", () => {
+    expect(stageChange("open", "closed")).toEqual({ change: { kind: "stage", oldAmount: null, newAmount: null, oldNote: "Open", newNote: "Closed for cargo" } });
+    // Set back after a mistake: any order is taken.
+    expect(stageChange("departed", "open")).toEqual({ change: { kind: "stage", oldAmount: null, newAmount: null, oldNote: "Departed", newNote: "Open" } });
+    expect(stageChange("arrived", "arrived")).toEqual({ change: null });
+    expect(stageChange("open", "sunk")).toHaveProperty("error");
+    expect(stageChange("open", undefined)).toHaveProperty("error");
+  });
+
+  it("asks for a reason to link from Closed for cargo on", () => {
+    expect(linkReasonRefusal("open", undefined)).toBeNull();
+    expect(linkReasonRefusal("open", "")).toBeNull();
+    expect(linkReasonRefusal("closed", "  ")).toBe("This sailing is closed for cargo: say why the shipment still goes on it.");
+    expect(linkReasonRefusal("departed", undefined)).toContain("departed");
+    expect(linkReasonRefusal("closed", "Carrier took it late")).toBeNull();
+    expect(linkReasonRefusal("closed", "x".repeat(LINK_REASON_MAX + 1))).toContain(`${LINK_REASON_MAX} characters`);
+  });
+
+  it("knows which stages mean the sailing has left", () => {
+    expect(SAILING_STAGES.filter(stageHasLeft)).toEqual(["departed", "arrived", "devanned"]);
+    expect(isSailingStage("closed")).toBe(true);
+    expect(isSailingStage("Closed")).toBe(false);
   });
 });

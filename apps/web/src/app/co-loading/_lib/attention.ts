@@ -3,7 +3,7 @@
 // Every mark is a few words with a tone; none of them stops anything.
 
 import type { BoxFill } from "./boxUtilization";
-import { cutoffState, cutoffWords, sailingDeparted, sailingStepDays } from "./sailings";
+import { cutoffState, cutoffWords, SAILING_STAGE_LABEL, sailingDeparted, sailingStepDays, stageBehind, stageOf } from "./sailings";
 
 export interface AttentionFlag {
   key: string;
@@ -21,6 +21,8 @@ const many = (n: number, one: string, more: string) => (n === 1 ? `1 ${one}` : `
 export interface AttentionSailing {
   cutoffDate: string | null;
   departureDate: string | null;
+  /** Where it stands, set by hand; open when left out. */
+  stage?: string | null;
   fill?: BoxFill | null;
   /** Cancelled shipments still linked. */
   cancelled?: number;
@@ -31,9 +33,11 @@ export interface AttentionSailing {
 /**
  * A sailing's marks, the most pressing first. `today` is YYYY-MM-DD. `boxCostsSet` only for
  * managers (the others never learn whether costs are set): undefined leaves that mark out.
- * A sailing that has left is done: it gets no marks.
+ * A sailing that has left is done: it gets no marks, but for a stage left behind its date.
  */
 export function sailingAttention(s: AttentionSailing, today: string, boxCostsSet?: boolean): AttentionFlag[] {
+  // Its date has passed and its stage was not moved on: the one thing a sailing that has left may still need (C3).
+  if (stageBehind(s, today)) return [{ key: "stage", tone: "amber", text: `Departure date passed, still ${SAILING_STAGE_LABEL[stageOf(s)].toLowerCase()}` }];
   if (sailingDeparted(s, today)) return [];
   const flags: AttentionFlag[] = [];
   const fill = s.fill ?? null;

@@ -189,6 +189,15 @@ export function useSailingDetails(id: string) {
   });
 }
 
+/** Setting a sailing's stage by hand (Council Outlay 14, C3). Every view of the sailing is read again: its lists, the board, a shipment's chip. */
+export function useSailingStage(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (stage: string) => api.shipments.coLoadingSailingStage(id, { stage }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: LIST_KEY }),
+  });
+}
+
 /** Removing a sailing made by mistake (managers and admins; an empty one only). The lists of sailings are read again. */
 export function useSailingRemove(id: string) {
   const qc = useQueryClient();
@@ -220,7 +229,7 @@ export function useShipmentSailing(shipmentId: string, kind = "") {
     retry: (failures, err) => !isNotFound(err) && failures < 1,
   });
   const settle = () => Promise.all([qc.invalidateQueries({ queryKey: LIST_KEY }), qc.invalidateQueries({ queryKey: ["shipments"] })]);
-  const link = useMutation({ mutationFn: (sailingId: string) => api.shipments.coLoadingSailingLinkShipments(sailingId, { shipmentIds: [shipmentId] }), onSuccess: settle });
+  const link = useMutation({ mutationFn: (input: { sailingId: string; reason?: string }) => api.shipments.coLoadingSailingLinkShipments(input.sailingId, { shipmentIds: [shipmentId], reason: input.reason }), onSuccess: settle });
   const unlink = useMutation({ mutationFn: (sailingId: string) => api.shipments.coLoadingSailingUnlinkShipment(sailingId, shipmentId), onSuccess: settle });
   const move = useMutation({
     mutationFn: (input: { fromSailingId: string; toSailingId: string; reason: string }) =>
@@ -252,7 +261,7 @@ export function useSailingShipmentLinks(sailingId: string) {
       qc.invalidateQueries({ queryKey: [...LIST_KEY, "sailings"] }),
     ]);
   const link = useMutation({
-    mutationFn: (shipmentIds: string[]) => api.shipments.coLoadingSailingLinkShipments(sailingId, { shipmentIds }),
+    mutationFn: (input: { shipmentIds: string[]; reason?: string }) => api.shipments.coLoadingSailingLinkShipments(sailingId, input),
     onSuccess: settle,
   });
   const unlink = useMutation({
@@ -282,7 +291,7 @@ export function useSailingShipmentLinks(sailingId: string) {
 export function useLinkToSailing() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (input: { sailingId: string; shipmentIds: string[] }) => api.shipments.coLoadingSailingLinkShipments(input.sailingId, { shipmentIds: input.shipmentIds }),
+    mutationFn: (input: { sailingId: string; shipmentIds: string[]; reason?: string }) => api.shipments.coLoadingSailingLinkShipments(input.sailingId, { shipmentIds: input.shipmentIds, reason: input.reason }),
     onSuccess: () => Promise.all([qc.invalidateQueries({ queryKey: ["shipments"] }), qc.invalidateQueries({ queryKey: LIST_KEY })]),
   });
 }

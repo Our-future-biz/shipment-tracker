@@ -15,6 +15,8 @@ export const coLoadingSailingShipmentTable = pgTable(
     // Who linked it, as named then.
     createdById: uuid("created_by_id"),
     createdByName: text("created_by_name").notNull().default(""),
+    // Why it was linked after the sailing was closed for cargo (Council Outlay 14, C3); "" for one linked while it was open.
+    linkedNote: text("linked_note").notNull().default(""),
     // A link taken off (deleted_at set): who took it off, as named then, and why - "removed" by
     // hand, or "shipment_deleted" when the shipment itself was deleted. "" on a live link, and on
     // one taken off before this was recorded.

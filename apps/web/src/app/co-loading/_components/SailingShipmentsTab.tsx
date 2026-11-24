@@ -30,7 +30,7 @@ import { boxCargoOf, cutoffWarning, oddInBox, oddWarning, overfillWarning, remov
 import { downloadCsv } from "@/lib/csv";
 import { loadListCells, loadListFileName, loadListOf } from "../_lib/loadList";
 import { downloadLoadListPdf } from "../_lib/loadListPdf";
-import { nextSailingAfter, sailingTitle } from "../_lib/sailings";
+import { linkNeedsReason, nextSailingAfter, SAILING_STAGE_LABEL, sailingTitle, stageHasLeft, stageOf, statusBeforeDeparture } from "../_lib/sailings";
 import { CopyToShipmentsModal, copyResultWords } from "./CopyToShipmentsModal";
 import { MoveShipmentModal } from "./MoveShipmentModal";
 
@@ -79,6 +79,8 @@ export function SailingShipmentsTab({
   const partOf = new Map((box?.rows ?? []).map((row) => [row.shipmentId, row]));
   const figuresOf = (s: ShipmentItem) => partOf.get(s.id) ?? boxCargoOf(s);
   const shipments = sortBy ? [...linked].sort((a, b) => figuresOf(b)[sortBy] - figuresOf(a)[sortBy]) : linked;
+  // On a sailing set to Departed or later: the shipments whose status still says they have not sailed.
+  const behind = stageHasLeft(sailing) ? linked.filter((s) => statusBeforeDeparture(s.status)) : [];
   // A shipment taken off meanwhile leaves the list: its tick goes with it.
   useEffect(() => {
     setTicked((prev) => (prev.every((id) => linked.some((s) => s.id === id)) ? prev : prev.filter((id) => linked.some((s) => s.id === id))));
@@ -168,6 +170,21 @@ export function SailingShipmentsTab({
         </>
       }
     >
+      {/* The sailing has left and these still carry a status from before departure: listed to bring up to date (Council Outlay 14, C3). Nothing is changed for them. */}
+      {behind.length > 0 && (
+        <div className="border-b border-amber-200 bg-amber-50 px-4 py-2 text-[13px] text-amber-800" role="status">
+          This sailing is {SAILING_STAGE_LABEL[stageOf(sailing)].toLowerCase()}, but {behind.length === 1 ? "1 shipment still has" : `${behind.length} shipments still have`} a status from before departure:{" "}
+          {behind.map((s, i) => (
+            <span key={s.id}>
+              {i > 0 && ", "}
+              <Link href={`/shipments/${s.id}`} className={`${LINK} font-semibold`}>
+                {s.jobNumber}
+              </Link>
+            </span>
+          ))}
+          . Open each to set its status.
+        </div>
+      )}
       {/* What is ticked, and what can be done with it together. */}
       {ticked.length > 0 && (
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-indigo-100 bg-indigo-50/60 px-4 py-2" role="status">
@@ -245,11 +262,19 @@ export function SailingShipmentsTab({
                       </span>
                     </Tooltip>
                   )}
+                  {/* Linked after the sailing was closed for cargo: the reason given then (Council Outlay 14, C3). */}
+                  {part?.lateReason && (
+                    <Tooltip title={`Linked after the sailing was closed for cargo: ${part.lateReason}`}>
+                      <span className="ml-1.5 rounded bg-slate-100 px-1 py-0.5 text-[10px] font-semibold text-slate-600" role="note" aria-label={`Linked late: ${part.lateReason}`}>
+                        late
+                      </span>
+                    </Tooltip>
+                  )}
                 </td>
                 <td className={`${TD} truncate`}>{cell(s.customer)}</td>
                 <td className={`${TD} truncate`}>{cell(s.shipper)}</td>
                 <td className={`${TD} truncate`}>{cell(s.consignee)}</td>
-                <td className={`${TD} truncate`}>{cell(s.status)}</td>
+                <td className={`${TD} truncate ${behind.some((b) => b.id === s.id) ? "font-medium text-amber-700" : ""}`}>{cell(s.status)}</td>
                 {/* A figure that is missing is a dash, never a 0. */}
                 <td className={`${TD} text-right tabular-nums`}>{colli > 0 ? colli.toLocaleString("en-US") : EMPTY_CELL}</td>
                 <td className={`${TD} text-right tabular-nums`}>{weightKg > 0 ? tableKg(weightKg) : EMPTY_CELL}</td>
@@ -439,8 +464,9 @@ export function SailingShipmentsTab({
         serviceMode={serviceMode}
         box={box}
         onClose={() => setPicking(false)}
-        onLink={async (ids) => {
-          await link.mutateAsync(ids);
+        lateStage={linkNeedsReason(sailing) ? SAILING_STAGE_LABEL[stageOf(sailing)].toLowerCase() : null}
+        onLink={async (ids, reason) => {
+          await link.mutateAsync({ shipmentIds: ids, reason });
           message.success(`Linked ${linkedCount(ids.length)} to ${name}`);
         }}
       />
@@ -459,10 +485,13 @@ function LinkSailingShipmentsModal({
   serviceMode,
   box,
   cutoff,
+  lateStage,
   onClose,
   onLink,
 }: {
   open: boolean;
+  /** The sailing is closed for cargo or at a later stage, in words ("closed for cargo"): linking then asks why. Null while it is open. */
+  lateStage: string | null;
   /** The remark when the sailing's cut-off has passed; null otherwise. */
   cutoff: string | null;
   sailingName: string;
@@ -471,10 +500,11 @@ function LinkSailingShipmentsModal({
   /** The box as it stands, to warn before a link would overfill it; null while it is read. */
   box: BoxUtilization | null;
   onClose: () => void;
-  onLink: (shipmentIds: string[]) => Promise<void>;
+  onLink: (shipmentIds: string[], reason?: string) => Promise<void>;
 }) {
   const message = useMessages();
   const [query, setQuery] = useState("");
+  const [reason, setReason] = useState("");
   const [selected, setSelected] = useState<string[]>([]);
   // What each ticked shipment would add to the box, kept by id: a tick stays through a new search.
   const [cargoOf, setCargoOf] = useState<Record<string, { weightKg: number; volumeCbm: number; odd: string | null }>>({});
@@ -503,13 +533,14 @@ function LinkSailingShipmentsModal({
     setQuery("");
     setSelected([]);
     setCargoOf({});
+    setReason("");
     onClose();
   };
   const handleLink = async () => {
     if (selected.length === 0 || linking) return;
     setLinking(true);
     try {
-      await onLink(selected);
+      await onLink(selected, lateStage ? reason.trim() : undefined);
       close();
     } catch (err) {
       message.error(`Linking the shipments failed: ${apiErrorMessage(err)}`);
@@ -532,7 +563,7 @@ function LinkSailingShipmentsModal({
             <Button onClick={close}>Cancel</Button>
             <Button
               type="primary"
-              disabled={selected.length === 0 || odd !== null}
+              disabled={selected.length === 0 || odd !== null || (lateStage !== null && !reason.trim())}
               loading={linking}
               onClick={handleLink}
             >
@@ -556,6 +587,13 @@ function LinkSailingShipmentsModal({
           onChange={(e) => setQuery(e.target.value)}
           aria-label="Search shipments"
         />
+        {/* Closed for cargo or later (Council Outlay 14, C3): the shipment still goes on, with the reason kept on its row. */}
+        {lateStage && (
+          <label className="flex flex-col gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5">
+            <span className="text-[13px] font-medium text-amber-800">This sailing is {lateStage}. Say why these shipments still go on it.</span>
+            <Input.TextArea aria-label="Why the shipments still go on this sailing" rows={2} maxLength={300} placeholder="e.g. Carrier accepted late cargo" value={reason} onChange={(e) => setReason(e.target.value)} />
+          </label>
+        )}
         {[cutoff, warning, odd].map(
           (text) =>
             text && (

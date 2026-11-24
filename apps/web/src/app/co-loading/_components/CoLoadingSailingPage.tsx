@@ -17,6 +17,7 @@ import { sailingAttention } from "../_lib/attention";
 import { AttentionChips } from "./AttentionChips";
 import { BoxFillChip } from "./BoxFillChip";
 import { EditSailingModal } from "./EditSailingModal";
+import { SailingStageControl } from "./SailingStageControl";
 import { BoxUtilizationTab } from "./BoxUtilizationTab";
 import { EarningsTab } from "./EarningsTab";
 import { SailingShipmentsTab } from "./SailingShipmentsTab";
@@ -99,12 +100,16 @@ export function CoLoadingSailingPage() {
           <BackLink href={sailing ? `/co-loading/${sailing.serviceId}` : "/co-loading"}>
             {service?.name ?? "Co-Loading Concept"}
           </BackLink>
-          {/* All of the sailing: vessel, ports, containers and dates; not while the service is closed. */}
-          {sailing && service && !service.closedAt && (
-            <button type="button" className={BTN} onClick={() => setEditing(true)}>
-              Edit sailing
-            </button>
-          )}
+          <span className="flex flex-wrap items-center gap-2">
+            {/* Where the sailing stands, set by hand; read-only while the service is closed. */}
+            {sailing && service && <SailingStageControl sailing={sailing} readOnly={!!service.closedAt} />}
+            {/* All of the sailing: vessel, ports, containers and dates; not while the service is closed. */}
+            {sailing && service && !service.closedAt && (
+              <button type="button" className={BTN} onClick={() => setEditing(true)}>
+                Edit sailing
+              </button>
+            )}
+          </span>
           {/* A removed sailing has no page: back to its service's list. */}
           {sailing && <EditSailingModal open={editing} onClose={() => setEditing(false)} sailing={sailing} isManager={isManager} onRemoved={() => router.replace(`/co-loading/${sailing.serviceId}`)} />}
         </div>

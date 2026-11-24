@@ -79,7 +79,7 @@ describe("a sailing's money, asked for over the API", () => {
     who.role = "user";
     const shipmentIds = Array.from({ length: 250 }, (_, i) => `id-${i}`);
     await call("coLoadingSailingLinkShipments", { shipmentIds });
-    expect(service.linkShipments).toHaveBeenCalledWith("s1", shipmentIds, expect.objectContaining({ companyID: COMPANY }));
+    expect(service.linkShipments).toHaveBeenCalledWith("s1", shipmentIds, expect.objectContaining({ companyID: COMPANY }), undefined);
   });
 
   it("hands \"Edit sailing\" on with the caller's role, which decides what they may change", async () => {

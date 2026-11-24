@@ -13,7 +13,7 @@ import { sailingEarnings, sailingProfit, type ShipmentMoney } from "../lib/coLoa
 import { boxFillOf, boxUtilization } from "../lib/boxUtilization";
 import { planCargoOf, sailingReference } from "../lib/coLoadingPlanCargo";
 import { CANCELLED_STATUS } from "../lib/fieldDefaults";
-import { checkSailingInput, LINK_AT_ONCE_MAX, linkRefusal, moveRefusal, oddInBox, sailingEdit, sailingRemovalRefusal, type SailingDetails, type SailingInput } from "../lib/coLoadingSailing";
+import { checkSailingInput, isSailingStage, LINK_AT_ONCE_MAX, linkReasonRefusal, linkRefusal, moveRefusal, stageChange, oddInBox, sailingEdit, sailingRemovalRefusal, type SailingDetails, type SailingInput } from "../lib/coLoadingSailing";
 import { userNameOf } from "../lib/userName";
 import { coLoadingSailingRepository as repo, type LinkedCargo } from "../repositories/coLoadingSailing.repository";
 import type { CoLoadingSailingRecord } from "../schemas/coLoadingSailing.schema";
@@ -31,6 +31,7 @@ const toItem = (r: CoLoadingSailingRecord): CoLoadingSailingItem => ({
   containerCount: r.containerCount,
   cutoffDate: r.cutoffDate,
   departureDate: r.departureDate,
+  stage: isSailingStage(r.stage) ? r.stage : "open",
   createdByName: r.createdByName,
   createdAt: r.createdAt.toISOString(),
 });
@@ -276,6 +277,24 @@ class CoLoadingSailingService {
   }
 
   /**
+   * Sets the sailing's stage by hand (Council Outlay 14, C3): Open, Closed for cargo, Departed,
+   * Arrived, Devanned, in any order - a stage set by mistake is set back. Anyone; not while the
+   * service is closed. The change goes into the sailing's record of changes.
+   */
+  async setStage(id: string, stage: string, actor: { userID: string; companyID: string }): Promise<CoLoadingSailingItem> {
+    const sailing = await this.get(id, actor.companyID);
+    await coLoadingServiceService.requireOpen(sailing.serviceId, actor.companyID);
+    const by = { id: actor.userID, name: await userNameOf(actor.userID) };
+    const row = await repo.setStageRecorded(sailing.id, actor.companyID, stage, by, (now) => {
+      const judged = stageChange(now, stage);
+      if ("error" in judged) throw APIError.invalidArgument(judged.error);
+      return judged.change;
+    });
+    if (!row) throw APIError.notFound("Sailing not found");
+    return toItem(row);
+  }
+
+  /**
    * Removes a sailing made by mistake (Council Outlay 14, D4): a manager or admin, while it holds no
    * shipment and no box cost, and not while the service is closed. Judged under the sailing's lock,
    * so nothing is linked or costed in between.
@@ -441,7 +460,7 @@ class CoLoadingSailingService {
     const odd = moved ? oddInBox(service.mode, moved) : null;
     if (moved && odd) throw APIError.failedPrecondition(`${moved.jobNumber} is ${odd}: it cannot go on another sailing of this service. Remove it from this one instead.`);
     const by = { id: actor.userID, name: await userNameOf(actor.userID) };
-    if (!isUuid(shipmentId) || !(await repo.move(from.id, toSailingId, shipmentId, actor.companyID, by, reason.trim()))) throw APIError.notFound("The shipment is not on this sailing.");
+    if (!isUuid(shipmentId) || !(await repo.move(from.id, toSailingId, shipmentId, actor.companyID, by, reason.trim(), to && to.stage !== "open" ? reason.trim() : ""))) throw APIError.notFound("The shipment is not on this sailing.");
   }
 
   /** The shipments named, each once: at least one, at most what one call takes. */
@@ -472,7 +491,7 @@ class CoLoadingSailingService {
     });
     if (odd.length > 0) throw APIError.failedPrecondition(`${odd.join(", ")}: ${odd.length === 1 ? "it" : "they"} cannot go on another sailing of this service. Remove ${odd.length === 1 ? "it" : "them"} from this one instead. Nothing was moved.`);
     const by = { id: actor.userID, name: await userNameOf(actor.userID) };
-    if (!(await repo.moveMany(from.id, toSailingId, ids, actor.companyID, by, reason.trim()))) throw APIError.notFound("A shipment is no longer on this sailing: nothing was moved. Read the list again.");
+    if (!(await repo.moveMany(from.id, toSailingId, ids, actor.companyID, by, reason.trim(), to && to.stage !== "open" ? reason.trim() : ""))) throw APIError.notFound("A shipment is no longer on this sailing: nothing was moved. Read the list again.");
     return { moved: ids.length };
   }
 
@@ -488,21 +507,25 @@ class CoLoadingSailingService {
 
   /**
    * Links the shipments to the sailing (its box), all or none: each must be the service's own (its
-   * Service Name) and on no sailing yet. Not while the service is closed.
+   * Service Name) and on no sailing yet. Not while the service is closed. A sailing closed for cargo
+   * or at a later stage takes them only with a reason.
    */
-  async linkShipments(sailingId: string, shipmentIds: string[], actor: { userID: string; companyID: string }): Promise<{ linked: number }> {
+  async linkShipments(sailingId: string, shipmentIds: string[], actor: { userID: string; companyID: string }, reason?: string): Promise<{ linked: number }> {
     const ids = [...new Set(shipmentIds)];
     if (ids.length === 0) throw APIError.invalidArgument("Pick the shipments to link.");
     // The API takes no more (MaxLen); never some of them in silence.
     if (ids.length > LINK_AT_ONCE_MAX) throw APIError.invalidArgument(`Link at most ${LINK_AT_ONCE_MAX} shipments at once.`);
     const sailing = await this.get(sailingId, actor.companyID);
     const service = await coLoadingServiceService.requireOpen(sailing.serviceId, actor.companyID);
+    // Closed for cargo or later: the shipment still goes on it, with the reason kept on its link (C3).
+    const noReason = linkReasonRefusal(sailing.stage, reason);
+    if (noReason) throw APIError.invalidArgument(noReason);
     const found = await repo.shipmentsToLink(ids.filter(isUuid), actor.companyID);
     if (found.length !== ids.length) throw APIError.notFound("A shipment to link was not found.");
     const onSailing = new Map((await repo.sailingsOf(ids, actor.companyID)).map((l) => [l.shipmentId, { id: l.sailingId, name: [l.vessel, l.voyage].filter(Boolean).join(" ") }]));
     const refusals = found.flatMap((s) => linkRefusal({ ...s, onSailing: onSailing.get(s.id) ?? null }, service.serviceName, sailingId, service.mode) ?? []);
     if (refusals.length > 0) throw APIError.failedPrecondition(refusals.join(" "));
-    const linked = await repo.link(sailingId, ids, actor.companyID, { id: actor.userID, name: await userNameOf(actor.userID) });
+    const linked = await repo.link(sailingId, ids, actor.companyID, { id: actor.userID, name: await userNameOf(actor.userID) }, sailing.stage === "open" ? "" : (reason ?? "").trim());
     // Linked meanwhile by someone else: nothing is linked, and the list read again shows where.
     if (!linked) throw APIError.alreadyExists("A shipment was linked to a sailing meanwhile: nothing was linked. Try again.");
     return { linked: ids.length };

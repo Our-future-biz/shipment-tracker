@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { Button, Checkbox, Select } from "antd";
+import { Button, Checkbox, Input, Select } from "antd";
 import { useCoLoadingSailings, useLinkToSailing, useSailingUtilization, useWaitingShipments } from "@/hooks/useCoLoadingServices";
 import { EMPTY_CELL } from "@/components/EmptyCell";
 import { CountChip, SectionCard } from "@/components/SectionCard";
@@ -12,7 +12,7 @@ import { CANCELLED_STATUS } from "@/lib/enums";
 import { useMessages } from "@/lib/toast";
 import { HINT, LINK, REF, TD, TH } from "@/styles/ui";
 import { boxCargoOf, cutoffWarning, fillWords, oddInBox, overfillWarning, tableCbm, tableKg } from "../_lib/boxUtilization";
-import { cutoffWords, sailingsInOrder, sailingTitle } from "../_lib/sailings";
+import { cutoffWords, linkNeedsReason, SAILING_STAGE_LABEL, sailingsInOrder, sailingTitle, stageOf } from "../_lib/sailings";
 
 /** The shipments of a list still waiting for a box: not the cancelled ones, nor those of another kind than the box is for. */
 export const waitingForBox = <T extends { status?: string | null; freightMode?: string | null; loadType?: string | null }>(shipments: readonly T[], serviceMode: string): T[] =>
@@ -33,6 +33,8 @@ export function WaitingShipments({ serviceId, serviceName, serviceMode, closed }
   const message = useMessages();
   const [ticked, setTicked] = useState<string[]>([]);
   const [to, setTo] = useState<string | null>(null);
+  // Asked only for a sailing closed for cargo (Council Outlay 14, C3).
+  const [reason, setReason] = useState("");
   // The soonest sailing is the one offered, until another is picked; one that left the list is forgotten.
   const target = coming.find((s) => s.id === to) ?? coming[0] ?? null;
   const { box } = useSailingUtilization(target?.id ?? "");
@@ -53,11 +55,13 @@ export function WaitingShipments({ serviceId, serviceName, serviceMode, closed }
   const overfill = box && target && box.containerType === target.containerType ? overfillWarning(box, added) : null;
   const pastCutoff = target ? cutoffWarning(target.cutoffDate, today, formatDate(target.cutoffDate)) : null;
   const allTicked = waiting.length > 0 && ticked.length === waiting.length;
+  const late = target !== null && linkNeedsReason(target);
 
   const put = async () => {
     if (!target || picked.length === 0) return;
     try {
-      await link.mutateAsync({ sailingId: target.id, shipmentIds: picked.map((s) => s.id) });
+      await link.mutateAsync({ sailingId: target.id, shipmentIds: picked.map((s) => s.id), reason: late ? reason.trim() : undefined });
+      setReason("");
       message.success(`${picked.length === 1 ? picked[0]!.jobNumber : `${picked.length} shipments`} put on ${sailingTitle(target)}`);
       setTicked([]);
     } catch (err) {
@@ -91,10 +95,21 @@ export function WaitingShipments({ serviceId, serviceName, serviceMode, closed }
               disabled={closed}
               options={coming.map((s) => {
                 const near = cutoffWords(s.cutoffDate, today);
-                return { value: s.id, label: [sailingTitle(s), s.cutoffDate ? `cut-off ${formatDate(s.cutoffDate)}${near ? ` (${near})` : ""}` : "no cut-off", s.fill ? fillWords(s.fill) : ""].filter(Boolean).join(" · ") };
+                return { value: s.id, label: [sailingTitle(s), linkNeedsReason(s) ? SAILING_STAGE_LABEL[stageOf(s)].toLowerCase() : "", s.cutoffDate ? `cut-off ${formatDate(s.cutoffDate)}${near ? ` (${near})` : ""}` : "no cut-off", s.fill ? fillWords(s.fill) : ""].filter(Boolean).join(" · ") };
               })}
             />
-            <Button type="primary" disabled={closed || picked.length === 0} loading={link.isPending} onClick={put}>
+            {late && (
+              <Input
+                aria-label="Why the shipments still go on this sailing"
+                className="!w-[300px]"
+                maxLength={300}
+                placeholder={`It is ${SAILING_STAGE_LABEL[stageOf(target!)].toLowerCase()}: say why they still go on it`}
+                value={reason}
+                onChange={(e) => setReason(e.target.value)}
+                disabled={closed}
+              />
+            )}
+            <Button type="primary" disabled={closed || picked.length === 0 || (late && !reason.trim())} loading={link.isPending} onClick={put}>
               {picked.length === 0 ? "Put on the sailing" : `Put ${picked.length} on ${target ? sailingTitle(target) : "the sailing"}`}
             </Button>
             {closed && <span className={HINT}>The service is closed: nothing can be linked until it is reopened.</span>}

@@ -2322,6 +2322,8 @@ export interface CoLoadingSailingItem {
   cutoffDate: string | null;
   /** The day the sailing leaves, YYYY-MM-DD; null while not known. Its ČNB rates value the box costs. */
   departureDate: string | null;
+  /** Where it stands, set by hand: "open", "closed" (for cargo), "departed", "arrived" or "devanned". From "closed" on, linking asks for a reason. */
+  stage: "open" | "closed" | "departed" | "arrived" | "devanned";
   /**
    * On the sailing's own page only: the containers that have box costs. Once there is one, only
    * managers and admins change the number of containers and the departure date. No money.
@@ -2531,6 +2533,8 @@ export interface BoxUtilizationRow {
   odd: string | null;
   /** Bigger or heavier than the whole box, or a density no cargo has: a figure to check. */
   implausible: boolean;
+  /** Why it was linked after the sailing was closed for cargo (Council Outlay 14, C3); "" or left out for one linked while it was open. */
+  lateReason?: string;
 }
 
 /** How full a Co-Loading Concept sailing's box is (lib/boxUtilization). */

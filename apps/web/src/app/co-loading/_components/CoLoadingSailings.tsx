@@ -12,6 +12,7 @@ import { useMessages } from "@/lib/toast";
 import { BTN_PRIMARY, CARD, EMPTY_STATE, HEADING, LINK, REF, TD, TH } from "@/styles/ui";
 import { containersWords } from "../_lib/boxUtilization";
 import { profitGlance } from "../_lib/earnings";
+import { SailingStagePill } from "./SailingStageControl";
 import { CUTOFF_TONE, cutoffState, cutoffWords, nextSailingStart, sailingHref, sailingsInOrder } from "../_lib/sailings";
 import { canManageServices } from "../_lib/services";
 import { BoxFillChip } from "./BoxFillChip";
@@ -128,7 +129,8 @@ export function CoLoadingSailings({ serviceId, closed, frequency }: { serviceId:
                       className={`${LINK} ${REF} font-semibold`}
                     >
                       {s.vessel}
-                    </Link>
+                    </Link>{" "}
+                    <SailingStagePill sailing={s} />
                   </td>
                   <td className={TD}>{s.voyage || "—"}</td>
                   <td className={TD}>{s.pol}</td>

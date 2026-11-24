@@ -10,7 +10,9 @@ const texts = (flags: { text: string }[]) => flags.map((f) => f.text);
 describe("what needs a look on a sailing (Council Outlay 14, A7)", () => {
   it("is nothing on a sailing in good order, and nothing on one that has left", () => {
     expect(sailingAttention(sailing(), TODAY)).toEqual([]);
-    expect(sailingAttention(sailing({ cutoffDate: "2026-11-10", departureDate: "2026-11-19", fill: fill({ missing: 2 }) }), TODAY)).toEqual([]);
+    expect(sailingAttention(sailing({ cutoffDate: "2026-11-10", departureDate: "2026-11-19", stage: "departed", fill: fill({ missing: 2 }) }), TODAY)).toEqual([]);
+    // Left by its date, its stage never moved on: that alone is marked (C3).
+    expect(sailingAttention(sailing({ cutoffDate: "2026-11-10", departureDate: "2026-11-19", fill: fill({ missing: 2 }) }), TODAY)).toEqual([{ key: "stage", tone: "amber", text: "Departure date passed, still open" }]);
   });
 
   it("marks a cut-off amber from 3 days before and red once passed", () => {

@@ -102,6 +102,36 @@ export function checkSailingInput(input: SailingInput, today: string): { values:
 
 // ─── What may be changed on a sailing later: all of it (Council Outlay 14, A2) ───
 
+/**
+ * Where a sailing stands, set by hand, in order (Council Outlay 14, C3). "closed" is closed for
+ * cargo: from it on, a shipment is linked only with a reason.
+ */
+export const SAILING_STAGES = ["open", "closed", "departed", "arrived", "devanned"] as const;
+export type SailingStage = (typeof SAILING_STAGES)[number];
+export const SAILING_STAGE_LABEL: Record<SailingStage, string> = { open: "Open", closed: "Closed for cargo", departed: "Departed", arrived: "Arrived", devanned: "Devanned" };
+export const isSailingStage = (stage: unknown): stage is SailingStage => typeof stage === "string" && (SAILING_STAGES as readonly string[]).includes(stage);
+/** The sailing has left: its stage says so, whatever its departure date. */
+export const stageHasLeft = (stage: string): boolean => stage === "departed" || stage === "arrived" || stage === "devanned";
+export const LINK_REASON_MAX = 300;
+
+/** A stage change as the record of changes keeps it; null when the stage is the one it has; an error for a stage that is none. */
+export function stageChange(now: string, next: unknown): { change: SailingChangeNote | null } | { error: string } {
+  if (!isSailingStage(next)) return { error: "Pick the stage: Open, Closed for cargo, Departed, Arrived or Devanned." };
+  if (next === now) return { change: null };
+  return { change: { kind: "stage", oldAmount: null, newAmount: null, oldNote: isSailingStage(now) ? SAILING_STAGE_LABEL[now] : now, newNote: SAILING_STAGE_LABEL[next] } };
+}
+
+/**
+ * Why shipments cannot be linked to a sailing at this stage with this reason, or null: an open
+ * sailing takes them without one; from "Closed for cargo" on, the reason is asked.
+ */
+export function linkReasonRefusal(stage: string, reason: string | undefined): string | null {
+  const text = (reason ?? "").trim();
+  if (text.length > LINK_REASON_MAX) return `Keep the reason to ${LINK_REASON_MAX} characters.`;
+  if (stage !== "open" && !text) return `This sailing is ${(isSailingStage(stage) ? SAILING_STAGE_LABEL[stage] : stage).toLowerCase()}: say why the shipment still goes on it.`;
+  return null;
+}
+
 export const CONTAINER_COUNT_MAX = 20;
 export const MOVE_REASON_MAX = 300;
 /** The most shipments linked in one go: what the Link shipments dialog can tick, and what the API takes (MaxLen). */

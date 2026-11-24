@@ -28,6 +28,8 @@ export interface BoxShipment {
   dangerous: string;
   outOfGauge: string;
   temperatureControlled: string;
+  /** Why it was linked after the sailing was closed for cargo; "" or left out for one linked while it was open. */
+  linkedNote?: string;
   pcs: string | null;
   totalWeightTons: string | null;
   totalVolumeCbm: string | null;
@@ -122,6 +124,7 @@ export function boxUtilization(containerType: string, capacity: ContainerCapacit
       temperatureControlled: yes(s.temperatureControlled),
       odd: s.odd,
       implausible: tooBig || oddDensity(weightKg, volumeCbm),
+      lateReason: (s.linkedNote ?? "").trim(),
     };
   });
 

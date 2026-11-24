@@ -6,6 +6,7 @@ const repo = vi.hoisted(() => ({
   boxShipments: vi.fn(),
   boxShipmentsOf: vi.fn(),
   setDetailsRecorded: vi.fn(),
+  setStageRecorded: vi.fn(),
   shipmentsToLink: vi.fn(),
   sailingsOf: vi.fn(),
   link: vi.fn(),
@@ -67,6 +68,7 @@ const sailing = (more = {}) => ({
   containerCount: 1,
   cutoffDate: null as string | null,
   departureDate: null as string | null,
+  stage: "open",
   createdByName: "Jan",
   createdAt: new Date("2026-11-23T08:00:00Z"),
   ...more,
@@ -424,7 +426,25 @@ describe("linking shipments to a sailing", () => {
 
   it("links them all, each once, as the one who links", async () => {
     expect(await service.linkShipments(SAILING, [...ids, ids[0]!], USER)).toEqual({ linked: 2 });
-    expect(repo.link).toHaveBeenCalledWith(SAILING, ids, COMPANY, { id: "u-user", name: "Jana Nová" });
+    expect(repo.link).toHaveBeenCalledWith(SAILING, ids, COMPANY, { id: "u-user", name: "Jana Nová" }, "");
+  });
+
+  it("links to a sailing closed for cargo only with a reason, kept on the link (C3)", async () => {
+    repo.get.mockResolvedValue(sailing({ stage: "closed" }));
+    await expect(service.linkShipments(SAILING, ids, USER)).rejects.toThrow(/closed for cargo: say why/);
+    expect(repo.link).not.toHaveBeenCalled();
+    expect(await service.linkShipments(SAILING, ids, USER, "  Carrier took it late ")).toEqual({ linked: 2 });
+    expect(repo.link).toHaveBeenCalledWith(SAILING, ids, COMPANY, { id: "u-user", name: "Jana Nová" }, "Carrier took it late");
+  });
+
+  it("sets the stage and records the change, and refuses a stage that is none (C3)", async () => {
+    repo.setStageRecorded.mockImplementation(async (_id: string, _company: string, stage: string, _by: unknown, judge: (now: string) => unknown) => {
+      judge("open");
+      return sailing({ stage });
+    });
+    expect((await service.setStage(SAILING, "departed", USER)).stage).toBe("departed");
+    expect(repo.setStageRecorded).toHaveBeenCalledWith(SAILING, COMPANY, "departed", { id: "u-user", name: "Jana Nová" }, expect.any(Function));
+    await expect(service.setStage(SAILING, "sunk", USER)).rejects.toThrow(/Pick the stage/);
   });
 
   it("refuses a shipment of another Service Name, or one on another sailing: nothing is linked", async () => {
@@ -488,7 +508,7 @@ describe("moving a shipment on to another sailing", () => {
   it("moves it in one turn, with the reason trimmed and who moved it", async () => {
     repo.move.mockResolvedValue(true);
     await service.moveShipment(SAILING, moved.id, OTHER, "  Box full, rolled to next week ", MANAGER);
-    expect(repo.move).toHaveBeenCalledWith(SAILING, OTHER, moved.id, COMPANY, { id: "u-manager", name: "Jana Nová" }, "Box full, rolled to next week");
+    expect(repo.move).toHaveBeenCalledWith(SAILING, OTHER, moved.id, COMPANY, { id: "u-manager", name: "Jana Nová" }, "Box full, rolled to next week", "");
   });
 
   it("does not find a shipment that is not on the sailing", async () => {
@@ -644,7 +664,7 @@ describe("moving or removing several shipments at once (Council Outlay 14, A9)",
 
   it("moves them all with the one reason, each once, as the one who moves", async () => {
     await expect(service.moveShipments(SAILING, [A, B, A], OTHER, "  Box full  ", USER)).resolves.toEqual({ moved: 2 });
-    expect(repo.moveMany).toHaveBeenCalledWith(SAILING, OTHER, [A, B], COMPANY, { id: "u-user", name: "Jana Nová" }, "Box full");
+    expect(repo.moveMany).toHaveBeenCalledWith(SAILING, OTHER, [A, B], COMPANY, { id: "u-user", name: "Jana Nová" }, "Box full", "");
   });
 
   it("holds each to the rules of a single move: a reason, another sailing of the service, the box's own kind", async () => {

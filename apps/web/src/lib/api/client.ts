@@ -3432,6 +3432,7 @@ export namespace shipments {
             this.coLoadingSailingBoxCostChanges = this.coLoadingSailingBoxCostChanges.bind(this)
             this.coLoadingSailingBoxCostsSave = this.coLoadingSailingBoxCostsSave.bind(this)
             this.coLoadingSailingDetails = this.coLoadingSailingDetails.bind(this)
+            this.coLoadingSailingStage = this.coLoadingSailingStage.bind(this)
             this.coLoadingSailingRemove = this.coLoadingSailingRemove.bind(this)
             this.coLoadingSailingPlanCargo = this.coLoadingSailingPlanCargo.bind(this)
             this.coLoadingSailingShipmentFacts = this.coLoadingSailingShipmentFacts.bind(this)
@@ -3782,6 +3783,15 @@ export namespace shipments {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("PUT", `/co-loading/sailings/${encodeURIComponent(id)}`, JSON.stringify(params))
             return await resp.json() as { sailing: interfaces.CoLoadingSailingItem }
+        }
+
+        /**
+         * Sets the sailing's stage by hand: open, closed (for cargo), departed, arrived or devanned.
+         */
+        public async coLoadingSailingStage(id: string, params: { stage: string }): Promise<interfaces.CoLoadingSailingItem> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("PUT", `/co-loading/sailings/${encodeURIComponent(id)}/stage`, JSON.stringify(params))
+            return await resp.json() as interfaces.CoLoadingSailingItem
         }
 
         /**
@@ -8944,6 +8954,11 @@ export namespace controllers {
          * At most 200 (lib/coLoadingSailing LINK_AT_ONCE_MAX): more is refused, never cut short
          */
         shipmentIds: string[]
+
+        /**
+         * Why they still go on a sailing that is closed for cargo or at a later stage; asked only then
+         */
+        reason?: string
     }
 
     export interface CoLoadingServiceCreateRequest {
@@ -16467,6 +16482,11 @@ export namespace interfaces {
          * Bigger or heavier than the whole box, or a density no cargo has: a figure to check.
          */
         implausible: boolean
+
+        /**
+         * Why it was linked after the sailing was closed for cargo; "" or left out for one linked while it was open.
+         */
+        lateReason?: string
     }
 
     /**
@@ -16733,6 +16753,11 @@ export namespace interfaces {
          * The day the sailing leaves, YYYY-MM-DD; null while not known. Its ČNB rates value the box costs.
          */
         departureDate: string | null
+
+        /**
+         * Where it stands, set by hand: "open", "closed" (for cargo), "departed", "arrived" or "devanned". From "closed" on, linking asks for a reason.
+         */
+        stage: "open" | "closed" | "departed" | "arrived" | "devanned"
 
         /**
          * On the sailing's own page only: the containers that have box costs. Once there is one, only managers and admins change the number of containers and the departure date.

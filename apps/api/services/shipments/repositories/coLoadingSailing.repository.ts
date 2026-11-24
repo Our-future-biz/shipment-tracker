@@ -80,12 +80,12 @@ class CoLoadingSailingRepository {
    * Links the shipments to the sailing, all or none: false when one of them was linked meanwhile (to
    * any sailing), which the one live link per shipment refuses.
    */
-  async link(sailingId: string, shipmentIds: string[], companyId: string, by: { id: string; name: string }): Promise<boolean> {
+  async link(sailingId: string, shipmentIds: string[], companyId: string, by: { id: string; name: string }, note = ""): Promise<boolean> {
     try {
       await db.transaction(async (tx) => {
         const rows = await tx
           .insert(links)
-          .values(shipmentIds.map((shipmentId) => ({ companyId, sailingId, shipmentId, createdById: by.id, createdByName: by.name })))
+          .values(shipmentIds.map((shipmentId) => ({ companyId, sailingId, shipmentId, createdById: by.id, createdByName: by.name, linkedNote: note })))
           .onConflictDoNothing()
           .returning({ id: links.id });
         // Thrown to undo the transaction: that is the "none" of all or none.
@@ -96,6 +96,24 @@ class CoLoadingSailingRepository {
       if (err instanceof LinkedMeanwhile) return false;
       throw err;
     }
+  }
+
+  /**
+   * Sets the sailing's stage and records the change, together (Council Outlay 14, C3). The row is
+   * locked first; `judge` sees the stage it has then and returns the change to record - null for
+   * none - or throws to refuse. The sailing as it is now; null when it is not found.
+   */
+  async setStageRecorded(id: string, companyId: string, stage: string, by: { id: string; name: string }, judge: (now: string) => SailingChange | null): Promise<CoLoadingSailingRecord | null> {
+    return db.transaction(async (tx) => {
+      const live = and(eq(sailings.id, id), eq(sailings.companyId, companyId), isNull(sailings.deletedAt));
+      const [now] = await tx.select().from(sailings).where(live).for("update");
+      if (!now) return null;
+      const change = judge(now.stage);
+      if (!change) return now;
+      const [row] = await tx.update(sailings).set({ stage, updatedAt: new Date() }).where(live).returning();
+      await tx.insert(costChanges).values({ companyId, sailingId: id, containerNo: 0, kind: change.kind, oldAmount: null, newAmount: null, oldNote: change.oldNote, newNote: change.newNote, changedById: by.id, changedByName: by.name });
+      return row ?? null;
+    });
   }
 
   /** Takes the shipment off the sailing, recording who did; false when it was not on it. */
@@ -219,14 +237,14 @@ class CoLoadingSailingRepository {
 
   /**
    * The sailings of these services still to come: no departure date yet, or one of `today` or
-   * later. The soonest first, the undated ones last.
+   * later, and not set to Departed or a later stage by hand. The soonest first, the undated ones last.
    */
   async comingOfServices(serviceIds: string[], companyId: string, today: string): Promise<CoLoadingSailingRecord[]> {
     if (serviceIds.length === 0) return [];
     return db
       .select()
       .from(sailings)
-      .where(and(eq(sailings.companyId, companyId), inArray(sailings.serviceId, serviceIds), isNull(sailings.deletedAt), or(isNull(sailings.departureDate), gte(sailings.departureDate, today))))
+      .where(and(eq(sailings.companyId, companyId), inArray(sailings.serviceId, serviceIds), isNull(sailings.deletedAt), or(isNull(sailings.departureDate), gte(sailings.departureDate, today)), inArray(sailings.stage, ["open", "closed"])))
       .orderBy(asc(sailings.departureDate), asc(sailings.createdAt))
       .limit(200);
   }
@@ -268,7 +286,7 @@ class CoLoadingSailingRepository {
    * Moves the shipment from one sailing to another in one turn: its link here is taken off, saying
    * where it went and why, and it is linked there. False when it was not on the first sailing.
    */
-  async move(fromSailingId: string, toSailingId: string, shipmentId: string, companyId: string, by: { id: string; name: string }, note: string): Promise<boolean> {
+  async move(fromSailingId: string, toSailingId: string, shipmentId: string, companyId: string, by: { id: string; name: string }, note: string, linkedNote = ""): Promise<boolean> {
     return db.transaction(async (tx) => {
       const now = new Date();
       const off = await tx
@@ -277,7 +295,7 @@ class CoLoadingSailingRepository {
         .where(and(eq(links.companyId, companyId), eq(links.sailingId, fromSailingId), eq(links.shipmentId, shipmentId), isNull(links.deletedAt)))
         .returning({ id: links.id });
       if (off.length === 0) return false;
-      await tx.insert(links).values({ companyId, sailingId: toSailingId, shipmentId, createdById: by.id, createdByName: by.name });
+      await tx.insert(links).values({ companyId, sailingId: toSailingId, shipmentId, createdById: by.id, createdByName: by.name, linkedNote });
       return true;
     });
   }
@@ -287,7 +305,7 @@ class CoLoadingSailingRepository {
    * A9): each link here is taken off, saying where it went and why, and each is linked there. False,
    * with nothing written, when one of them was not on the first sailing.
    */
-  async moveMany(fromSailingId: string, toSailingId: string, shipmentIds: string[], companyId: string, by: { id: string; name: string }, note: string): Promise<boolean> {
+  async moveMany(fromSailingId: string, toSailingId: string, shipmentIds: string[], companyId: string, by: { id: string; name: string }, note: string, linkedNote = ""): Promise<boolean> {
     try {
       await db.transaction(async (tx) => {
         const now = new Date();
@@ -298,7 +316,7 @@ class CoLoadingSailingRepository {
           .returning({ id: links.id });
         // Thrown to undo the transaction: that is the "none" of all or none.
         if (off.length !== shipmentIds.length) throw new LinkedMeanwhile();
-        await tx.insert(links).values(shipmentIds.map((shipmentId) => ({ companyId, sailingId: toSailingId, shipmentId, createdById: by.id, createdByName: by.name })));
+        await tx.insert(links).values(shipmentIds.map((shipmentId) => ({ companyId, sailingId: toSailingId, shipmentId, createdById: by.id, createdByName: by.name, linkedNote })));
       });
       return true;
     } catch (err) {
@@ -381,6 +399,7 @@ class CoLoadingSailingRepository {
         dangerous: shipmentTable.dangerous,
         outOfGauge: shipmentTable.outOfGauge,
         temperatureControlled: shipmentTable.temperatureControlled,
+        linkedNote: links.linkedNote,
         pcs: shipmentTable.pcs,
         totalWeightTons: shipmentTable.totalWeightTons,
         totalVolumeCbm: shipmentTable.totalVolumeCbm,

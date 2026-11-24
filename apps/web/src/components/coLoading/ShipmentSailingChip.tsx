@@ -7,7 +7,7 @@ import { DisconnectOutlined, DownOutlined, PlusOutlined, SwapOutlined } from "@a
 import { AppModal } from "@/components/AppModal";
 import { BoxFillChip } from "@/app/co-loading/_components/BoxFillChip";
 import { containersWords, fillWords } from "@/app/co-loading/_lib/boxUtilization";
-import { CUTOFF_TONE, cutoffState, cutoffWords, sailingHref, sailingTitle } from "@/app/co-loading/_lib/sailings";
+import { CUTOFF_TONE, cutoffState, cutoffWords, linkNeedsReason, SAILING_STAGE_LABEL, SAILING_STAGE_TONE, sailingHref, sailingTitle, stageOf } from "@/app/co-loading/_lib/sailings";
 import { useShipmentSailing, type ShipmentSailingItem } from "@/hooks/useCoLoadingServices";
 import { apiErrorMessage } from "@/lib/api";
 import { businessToday, formatDate } from "@/lib/date";
@@ -43,6 +43,7 @@ function SailingChoice({ sailing, picked, onPick, today }: { sailing: ShipmentSa
         <span className="block text-[13px] font-semibold text-slate-900">{sailingTitle(sailing)}</span>
         <span className="block text-[12px] text-slate-500">
           {sailing.serviceLabel} · {containersWords(sailing)}
+          {linkNeedsReason(sailing) && <span className="ml-1 font-medium text-amber-700">· {SAILING_STAGE_LABEL[stageOf(sailing)].toLowerCase()}</span>}
         </span>
       </span>
       <span className="text-[12px] text-slate-700 tabular-nums">
@@ -85,6 +86,8 @@ export function ShipmentSailingChip({ shipment, className }: { shipment: ChipShi
   // A shipment moves only within its sailing's service, never onto the sailing it is on.
   const choices = dialog === "move" && on ? coming.filter((c) => c.serviceId === on.serviceId && c.id !== on.id) : coming;
   const close = () => !busy && setDialog(null);
+  // Putting it on a sailing closed for cargo asks why (Council Outlay 14, C3).
+  const pickedNeedsReason = choices.some((c) => c.id === picked && linkNeedsReason(c));
 
   const confirm = async () => {
     try {
@@ -99,7 +102,8 @@ export function ShipmentSailingChip({ shipment, className }: { shipment: ChipShi
           await move.mutateAsync({ fromSailingId: on.id, toSailingId: to.id, reason: reason.trim() });
           message.success(`${shipment.jobNumber} moved to ${sailingTitle(to)}`);
         } else {
-          await link.mutateAsync(to.id);
+          if (linkNeedsReason(to) && !reason.trim()) return setError(`This sailing is ${SAILING_STAGE_LABEL[stageOf(to)].toLowerCase()}: say why the shipment still goes on it.`);
+          await link.mutateAsync({ sailingId: to.id, reason: linkNeedsReason(to) ? reason.trim() : undefined });
           message.success(`${shipment.jobNumber} put on ${sailingTitle(to)}`);
         }
       }
@@ -123,6 +127,7 @@ export function ShipmentSailingChip({ shipment, className }: { shipment: ChipShi
                 <span className={CUTOFF_TONE[cutoffState(on.cutoffDate, today)] || "text-slate-500"}>cut-off {formatDate(on.cutoffDate)}</span>
               )}
               {on.fill && on.fill.fullPct !== null && <span className={on.fill.fullPct > 100 ? "font-semibold text-red-600" : "text-slate-500"}>box {on.fill.fullPct}%</span>}
+              {stageOf(on) !== "open" && <span className={SAILING_STAGE_TONE[stageOf(on)] === "amber" ? "font-medium text-amber-700" : "text-slate-500"}>{SAILING_STAGE_LABEL[stageOf(on)].toLowerCase()}</span>}
             </Link>
           </Tooltip>
           <Dropdown
@@ -199,14 +204,14 @@ export function ShipmentSailingChip({ shipment, className }: { shipment: ChipShi
               ))}
             </div>
           )}
-          {dialog === "move" && choices.length > 0 && (
+          {(dialog === "move" || (dialog === "put" && pickedNeedsReason)) && choices.length > 0 && (
             <label className="flex flex-col gap-1.5">
               <span className={LABEL_TEXT}>Why</span>
               <Input.TextArea
-                aria-label="Why the shipment is moved"
+                aria-label={dialog === "move" ? "Why the shipment is moved" : "Why the shipment still goes on this sailing"}
                 rows={2}
                 maxLength={300}
-                placeholder="e.g. Box full, rolled to the next week"
+                placeholder={dialog === "move" ? "e.g. Box full, rolled to the next week" : "e.g. Carrier accepted late cargo"}
                 value={reason}
                 onChange={(e) => {
                   setReason(e.target.value);

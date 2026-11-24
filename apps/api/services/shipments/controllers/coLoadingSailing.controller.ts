@@ -88,14 +88,25 @@ interface CoLoadingSailingLinkRequest {
   id: string;
   /** At most 200 (lib/coLoadingSailing LINK_AT_ONCE_MAX): more is refused, never cut short */
   shipmentIds: string[] & MaxLen<200>;
+  /** Why they still go on a sailing that is closed for cargo or at a later stage; asked only then */
+  reason?: string & MaxLen<300>;
 }
 
 // Links shipments to the sailing (its box), all or none: the service's own (its Service Name), each on
-// no sailing yet. Refused while the service is closed.
+// no sailing yet. Refused while the service is closed; a sailing closed for cargo takes them with a reason.
 export const coLoadingSailingLinkShipments = api(
   { expose: true, auth: true, method: "POST", path: "/co-loading/sailings/:id/shipments" },
-  async ({ id, shipmentIds }: CoLoadingSailingLinkRequest): Promise<{ linked: number }> => {
-    return service.linkShipments(id, shipmentIds, getAuthData()!);
+  async ({ id, shipmentIds, reason }: CoLoadingSailingLinkRequest): Promise<{ linked: number }> => {
+    return service.linkShipments(id, shipmentIds, getAuthData()!, reason);
+  },
+);
+
+// Sets the sailing's stage by hand (Council Outlay 14, C3): open, closed (for cargo), departed, arrived or devanned.
+// Anyone; refused while the service is closed. The change is kept in the sailing's record of changes.
+export const coLoadingSailingStage = api(
+  { expose: true, auth: true, method: "PUT", path: "/co-loading/sailings/:id/stage" },
+  async ({ id, stage }: { id: string; stage: string & MaxLen<20> }): Promise<CoLoadingSailingItem> => {
+    return service.setStage(id, stage, getAuthData()!);
   },
 );
 
