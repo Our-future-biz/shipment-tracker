@@ -540,7 +540,7 @@ function PlanEditor({ saved }: { saved: interfaces.LoadingPlanItem | null }) {
             value={note}
             onChange={(e) => setNote(e.target.value)}
           />
-          <p className={`${HINT} m-0 mt-2`}>Printed on the plan&apos;s PDF, with each line&apos;s own lashing note (a line&apos;s &quot;⋯&quot; menu, Pins, dangerous goods and lashing).</p>
+          <p className={`${HINT} m-0 mt-2`}>Printed on the plan&apos;s PDF, with each line&apos;s own lashing note (a line&apos;s &quot;⋯&quot; menu, Pins, stacking, dangerous goods and lashing).</p>
         </SectionCard>
         <EquipmentCard nominated={nominated} unit={unit} onChange={setNominated} rules={rules} onSettings={() => setSettingsOpen(true)} />
         {cargo.length > 0 && tooMuch === null && <CompareCard cargo={cargo} plan={loadPlan} nominated={nominated} rules={rules} onUse={setNominated} />}

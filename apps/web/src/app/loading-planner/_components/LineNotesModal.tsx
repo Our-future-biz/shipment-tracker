@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Button, Checkbox, Input, Select } from "antd";
+import { Button, Checkbox, Input, InputNumber, Select } from "antd";
 import { AppModal } from "@/components/AppModal";
 import { HINT, LABEL_TEXT } from "@/styles/ui";
 import type { DraftLine } from "../_lib/cargoForm";
@@ -19,7 +19,7 @@ interface LineNotesModalProps {
   line: DraftLine | null;
   label: string;
   onClose: () => void;
-  onSave: (patch: Pick<DraftLine, "dg" | "un" | "dgClass" | "lashing" | "pinEnd" | "pinBox">) => void;
+  onSave: (patch: Pick<DraftLine, "dg" | "un" | "dgClass" | "lashing" | "pinEnd" | "pinBox" | "topLoadKg">) => void;
 }
 
 // A cargo line's dangerous goods and lashing note (Council Outlay 14, P11): its UN number and class,
@@ -33,6 +33,7 @@ export function LineNotesModal({ line, label, onClose, onSave }: LineNotesModalP
   const [lashing, setLashing] = useState("");
   const [pinEnd, setPinEnd] = useState<"" | "front" | "doors">("");
   const [pinBox, setPinBox] = useState(0);
+  const [topLoad, setTopLoad] = useState<number | null>(null);
   useEffect(() => {
     if (!line) return;
     setDg(line.dg === true || !!line.un || !!line.dgClass);
@@ -41,6 +42,7 @@ export function LineNotesModal({ line, label, onClose, onSave }: LineNotesModalP
     setLashing(line.lashing ?? "");
     setPinEnd(line.pinEnd ?? "");
     setPinBox(line.pinBox ?? 0);
+    setTopLoad(line.topLoadKg ?? null);
     // Only opening for a line sets this off.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [line?.id]);
@@ -48,7 +50,7 @@ export function LineNotesModal({ line, label, onClose, onSave }: LineNotesModalP
 
   const save = () => {
     // Not dangerous: the mark, the UN number and the class go together.
-    onSave({ dg: dg || undefined, un: dg && un.trim() ? un.trim() : undefined, dgClass: dg && dgClass.trim() ? dgClass.trim().toUpperCase() : undefined, lashing: lashing.trim() || undefined, pinEnd: pinEnd || undefined, pinBox: pinBox || undefined });
+    onSave({ dg: dg || undefined, un: dg && un.trim() ? un.trim() : undefined, dgClass: dg && dgClass.trim() ? dgClass.trim().toUpperCase() : undefined, lashing: lashing.trim() || undefined, pinEnd: pinEnd || undefined, pinBox: pinBox || undefined, topLoadKg: topLoad && topLoad > 0 ? topLoad : undefined });
     onClose();
   };
 
@@ -56,7 +58,7 @@ export function LineNotesModal({ line, label, onClose, onSave }: LineNotesModalP
     <AppModal
       open={line !== null}
       onClose={onClose}
-      title={`Pins, dangerous goods and lashing · ${label}`}
+      title={`Pins, stacking, dangerous goods and lashing · ${label}`}
       subtitle="Where the line goes in the plan, and what is shown and printed about it."
       footer={
         <div className="flex justify-end gap-2">
@@ -83,6 +85,15 @@ export function LineNotesModal({ line, label, onClose, onSave }: LineNotesModalP
           Lines with the same container number travel in one container, and lines with different numbers in different ones; pinned containers come first in the plan. What does not fit its
           pinned container is listed as not loaded, never moved to another one. A plan with a line pinned to an end is not rearranged for balance.
         </p>
+        {/* Mixed stacking (Council Outlay 14, P9): what a piece of this line bears on top. */}
+        <label className="flex flex-col gap-1.5">
+          <span className={LABEL_TEXT}>Carries on top (kg)</span>
+          <InputNumber aria-label="Weight a piece carries on top, in kg" className="!w-[200px]" min={0} max={1000000} precision={0} controls={false} placeholder="None" value={topLoad} onChange={setTopLoad} />
+          <span className={HINT}>
+            With a weight here, other cargo - of this line or another - may stand on a piece of this line, as long as it rests on it whole and weighs no more. The floor is filled first. Left
+            empty, a piece carries only its own kind, when the line is ticked Stackable.
+          </span>
+        </label>
         <Checkbox checked={dg} onChange={(e) => setDg(e.target.checked)}>
           Dangerous goods
         </Checkbox>

@@ -32,6 +32,7 @@ function lineProblem(line: PlanCargoLine, n: number): string | null {
   if (line.dgClass !== undefined && !DG_CLASS.test(String(line.dgClass).trim())) return `Cargo "${name}": the class is like 3, 2.1 or 1.4S`;
   if (line.pinEnd !== undefined && line.pinEnd !== "front" && line.pinEnd !== "doors") return `Cargo "${name}": it is pinned to the front wall or to the doors`;
   if (line.pinBox !== undefined && !(Number.isInteger(line.pinBox) && line.pinBox >= 1 && line.pinBox <= PIN_BOX_MAX)) return `Cargo "${name}": the container number it is pinned to is from 1 to ${PIN_BOX_MAX}`;
+  if (line.topLoadKg !== undefined && !(typeof line.topLoadKg === "number" && line.topLoadKg > 0 && line.topLoadKg <= MAX_WEIGHT_KG)) return `Cargo "${name}": the weight it carries on top must be more than 0 and at most 1,000 t`;
   if (line.lashing !== undefined && (typeof line.lashing !== "string" || line.lashing.length > LASHING_MAX)) return `Cargo "${name}": keep the lashing note to ${LASHING_MAX} characters`;
   for (const [label, value] of [["length", line.lengthMm], ["width", line.widthMm], ["height", line.heightMm]] as const) {
     if (!wholeIn(value, MAX_SIZE_MM)) return `Cargo "${name}": the ${label} must be between 1 mm and 100 m`;
@@ -110,6 +111,7 @@ export function cleanPlan(input: PlanInput): { plan: CleanPlan } | { problem: st
         ...(line.lashing?.trim() ? { lashing: line.lashing.trim() } : {}),
         ...(line.pinEnd ? { pinEnd: line.pinEnd } : {}),
         ...(line.pinBox ? { pinBox: line.pinBox } : {}),
+        ...(line.topLoadKg ? { topLoadKg: line.topLoadKg } : {}),
       })),
       nominated,
       result: cleanResult(input.result),

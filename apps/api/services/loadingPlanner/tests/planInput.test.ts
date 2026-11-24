@@ -177,3 +177,14 @@ describe("pins on a plan's lines (Council Outlay 14, P8)", () => {
     expect(problemOf({ lines: [line({ pinBox: 1.5 })] })).toContain("from 1 to 9");
   });
 });
+
+describe("a line's top-load limit (Council Outlay 14, P9)", () => {
+  it("is kept when it is a weight, stored as no field when there is none, and refused when it is no weight", () => {
+    const result = cleanPlan(input({ lines: [line({ id: "a", topLoadKg: 500 }), line({ id: "b" })] }));
+    if ("problem" in result) throw new Error(result.problem);
+    expect(result.plan.lines[0]).toMatchObject({ topLoadKg: 500 });
+    expect(result.plan.lines[1]).not.toHaveProperty("topLoadKg");
+    expect(problemOf({ lines: [line({ topLoadKg: 0 })] })).toContain("carries on top");
+    expect(problemOf({ lines: [line({ topLoadKg: -5 })] })).toContain("carries on top");
+  });
+});

@@ -28,6 +28,13 @@ export interface CargoLine {
    */
   pinEnd?: "front" | "doors";
   pinBox?: number;
+  /**
+   * The weight a piece of this line carries on top, in kg (Council Outlay 14, P9: mixed stacking).
+   * With it, other cargo - of this line or another - may stand on the piece, as long as the piece
+   * carries it whole (it does not reach over the edge) and no more than this weight. Without it a
+   * piece carries only its own kind, when the line is stackable.
+   */
+  topLoadKg?: number;
 }
 
 /** How a piece sits on the floor: `length` runs along the container. */

@@ -36,6 +36,8 @@ export interface PlanCargoLine {
   /** Pins (Council Outlay 14, P8): the end of the container its pieces stand at, and the container number it shares with the lines of the same number (1 to 9). */
   pinEnd?: "front" | "doors";
   pinBox?: number;
+  /** The weight a piece of this line carries on top, in kg (Council Outlay 14, P9: mixed stacking); left out, it carries only its own kind when stackable. */
+  topLoadKg?: number;
 }
 
 /** What a user sends to save a plan. The loads themselves are worked out from this in the browser. */

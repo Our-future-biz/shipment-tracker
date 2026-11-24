@@ -420,7 +420,8 @@ function summaryPage(doc: jsPDF, input: PlanPdfInput, colourOf: (lineId: string)
         formatKg(line.weightKg),
         String(line.colli),
         formatKg(line.weightKg * line.colli),
-        line.stackable ? "Yes" : "No",
+        // A line with a top-load limit carries other cargo too, up to it.
+        line.topLoadKg ? `${formatKg(line.topLoadKg)} on top` : line.stackable ? "Yes" : "No",
         standardLabel(line, input.rules, input.with45),
       ],
       y,

@@ -61,6 +61,23 @@ interface OpenStack {
   carried: number;
 }
 
+/**
+ * A piece on the floor that carries other cargo on top (Council Outlay 14, P9), with what stands on
+ * it so far: how high the column stands, the footprint of its top piece - the next one must rest
+ * on it whole - and how much more it may carry: the least any piece in it still bears.
+ */
+interface Column {
+  base: PlacedPiece;
+  line: CargoLine;
+  top: number;
+  length: number;
+  width: number;
+  /** kg the column may still take on top. */
+  room: number;
+  /** kg of the whole column, the base with it. */
+  weightKg: number;
+}
+
 /** A stretch of floor under cargo standing end to end, and the weight resting on it. */
 interface Stretch {
   from: number;
@@ -82,6 +99,8 @@ interface Bin {
   weightKg: number;
   /** Per cargo line, the stacks that may still take a piece (`at` is the first one not yet full). */
   stacks: Map<string, { items: OpenStack[]; at: number }>;
+  /** The floor pieces that carry other cargo on top; empty unless a line has a top-load limit. */
+  columns: Column[];
   /**
    * Cargo lines this container has no room for. A container only fills up, and all pieces of a
    * line are alike, so a line refused once is refused for good: nothing is tried twice.
@@ -123,6 +142,7 @@ const newBin = (container: ContainerSpec, rule: PlaceRule): Bin => ({
   pieces: [],
   weightKg: 0,
   stacks: new Map(),
+  columns: [],
   full: new Set(),
   centredFirst: false,
   triedFromEnd: new Set(),
@@ -208,6 +228,36 @@ function stack(bin: Bin, line: CargoLine): boolean {
 }
 
 /**
+ * Stands one piece on a piece that carries other cargo on top (Council Outlay 14, P9): the first
+ * column it rests on whole, either way round it may sit, that still bears its weight - every piece
+ * under it does - with the column under the roof and the floor carrying it. It stands on the
+ * base's own corner, so the two are one stack to everything that moves or draws the load. With an
+ * end pinned, only on cargo of its own pin: nothing pinned to the doors rides on the front wall's.
+ */
+function stackMixed(bin: Bin, line: CargoLine): boolean {
+  if (bin.columns.length === 0) return false;
+  for (const column of bin.columns) {
+    if (column.room < line.weightKg || column.top + line.heightMm > bin.container.internalH) continue;
+    if (pins?.ends && endRank(column.line) !== endRank(line)) continue;
+    if (column.weightKg + line.weightKg > maxWeightWithBedding(bin.container, column.base.length)) continue;
+    const fp = waysOf(bin.container, line).find((way) => way.length <= column.length && way.width <= column.width);
+    if (!fp || !floorCarries(bin, column.base.z, column.base.length, line.weightKg)) continue;
+    bin.lines.push(line);
+    bin.pieces.push({ lineId: line.id, name: line.name, x: column.base.x, y: column.top, z: column.base.z, length: fp.length, width: fp.width, height: line.heightMm, weightKg: line.weightKg, crosswise: fp.crosswise });
+    bin.weightKg += line.weightKg;
+    rest(bin, column.base.z, column.base.length, line.weightKg);
+    column.top += line.heightMm;
+    column.length = fp.length;
+    column.width = fp.width;
+    column.weightKg += line.weightKg;
+    // What stands on it from now on is carried by this piece too.
+    column.room = Math.min(column.room - line.weightKg, line.topLoadKg ?? 0);
+    return true;
+  }
+  return false;
+}
+
+/**
  * The next place worked out in advance for this line (the "mirror" rule), if one is left and still
  * free: once other cargo is on the floor (a load packed again around its heaviest piece), a place
  * may be taken, and the piece then goes where the floor has room. A piece asked into the middle
@@ -265,7 +315,10 @@ function placeOnFloor(bin: Bin, line: CargoLine, inMiddle: boolean): boolean {
   bin.pieces.push(piece);
   rest(bin, piece.z, piece.length, line.weightKg);
   bin.weightKg += line.weightKg;
-  if (line.stackable) {
+  // A line with a top-load limit carries by that limit, its own kind and others alike; one without, its own kind when it is stackable.
+  if (line.topLoadKg) {
+    bin.columns.push({ base: piece, line, top: piece.height, length: piece.length, width: piece.width, room: line.topLoadKg, weightKg: line.weightKg });
+  } else if (line.stackable) {
     const open = bin.stacks.get(line.id) ?? { items: [], at: 0 };
     open.items.push({ base: piece, top: piece.height, carried: 0 });
     bin.stacks.set(line.id, open);
@@ -286,7 +339,7 @@ function place(bin: Bin, line: CargoLine, inMiddle = false): boolean {
   // holds other cargo no longer takes it, so nothing ends up between it and the wall.
   const frontFirst = line.pinEnd !== "front" || bin.lines.every((l) => l.pinEnd === "front");
   const fits = frontFirst && bin.weightKg + line.weightKg <= bin.maxKg && (first === undefined || longOnes === isLong);
-  if (fits && (placeOnFloor(bin, line, inMiddle) || stack(bin, line))) return true;
+  if (fits && (placeOnFloor(bin, line, inMiddle) || stack(bin, line) || stackMixed(bin, line))) return true;
   bin.full.add(line.id);
   return false;
 }

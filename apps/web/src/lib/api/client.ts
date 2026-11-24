@@ -21531,6 +21531,11 @@ export namespace interfaces {
          */
         pinEnd?: "front" | "doors"
         pinBox?: number
+
+        /**
+         * The weight a piece of this line carries on top, in kg (mixed stacking); left out, it carries only its own kind when stackable.
+         */
+        topLoadKg?: number
     }
 
     export interface LoadingPlanItem {
