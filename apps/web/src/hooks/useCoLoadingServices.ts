@@ -265,7 +265,41 @@ export function useSailingShipmentLinks(sailingId: string) {
       api.shipments.coLoadingSailingMoveShipment(sailingId, input.shipmentId, { toSailingId: input.toSailingId, reason: input.reason }),
     onSuccess: () => Promise.all([qc.invalidateQueries({ queryKey: ["shipments"] }), qc.invalidateQueries({ queryKey: LIST_KEY })]),
   });
-  return { link, unlink, move };
+  // Several at once, all or none (Council Outlay 14, A9).
+  const settleAll = () => Promise.all([qc.invalidateQueries({ queryKey: ["shipments"] }), qc.invalidateQueries({ queryKey: LIST_KEY })]);
+  const moveMany = useMutation({
+    mutationFn: (input: { shipmentIds: string[]; toSailingId: string; reason: string }) => api.shipments.coLoadingSailingMoveShipments(sailingId, input),
+    onSuccess: settleAll,
+  });
+  const unlinkMany = useMutation({
+    mutationFn: (shipmentIds: string[]) => api.shipments.coLoadingSailingUnlinkShipments(sailingId, { shipmentIds }),
+    onSuccess: settleAll,
+  });
+  return { link, unlink, move, moveMany, unlinkMany };
+}
+
+/** Linking shipments to whichever sailing is picked: for a list that is not one sailing's own (a service's waiting shipments). */
+export function useLinkToSailing() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { sailingId: string; shipmentIds: string[] }) => api.shipments.coLoadingSailingLinkShipments(input.sailingId, { shipmentIds: input.shipmentIds }),
+    onSuccess: () => Promise.all([qc.invalidateQueries({ queryKey: ["shipments"] }), qc.invalidateQueries({ queryKey: LIST_KEY })]),
+  });
+}
+
+/**
+ * A service's shipments on no sailing yet: its Service Name's jobs with no live link, the newest
+ * 100, with how many there are in all. A shipments list, so a link reads it again.
+ */
+export function useWaitingShipments(serviceName: string, enabled = true) {
+  const query = useQuery({
+    queryKey: ["shipments", "co-loading-waiting", serviceName],
+    queryFn: () => api.shipments.shipmentList({ serviceName, sailing: "none", limit: 100 }),
+    enabled: enabled && !!serviceName,
+    staleTime: 0,
+    refetchOnWindowFocus: true,
+  });
+  return { waiting: query.data?.data ?? [], total: query.data?.pagination.total ?? 0, isLoading: query.isLoading, isError: query.isError };
 }
 
 /**

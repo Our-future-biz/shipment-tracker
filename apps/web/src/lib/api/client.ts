@@ -3417,6 +3417,8 @@ export namespace shipments {
             this.coLoadingSailingBoxCostsSave = this.coLoadingSailingBoxCostsSave.bind(this)
             this.coLoadingSailingDetails = this.coLoadingSailingDetails.bind(this)
             this.coLoadingSailingRemove = this.coLoadingSailingRemove.bind(this)
+            this.coLoadingSailingMoveShipments = this.coLoadingSailingMoveShipments.bind(this)
+            this.coLoadingSailingUnlinkShipments = this.coLoadingSailingUnlinkShipments.bind(this)
             this.coLoadingShipmentSailing = this.coLoadingShipmentSailing.bind(this)
             this.coLoadingSailingMoveShipment = this.coLoadingSailingMoveShipment.bind(this)
             this.coLoadingSailingEarnings = this.coLoadingSailingEarnings.bind(this)
@@ -3758,6 +3760,24 @@ export namespace shipments {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("PUT", `/co-loading/sailings/${encodeURIComponent(id)}`, JSON.stringify(params))
             return await resp.json() as { sailing: interfaces.CoLoadingSailingItem }
+        }
+
+        /**
+         * Moves several shipments to another sailing of the service with one reason, all or none.
+         */
+        public async coLoadingSailingMoveShipments(id: string, params: { shipmentIds: string[]; toSailingId: string; reason: string }): Promise<{ moved: number }> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/co-loading/sailings/${encodeURIComponent(id)}/move-shipments`, JSON.stringify(params))
+            return await resp.json() as { moved: number }
+        }
+
+        /**
+         * Takes several shipments off the sailing, all or none. Refused while the service is closed.
+         */
+        public async coLoadingSailingUnlinkShipments(id: string, params: { shipmentIds: string[] }): Promise<{ removed: number }> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/co-loading/sailings/${encodeURIComponent(id)}/remove-shipments`, JSON.stringify(params))
+            return await resp.json() as { removed: number }
         }
 
         /**

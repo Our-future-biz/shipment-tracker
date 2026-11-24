@@ -4,6 +4,9 @@ import { CONTAINER_TYPES } from "@/lib/cargo";
 import { SAILING_CONTAINER_TYPES } from "../../../../../api/services/shipments/lib/coLoadingSailing";
 import {
   cutoffState,
+  isoWeek,
+  nextSailingAfter,
+  nextSailingStart,
   cutoffWords,
   sailingDeparted,
   sailingEditOf,
@@ -144,5 +147,76 @@ describe("what Edit sailing sends", () => {
       vessel: "MSC Anna",
       voyage: "445W",
     });
+  });
+});
+
+describe("the next sailing, pre-filled (Council Outlay 14, A4)", () => {
+  const last = { vessel: "WEEK 51", pol: "Shanghai (CNSHA)", pod: "Hamburg (DEHAM)", hub: "Praha (CZPRG)", containerType: "40' HC", containerCount: 2, cutoffDate: "2026-12-10", departureDate: "2026-12-17", createdAt: "2026-11-20T08:00:00Z" };
+
+  it("knows the ISO week of a day", () => {
+    expect(isoWeek("2026-12-17")).toBe(51);
+    expect(isoWeek("2026-12-31")).toBe(53);
+    expect(isoWeek("2027-01-07")).toBe(1);
+    expect(isoWeek("2027-01-03")).toBe(53);
+  });
+
+  it("has nothing to start from on a service with no sailing", () => {
+    expect(nextSailingStart([], "weekly", "2026-11-24")).toBeNull();
+  });
+
+  it("takes the last sailing's ports and box, and moves the week and the dates on by a week", () => {
+    expect(nextSailingStart([{ ...last, vessel: "WEEK 50", departureDate: "2026-12-10", cutoffDate: "2026-12-03" }, last], "weekly", "2026-11-24")).toEqual({
+      from: "WEEK 51",
+      values: { vessel: "WEEK 52", voyage: "", pol: last.pol, pod: last.pod, hub: last.hub, containerType: "40' HC", containerCount: 2, cutoffDate: "2026-12-17", departureDate: "2026-12-24" },
+    });
+  });
+
+  it("moves on by two weeks on a bi-weekly service, into the next year's weeks", () => {
+    expect(nextSailingStart([{ ...last, vessel: "WEEK 53", cutoffDate: null, departureDate: "2026-12-31" }], "bi_weekly", "2026-11-24")?.values).toMatchObject({ vessel: "WEEK 2", cutoffDate: null, departureDate: "2027-01-14" });
+  });
+
+  it("counts the week on without dates, back to 1 after the year's last week", () => {
+    const undated = { ...last, cutoffDate: null, departureDate: null };
+    // 2026 has 53 weeks, 2027 has 52.
+    expect(nextSailingStart([{ ...undated, vessel: "WEEK 52" }], "weekly", "2026-11-24")?.values).toMatchObject({ vessel: "WEEK 53", cutoffDate: null, departureDate: null });
+    expect(nextSailingStart([{ ...undated, vessel: "WEEK 53" }], "weekly", "2026-11-24")?.values).toMatchObject({ vessel: "WEEK 1" });
+    expect(nextSailingStart([{ ...undated, vessel: "WEEK 52" }], "weekly", "2027-11-24")?.values).toMatchObject({ vessel: "WEEK 1" });
+  });
+
+  it("starts from a sailing with no date yet when it was made after the last dated one, not from an old one", () => {
+    const week52 = { ...last, vessel: "WEEK 52", cutoffDate: null, departureDate: null, createdAt: "2026-11-23T08:00:00Z" };
+    expect(nextSailingStart([last, week52], "weekly", "2026-11-24")?.from).toBe("WEEK 52");
+    expect(nextSailingStart([last, { ...week52, vessel: "WEEK 30", createdAt: "2026-07-01T08:00:00Z" }], "weekly", "2026-11-24")?.from).toBe("WEEK 51");
+  });
+
+  it("carries no vessel's name over, and no week or dates on a service that sails as needed", () => {
+    expect(nextSailingStart([{ ...last, vessel: "MSC Anna" }], "weekly", "2026-11-24")?.values).toMatchObject({ vessel: "", voyage: "", departureDate: "2026-12-24" });
+    expect(nextSailingStart([last], "ad_hoc", "2026-11-24")?.values).toMatchObject({ vessel: "", cutoffDate: null, departureDate: null, pol: last.pol, containerCount: 2 });
+  });
+});
+
+describe("the sailing cargo is rolled to (Council Outlay 14, A9)", () => {
+  const TODAY = "2026-11-24";
+  const s = (id: string, departureDate: string | null, createdAt = "2026-11-01T08:00:00Z") => ({ id, departureDate, createdAt });
+  const all = [s("w48", "2026-11-26"), s("w49", "2026-12-03"), s("w50", "2026-12-10"), s("w47", "2026-11-19"), s("later", null)];
+
+  it("is the first one to leave after this one", () => {
+    expect(nextSailingAfter(all[1]!, all, TODAY)?.id).toBe("w50");
+    expect(nextSailingAfter(all[2]!, all, TODAY)?.id).toBe("later");
+  });
+
+  it("is the soonest one still to come for a sailing that has left", () => {
+    expect(nextSailingAfter(all[3]!, all, TODAY)?.id).toBe("w48");
+  });
+
+  it("is, for a sailing with no date, one made after it - never an earlier week", () => {
+    const week52 = s("w52", null, "2026-11-23T08:00:00Z");
+    const week53 = s("w53", null, "2026-11-24T08:00:00Z");
+    expect(nextSailingAfter(week52, [week52, week53], TODAY)?.id).toBe("w53");
+    expect(nextSailingAfter(week53, [week52, week53], TODAY)).toBeNull();
+  });
+
+  it("is none when nothing else is to come", () => {
+    expect(nextSailingAfter(all[0]!, [all[0]!, all[3]!], TODAY)).toBeNull();
   });
 });

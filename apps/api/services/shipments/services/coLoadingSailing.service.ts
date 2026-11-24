@@ -349,6 +349,48 @@ class CoLoadingSailingService {
     if (!isUuid(shipmentId) || !(await repo.move(from.id, toSailingId, shipmentId, actor.companyID, by, reason.trim()))) throw APIError.notFound("The shipment is not on this sailing.");
   }
 
+  /** The shipments named, each once: at least one, at most what one call takes. */
+  private several(shipmentIds: string[], doing: string): string[] {
+    const ids = [...new Set(shipmentIds)];
+    if (ids.length === 0) throw APIError.invalidArgument(`Pick the shipments to ${doing}.`);
+    if (ids.length > LINK_AT_ONCE_MAX) throw APIError.invalidArgument(`At most ${LINK_AT_ONCE_MAX} shipments at once.`);
+    if (!ids.every(isUuid)) throw APIError.notFound("A shipment is not on this sailing.");
+    return ids;
+  }
+
+  /**
+   * Moves several shipments to another sailing of the service with one reason, all or none (Council
+   * Outlay 14, A9): the rules of a single move hold for each. Not while the service is closed.
+   */
+  async moveShipments(sailingId: string, shipmentIds: string[], toSailingId: string, reason: string, actor: { userID: string; companyID: string }): Promise<{ moved: number }> {
+    const ids = this.several(shipmentIds, "move");
+    const from = await this.get(sailingId, actor.companyID);
+    await coLoadingServiceService.requireOpen(from.serviceId, actor.companyID);
+    const to = isUuid(toSailingId) ? await repo.get(toSailingId, actor.companyID) : null;
+    const refusal = moveRefusal(from, to, reason);
+    if (refusal) throw APIError.invalidArgument(refusal);
+    // A shipment the box is not for stays out of the next box too (K3): none is moved while one of them is such.
+    const service = await coLoadingServiceService.get(from.serviceId, actor.companyID);
+    const odd = (await repo.shipmentsToLink(ids, actor.companyID)).flatMap((s) => {
+      const why = oddInBox(service.mode, s);
+      return why ? [`${s.jobNumber} is ${why}`] : [];
+    });
+    if (odd.length > 0) throw APIError.failedPrecondition(`${odd.join(", ")}: ${odd.length === 1 ? "it" : "they"} cannot go on another sailing of this service. Remove ${odd.length === 1 ? "it" : "them"} from this one instead. Nothing was moved.`);
+    const by = { id: actor.userID, name: await userNameOf(actor.userID) };
+    if (!(await repo.moveMany(from.id, toSailingId, ids, actor.companyID, by, reason.trim()))) throw APIError.notFound("A shipment is no longer on this sailing: nothing was moved. Read the list again.");
+    return { moved: ids.length };
+  }
+
+  /** Takes several shipments off the sailing, all or none. Not while the service is closed. */
+  async unlinkShipments(sailingId: string, shipmentIds: string[], actor: { userID: string; companyID: string }): Promise<{ removed: number }> {
+    const ids = this.several(shipmentIds, "remove");
+    const sailing = await this.get(sailingId, actor.companyID);
+    await coLoadingServiceService.requireOpen(sailing.serviceId, actor.companyID);
+    const by = { id: actor.userID, name: await userNameOf(actor.userID) };
+    if (!(await repo.unlinkMany(sailing.id, ids, actor.companyID, by))) throw APIError.notFound("A shipment is no longer on this sailing: nothing was removed. Read the list again.");
+    return { removed: ids.length };
+  }
+
   /**
    * Links the shipments to the sailing (its box), all or none: each must be the service's own (its
    * Service Name) and on no sailing yet. Not while the service is closed.

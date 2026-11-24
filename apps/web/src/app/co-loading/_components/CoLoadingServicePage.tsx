@@ -16,6 +16,7 @@ import { canManageServices, closedLine, tileLine } from "../_lib/services";
 import { InlandWeightModal } from "./InlandWeightModal";
 import { CoLoadingSailings } from "./CoLoadingSailings";
 import { CoLoadingServiceShipments } from "./CoLoadingServiceShipments";
+import { WaitingShipments } from "./WaitingShipments";
 
 // A Co-Loading Concept service's own page, opened from its tile: its heading, its sailings (with
 // "Create new sailing"), then the Shipments grid with the jobs of its Service Name (CoLoadingServiceShipments). Managers and higher close the service
@@ -121,7 +122,8 @@ export function CoLoadingServicePage() {
               </div>
             )}
             <div className="mt-4 flex flex-col gap-5">
-              <CoLoadingSailings serviceId={service.id} closed={!!service.closedAt} />
+              <CoLoadingSailings serviceId={service.id} closed={!!service.closedAt} frequency={service.frequency} />
+              {service.serviceName && <WaitingShipments serviceId={service.id} serviceName={service.serviceName} serviceMode={service.mode} closed={!!service.closedAt} />}
               {service.serviceName ? (
                 <CoLoadingServiceShipments serviceName={service.serviceName} closed={!!service.closedAt} />
               ) : (

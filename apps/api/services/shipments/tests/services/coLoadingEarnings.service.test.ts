@@ -13,6 +13,8 @@ const repo = vi.hoisted(() => ({
   move: vi.fn(),
   create: vi.fn(),
   removeJudged: vi.fn(),
+  moveMany: vi.fn(),
+  unlinkMany: vi.fn(),
   sailingOfShipment: vi.fn(),
   comingOfServices: vi.fn(),
 }));
@@ -624,5 +626,51 @@ describe("a shipment's place in Co-Loading (Council Outlay 14, A1)", () => {
     expect(place.on).toMatchObject({ id: SAILING, serviceClosed: true });
     expect(place.services).toEqual([]);
     expect(place.coming).toEqual([]);
+  });
+});
+
+describe("moving or removing several shipments at once (Council Outlay 14, A9)", () => {
+  const A = "00000000-0000-4000-8000-00000000000a";
+  const B = "00000000-0000-4000-8000-00000000000b";
+  const own = (id: string, more = {}) => ({ id, jobNumber: `CZLCL${id.slice(-8)}`, serviceName: "ISHA", freightMode: "Sea Freight", loadType: "Consolidation", ...more });
+  beforeEach(() => {
+    repo.get.mockImplementation(async (id: string) => sailing({ id }));
+    repo.shipmentsToLink.mockImplementation(async (asked: string[]) => asked.map((id) => own(id)));
+    repo.moveMany.mockResolvedValue(true);
+    repo.unlinkMany.mockResolvedValue(true);
+  });
+
+  it("moves them all with the one reason, each once, as the one who moves", async () => {
+    await expect(service.moveShipments(SAILING, [A, B, A], OTHER, "  Box full  ", USER)).resolves.toEqual({ moved: 2 });
+    expect(repo.moveMany).toHaveBeenCalledWith(SAILING, OTHER, [A, B], COMPANY, { id: "u-user", name: "Jana Nová" }, "Box full");
+  });
+
+  it("holds each to the rules of a single move: a reason, another sailing of the service, the box's own kind", async () => {
+    await expect(service.moveShipments(SAILING, [A], OTHER, " ", USER)).rejects.toMatchObject({ code: "invalid_argument", message: "Say why the shipment is moved." });
+    await expect(service.moveShipments(SAILING, [A], SAILING, "why", USER)).rejects.toMatchObject({ code: "invalid_argument" });
+    repo.shipmentsToLink.mockResolvedValue([own(A), own(B, { loadType: "Full Load" })]);
+    await expect(service.moveShipments(SAILING, [A, B], OTHER, "why", USER)).rejects.toMatchObject({ code: "failed_precondition", message: expect.stringContaining("Nothing was moved.") });
+    expect(repo.moveMany).not.toHaveBeenCalled();
+  });
+
+  it("moves none when one is no longer on the sailing, and says so", async () => {
+    repo.moveMany.mockResolvedValue(false);
+    await expect(service.moveShipments(SAILING, [A, B], OTHER, "why", USER)).rejects.toMatchObject({ code: "not_found", message: "A shipment is no longer on this sailing: nothing was moved. Read the list again." });
+  });
+
+  it("asks for at least one shipment and takes at most 200", async () => {
+    await expect(service.moveShipments(SAILING, [], OTHER, "why", USER)).rejects.toMatchObject({ code: "invalid_argument", message: "Pick the shipments to move." });
+    const many = Array.from({ length: 201 }, (_, i) => `00000000-0000-4000-8000-${String(i).padStart(12, "0")}`);
+    await expect(service.unlinkShipments(SAILING, many, USER)).rejects.toMatchObject({ code: "invalid_argument", message: "At most 200 shipments at once." });
+  });
+
+  it("removes them all, or none when one is no longer there; nothing on a closed service", async () => {
+    await expect(service.unlinkShipments(SAILING, [A, B], USER)).resolves.toEqual({ removed: 2 });
+    expect(repo.unlinkMany).toHaveBeenCalledWith(SAILING, [A, B], COMPANY, { id: "u-user", name: "Jana Nová" });
+    repo.unlinkMany.mockResolvedValue(false);
+    await expect(service.unlinkShipments(SAILING, [A], USER)).rejects.toMatchObject({ code: "not_found" });
+    services.requireOpen.mockRejectedValue(Object.assign(new Error("closed"), { code: "failed_precondition" }));
+    await expect(service.unlinkShipments(SAILING, [A], USER)).rejects.toMatchObject({ code: "failed_precondition" });
+    await expect(service.moveShipments(SAILING, [A], OTHER, "why", USER)).rejects.toMatchObject({ code: "failed_precondition" });
   });
 });

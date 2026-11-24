@@ -204,3 +204,23 @@ describe("removing a sailing, and the sailings still to come (Council Outlay 14)
     expect(past.id).not.toBe(sooner.id);
   });
 });
+
+describe("moving or removing several shipments in one turn (Council Outlay 14, A9)", () => {
+  it("moves all of them or none, and takes all of them off or none", async () => {
+    const companyId = randomUUID();
+    const [x, y] = [randomUUID(), randomUUID()];
+    const [s1, s2, s3] = [randomUUID(), randomUUID(), randomUUID()];
+    await repo.link(x, [s1, s2], companyId, JANA);
+    // s3 is not on x: neither s1 nor s3 moves.
+    expect(await repo.moveMany(x, y, [s1, s3], companyId, EVA, "Box full")).toBe(false);
+    expect((await live(companyId)).sort()).toEqual([[x, s1], [x, s2]].sort());
+    expect(await repo.moveMany(x, y, [s1, s2], companyId, EVA, "Box full")).toBe(true);
+    expect((await live(companyId)).sort()).toEqual([[y, s1], [y, s2]].sort());
+    const left = (await linksOf(companyId)).filter((l) => l.sailingId === x);
+    expect(left.every((l) => l.removedReason === "moved" && l.movedToSailingId === y && l.removedNote === "Box full" && l.removedByName === "Eva Malá")).toBe(true);
+    expect(await repo.unlinkMany(y, [s1, s3], companyId, JANA)).toBe(false);
+    expect((await live(companyId)).length).toBe(2);
+    expect(await repo.unlinkMany(y, [s1, s2], companyId, JANA)).toBe(true);
+    expect(await live(companyId)).toEqual([]);
+  });
+});

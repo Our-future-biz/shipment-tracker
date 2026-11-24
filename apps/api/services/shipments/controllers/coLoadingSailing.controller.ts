@@ -170,6 +170,32 @@ export const coLoadingSailingMoveShipment = api(
   },
 );
 
+interface CoLoadingSailingMoveSeveralRequest {
+  id: string;
+  /** At most 200, each on this sailing: more is refused, never cut short */
+  shipmentIds: string[] & MaxLen<200>;
+  /** Another sailing of the same service */
+  toSailingId: string & MaxLen<40>;
+  /** Why they are left behind here: needed, at most 300 characters */
+  reason: string & MaxLen<400>;
+}
+
+// Moves several shipments to another sailing of the service with one reason, all or none (Council Outlay 14, A9).
+export const coLoadingSailingMoveShipments = api(
+  { expose: true, auth: true, method: "POST", path: "/co-loading/sailings/:id/move-shipments" },
+  async ({ id, shipmentIds, toSailingId, reason }: CoLoadingSailingMoveSeveralRequest): Promise<{ moved: number }> => {
+    return service.moveShipments(id, shipmentIds, toSailingId, reason, getAuthData()!);
+  },
+);
+
+// Takes several shipments off the sailing, all or none (Council Outlay 14, A9). Refused while the service is closed.
+export const coLoadingSailingUnlinkShipments = api(
+  { expose: true, auth: true, method: "POST", path: "/co-loading/sailings/:id/remove-shipments" },
+  async ({ id, shipmentIds }: { id: string; shipmentIds: string[] & MaxLen<200> }): Promise<{ removed: number }> => {
+    return service.unlinkShipments(id, shipmentIds, getAuthData()!);
+  },
+);
+
 interface CoLoadingSailingCreateRequest {
   id: string;
   /** The vessel's name, or the week it sails ("WEEK 44") while the vessel is not known */

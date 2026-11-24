@@ -17,13 +17,17 @@ interface MoveShipmentModalProps {
   sailing: CoLoadingSailing;
   /** The shipment to move; null while none is picked. */
   shipment: { id: string; jobNumber: string } | null;
+  /** Several shipments moved together with the one reason: how many. Then `shipment` is not needed. */
+  several?: number;
+  /** The sailing picked on opening: the next one, for "Roll to next sailing". */
+  initialTo?: string | null;
   onMove: (toSailingId: string, reason: string) => Promise<void>;
   moving: boolean;
 }
 
 // "Move to another sailing": cargo left behind goes to another sailing of the same service, with
 // the reason typed. This sailing's "Taken off" list keeps where it went and why.
-export function MoveShipmentModal({ open, onClose, sailing, shipment, onMove, moving }: MoveShipmentModalProps) {
+export function MoveShipmentModal({ open, onClose, sailing, shipment, several, initialTo, onMove, moving }: MoveShipmentModalProps) {
   const { sailings, isLoading } = useCoLoadingSailings(sailing.serviceId);
   // Cargo is rolled forward, never onto a sailing that has left: only those still to come are offered, the soonest first (Council Outlay 14, A2).
   const others = sailingsInOrder(sailings, businessToday()).coming.filter((s) => s.id !== sailing.id);
@@ -32,14 +36,16 @@ export function MoveShipmentModal({ open, onClose, sailing, shipment, onMove, mo
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
     if (!open) return;
-    setTo(null);
+    setTo(initialTo ?? null);
     setReason("");
     setError(null);
+    // Only opening sets this off.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
   const handleMove = async () => {
-    if (!to) return setError("Pick the sailing to move it to.");
-    if (!reason.trim()) return setError("Say why the shipment is moved.");
+    if (!to || !others.some((s) => s.id === to)) return setError("Pick the sailing to move it to.");
+    if (!reason.trim()) return setError(several && several > 1 ? "Say why the shipments are moved." : "Say why the shipment is moved.");
     try {
       await onMove(to, reason.trim());
       onClose();
@@ -52,8 +58,8 @@ export function MoveShipmentModal({ open, onClose, sailing, shipment, onMove, mo
     <AppModal
       open={open}
       onClose={moving ? () => undefined : onClose}
-      title={shipment ? `Move ${shipment.jobNumber} to another sailing` : "Move to another sailing"}
-      subtitle={`It leaves ${sailingTitle(sailing)}. Its history here keeps where it went and why.`}
+      title={several ? `Move ${several === 1 ? "1 shipment" : `${several} shipments`} to another sailing` : shipment ? `Move ${shipment.jobNumber} to another sailing` : "Move to another sailing"}
+      subtitle={`${several && several > 1 ? "They leave" : "It leaves"} ${sailingTitle(sailing)}. Its history here keeps where ${several && several > 1 ? "they" : "it"} went and why.`}
       footer={
         <div className="flex justify-end gap-2">
           <Button onClick={onClose} disabled={moving}>

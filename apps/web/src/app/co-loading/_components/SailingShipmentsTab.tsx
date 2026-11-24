@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { Button, Checkbox, Dropdown, Input, Modal, Space, Spin, Tooltip } from "antd";
 import {
@@ -14,7 +14,7 @@ import {
 import { apiErrorMessage } from "@/lib/api";
 import { useDebounced } from "@/hooks/useDebounced";
 import { useShipments, type ShipmentItem } from "@/hooks/useShipments";
-import { useSailingCandidates, useSailingRemoved, useSailingShipmentLinks, useSailingUtilization, type CoLoadingSailing } from "@/hooks/useCoLoadingServices";
+import { useCoLoadingSailings, useSailingCandidates, useSailingRemoved, useSailingShipmentLinks, useSailingUtilization, type CoLoadingSailing } from "@/hooks/useCoLoadingServices";
 import { linkedCount } from "@/app/shipments/_components/MasterJobDialog";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { EMPTY_CELL } from "@/components/EmptyCell";
@@ -24,7 +24,7 @@ import { placeCodeOf } from "@/lib/places";
 import { useMessages } from "@/lib/toast";
 import { ADD_BTN, EMPTY_STATE, HINT, LINK, MODAL_TITLE, REF, TD, TD_TOTAL, TH } from "@/styles/ui";
 import { boxCargoOf, cutoffWarning, oddInBox, oddWarning, overfillWarning, removedReasonWords, tableCbm, tableKg, type BoxUtilization } from "../_lib/boxUtilization";
-import { sailingTitle } from "../_lib/sailings";
+import { nextSailingAfter, sailingTitle } from "../_lib/sailings";
 import { MoveShipmentModal } from "./MoveShipmentModal";
 
 // The picker's head stays put while its rows scroll, as the master job's picker does.
@@ -52,13 +52,40 @@ export function SailingShipmentsTab({
   serviceMode: string;
   closed: boolean;
 }) {
-  const { shipments, isLoading, isError } = useShipments({ sailing: sailing.id });
-  const { link, unlink, move } = useSailingShipmentLinks(sailing.id);
+  const { shipments: linked, isLoading, isError } = useShipments({ sailing: sailing.id });
+  const { link, unlink, move, moveMany, unlinkMany } = useSailingShipmentLinks(sailing.id);
+  // Several at once (Council Outlay 14, A9): ticked rows are moved or removed together, with one reason.
+  const [ticked, setTicked] = useState<string[]>([]);
+  const [bulk, setBulk] = useState<"move" | "roll" | "remove" | null>(null);
+  // The biggest first, to find what to roll when a box is over; null: as the list comes.
+  const [sortBy, setSortBy] = useState<"weightKg" | "volumeCbm" | null>(null);
+  // The sailing cargo is rolled to: the next one of the service still to come.
+  const { sailings: siblings } = useCoLoadingSailings(sailing.serviceId);
+  const next = useMemo(() => nextSailingAfter(sailing, siblings, businessToday()), [sailing, siblings]);
   const [toMove, setToMove] = useState<ShipmentItem | null>(null);
   // The figures are the box's own (Box utilization): each shipment's cargo lines, else its typed
   // totals, in kg. While they are read, the same rule is applied to the shipment here (boxCargoOf).
   const { box } = useSailingUtilization(sailing.id);
   const partOf = new Map((box?.rows ?? []).map((row) => [row.shipmentId, row]));
+  const figuresOf = (s: ShipmentItem) => partOf.get(s.id) ?? boxCargoOf(s);
+  const shipments = sortBy ? [...linked].sort((a, b) => figuresOf(b)[sortBy] - figuresOf(a)[sortBy]) : linked;
+  // A shipment taken off meanwhile leaves the list: its tick goes with it.
+  useEffect(() => {
+    setTicked((prev) => (prev.every((id) => linked.some((s) => s.id === id)) ? prev : prev.filter((id) => linked.some((s) => s.id === id))));
+  }, [linked]);
+  const allTicked = linked.length > 0 && ticked.length === linked.length;
+  const sortHead = (key: "weightKg" | "volumeCbm", label: string) => (
+    <button
+      type="button"
+      className={`cursor-pointer border-0 bg-transparent p-0 font-[inherit] uppercase tracking-[inherit] text-inherit ${sortBy === key ? "!text-indigo-600" : ""}`}
+      aria-pressed={sortBy === key}
+      title={sortBy === key ? "Back to the list's own order" : "The biggest first"}
+      onClick={() => setSortBy(sortBy === key ? null : key)}
+    >
+      {label}
+      {sortBy === key ? " ↓" : ""}
+    </button>
+  );
   const { removed } = useSailingRemoved(sailing.id);
   const message = useMessages();
   const [picking, setPicking] = useState(false);
@@ -88,18 +115,47 @@ export function SailingShipmentsTab({
         </>
       }
     >
+      {/* What is ticked, and what can be done with it together. */}
+      {ticked.length > 0 && (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-indigo-100 bg-indigo-50/60 px-4 py-2" role="status">
+          <span className="text-[13px] font-medium text-slate-800">{ticked.length === 1 ? "1 shipment ticked" : `${ticked.length} shipments ticked`}</span>
+          <Tooltip title={closed ? closedHint : next ? "" : "This service has no other sailing still to come: create the next one on the service's page."}>
+            <Button size="small" type="primary" disabled={closed || !next} onClick={() => setBulk("roll")}>
+              {next ? `Roll to ${sailingTitle(next)}` : "Roll to next sailing"}
+            </Button>
+          </Tooltip>
+          <Button size="small" disabled={closed} onClick={() => setBulk("move")}>
+            Move to another sailing
+          </Button>
+          <Button size="small" danger disabled={closed} onClick={() => setBulk("remove")}>
+            Remove from sailing
+          </Button>
+          <button type="button" className={`${LINK} cursor-pointer border-0 bg-transparent p-0 text-[12px]`} onClick={() => setTicked([])}>
+            Untick all
+          </button>
+        </div>
+      )}
       <div className="px-4 py-3 overflow-x-auto">
-        <table className="w-full min-w-[940px] table-fixed border-collapse">
+        <table className="w-full min-w-[980px] table-fixed border-collapse">
           <thead>
             <tr>
+              <th className={`${TH} w-10`}>
+                <Checkbox
+                  aria-label="Tick all linked shipments"
+                  checked={allTicked}
+                  indeterminate={ticked.length > 0 && !allTicked}
+                  disabled={closed || linked.length === 0}
+                  onChange={(e) => setTicked(e.target.checked ? linked.map((s) => s.id) : [])}
+                />
+              </th>
               <th className={`${TH} w-[160px]`}>Internal Reference</th>
               <th className={TH}>Customer</th>
               <th className={TH}>Shipper</th>
               <th className={TH}>Consignee</th>
               <th className={`${TH} w-[150px]`}>Status</th>
               <th className={`${TH} w-[70px] text-right`}>Colli</th>
-              <th className={`${TH} w-[100px] text-right`}>Weight (kg)</th>
-              <th className={`${TH} w-[100px] text-right`}>Volume (cbm)</th>
+              <th className={`${TH} w-[110px] text-right`}>{sortHead("weightKg", "Weight (kg)")}</th>
+              <th className={`${TH} w-[110px] text-right`}>{sortHead("volumeCbm", "Volume (cbm)")}</th>
               <th className={`${TH} w-12`}>
                 <span className="sr-only">Actions</span>
               </th>
@@ -109,8 +165,17 @@ export function SailingShipmentsTab({
             {shipments.map((s) => {
               const part = partOf.get(s.id);
               const { colli, weightKg, volumeCbm } = part ?? boxCargoOf(s);
+              const isTicked = ticked.includes(s.id);
               return (
-              <tr key={s.id} className={part && !part.counted ? "text-slate-400" : ""}>
+              <tr key={s.id} className={`${part && !part.counted ? "text-slate-400" : ""} ${isTicked ? "bg-indigo-50/60" : ""}`}>
+                <td className={TD}>
+                  <Checkbox
+                    aria-label={`Tick ${s.jobNumber}`}
+                    checked={isTicked}
+                    disabled={closed}
+                    onChange={(e) => setTicked((prev) => (e.target.checked ? [...prev, s.id] : prev.filter((id) => id !== s.id)))}
+                  />
+                </td>
                 <td className={`${TD} truncate`}>
                   <Link href={`/shipments/${s.id}`} className={`${REF} ${LINK} font-semibold`}>
                     {s.jobNumber}
@@ -168,7 +233,7 @@ export function SailingShipmentsTab({
           {box && shipments.length > 0 && (
             <tfoot>
               <tr>
-                <td className={TD_TOTAL} colSpan={5}>
+                <td className={TD_TOTAL} colSpan={6}>
                   Total{box.notCounted > 0 ? ` (${box.notCounted} cancelled, not counted)` : ""}
                 </td>
                 <td className={`${TD_TOTAL} text-right tabular-nums`}>{box.totals.colli.toLocaleString("en-US")}</td>
@@ -251,6 +316,42 @@ export function SailingShipmentsTab({
           if (!toMove) return;
           await move.mutateAsync({ shipmentId: toMove.id, toSailingId, reason });
           message.success(`${toMove.jobNumber} moved from ${name}`);
+        }}
+      />
+      {/* The ticked ones together: rolled to the next sailing, moved to a picked one, or taken off - all or none. */}
+      <MoveShipmentModal
+        open={bulk === "move" || bulk === "roll"}
+        onClose={() => setBulk(null)}
+        sailing={sailing}
+        shipment={null}
+        several={ticked.length}
+        initialTo={bulk === "roll" ? (next?.id ?? null) : null}
+        moving={moveMany.isPending}
+        onMove={async (toSailingId, reason) => {
+          const { moved } = await moveMany.mutateAsync({ shipmentIds: ticked, toSailingId, reason });
+          const to = siblings.find((x) => x.id === toSailingId);
+          message.success(`${linkedCount(moved)} moved from ${name}${to ? ` to ${sailingTitle(to)}` : ""}`);
+          setTicked([]);
+        }}
+      />
+      <ConfirmModal
+        open={bulk === "remove"}
+        title={`Remove ${ticked.length === 1 ? "1 shipment" : `${ticked.length} shipments`} from ${name}?`}
+        description="They can be linked again, to this sailing or another."
+        confirmLabel="Remove"
+        danger
+        loading={unlinkMany.isPending}
+        onClose={() => setBulk(null)}
+        onConfirm={async () => {
+          try {
+            const { removed: gone } = await unlinkMany.mutateAsync(ticked);
+            message.success(`${linkedCount(gone)} removed from ${name}`);
+            setTicked([]);
+          } catch (err) {
+            message.error(apiErrorMessage(err));
+          } finally {
+            setBulk(null);
+          }
         }}
       />
       <LinkSailingShipmentsModal

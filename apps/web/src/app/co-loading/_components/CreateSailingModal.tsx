@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Button, Input, InputNumber, Modal, Select, Space } from "antd";
 import { GeoSelect } from "@/components/GeoSelect";
 import { apiErrorMessage } from "@/lib/api";
@@ -33,7 +33,10 @@ export function CreateSailingModal({
   onClose,
   onCreate,
   saving,
+  start,
 }: {
+  /** What the form starts from: the service's last sailing moved on (lib nextSailingStart); null on a service with none. */
+  start?: { from: string; values: CoLoadingSailingNew } | null;
   open: boolean;
   onClose: () => void;
   onCreate: (input: CoLoadingSailingNew) => Promise<CoLoadingSailing>;
@@ -41,6 +44,12 @@ export function CreateSailingModal({
 }) {
   const [form, setForm] = useState<CoLoadingSailingNew>(EMPTY);
   const [error, setError] = useState<string | null>(null);
+  // Each opening starts from the last sailing as it is then (Council Outlay 14, A4): only the user's own changes follow.
+  useEffect(() => {
+    if (open) setForm(start ? { ...EMPTY, ...start.values } : EMPTY);
+    // Only opening sets this off.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
   // A change answers what the form last said was wrong, so that line goes until the next try.
   const set = <K extends keyof CoLoadingSailingNew>(key: K, value: CoLoadingSailingNew[K]) => {
     setForm((f) => ({ ...f, [key]: value }));
@@ -90,6 +99,11 @@ export function CreateSailingModal({
       }
     >
       <div className="flex flex-col gap-4 pt-2">
+        {start && (
+          <p className={`${HINT} m-0`} role="status">
+            Filled in from {start.from}, the service&apos;s last sailing{start.values.departureDate || start.values.vessel ? ", moved on to the next one" : ""}. Check it and change what differs.
+          </p>
+        )}
         <div className="grid grid-cols-2 gap-4 items-start">
           {field(
             "Vessel",

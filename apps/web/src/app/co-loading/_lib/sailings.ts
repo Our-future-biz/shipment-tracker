@@ -55,6 +55,67 @@ export function sailingsInOrder<T extends { departureDate: string | null; create
   return { coming, departed };
 }
 
+const addDays = (day: string, days: number): string => new Date(Date.parse(`${day}T00:00:00Z`) + days * 86_400_000).toISOString().slice(0, 10);
+
+/** The ISO week (1 to 53) a day falls in (YYYY-MM-DD). */
+export function isoWeek(day: string): number {
+  const d = new Date(Date.parse(`${day}T00:00:00Z`));
+  // The Thursday of the day's week decides the year the week belongs to.
+  d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay() || 7));
+  const yearStart = Date.UTC(d.getUTCFullYear(), 0, 1);
+  return Math.ceil(((d.getTime() - yearStart) / 86_400_000 + 1) / 7);
+}
+
+/** How many days lie between two sailings of a service of this frequency; null for one that sails as needed. */
+export const sailingStepDays = (frequency: string): number | null => (frequency === "weekly" ? 7 : frequency === "bi_weekly" ? 14 : null);
+
+/**
+ * What "Create new sailing" starts from (Council Outlay 14, A4): the service's last sailing with its
+ * ports, HUB, container type and number of containers, and - for a weekly or bi-weekly service - the
+ * next week's name with the cut-off and the departure moved on by 7 or 14 days. The last sailing is
+ * the one that leaves last - or one with no departure date yet, when it was made after that one. A
+ * named vessel is not carried over: the next one has another. Null when the service has no sailing
+ * yet. `today` (YYYY-MM-DD) says how many weeks the year has, for a week counted on without a date.
+ * Everything stays editable.
+ */
+export function nextSailingStart(
+  sailings: readonly { vessel: string; pol: string; pod: string; hub: string; containerType: string; containerCount: number; cutoffDate: string | null; departureDate: string | null; createdAt: string }[],
+  frequency: string,
+  today: string,
+): { from: string; values: { vessel: string; voyage: string; pol: string; pod: string; hub: string; containerType: string; containerCount: number; cutoffDate: string | null; departureDate: string | null } } | null {
+  if (sailings.length === 0) return null;
+  const madeLast = <T extends { createdAt: string }>(list: T[]) => [...list].sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
+  const dated = [...sailings.filter((s) => s.departureDate !== null)].sort((a, b) => b.departureDate!.localeCompare(a.departureDate!) || b.createdAt.localeCompare(a.createdAt))[0];
+  const undated = madeLast(sailings.filter((s) => s.departureDate === null && (!dated || s.createdAt > dated.createdAt)));
+  const last = (undated ?? dated ?? madeLast([...sailings]))!;
+  const step = sailingStepDays(frequency);
+  const departureDate = step && last.departureDate ? addDays(last.departureDate, step) : null;
+  const cutoffDate = step && last.cutoffDate ? addDays(last.cutoffDate, step) : null;
+  const week = sailingWeek(last.vessel);
+  let vessel = "";
+  if (step && week) {
+    // The week the new departure falls in when it is known; else the last week counted on, back to 1 after the year's last week (28 December is always in it).
+    const weeksInYear = isoWeek(`${today.slice(0, 4)}-12-28`);
+    const counted = Number(week.slice(5)) + step / 7;
+    vessel = `WEEK ${departureDate ? isoWeek(departureDate) : counted > weeksInYear ? counted - weeksInYear : counted}`;
+  }
+  return {
+    from: last.vessel,
+    values: { vessel, voyage: "", pol: last.pol, pod: last.pod, hub: last.hub, containerType: last.containerType, containerCount: last.containerCount, cutoffDate, departureDate },
+  };
+}
+
+/**
+ * The sailing cargo is rolled to: the first one still to come that leaves after this one. For a
+ * sailing with no departure date yet, the first one to come that was made after it - an earlier
+ * week is never offered as "next". Null when there is none: then the sailing is picked by hand.
+ */
+export function nextSailingAfter<T extends { id: string; departureDate: string | null; createdAt: string }>(sailing: { id: string; departureDate: string | null; createdAt: string }, sailings: readonly T[], today: string): T | null {
+  const coming = sailingsInOrder(sailings, today).coming.filter((s) => s.id !== sailing.id);
+  if (!sailing.departureDate) return coming.find((s) => s.createdAt > sailing.createdAt) ?? null;
+  return coming.find((s) => s.departureDate === null || s.departureDate >= sailing.departureDate!) ?? null;
+}
+
 /** The cut-off beside today, in words: "today", "in 2 days", "3 days ago"; "" with no cut-off. Both YYYY-MM-DD. */
 export function cutoffWords(cutoffDate: string | null, today: string): string {
   if (!cutoffDate) return "";

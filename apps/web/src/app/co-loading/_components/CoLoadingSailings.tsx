@@ -12,7 +12,7 @@ import { useMessages } from "@/lib/toast";
 import { BTN_PRIMARY, CARD, EMPTY_STATE, HEADING, LINK, REF, TD, TH } from "@/styles/ui";
 import { containersWords } from "../_lib/boxUtilization";
 import { profitGlance } from "../_lib/earnings";
-import { CUTOFF_TONE, cutoffState, cutoffWords, sailingHref, sailingsInOrder } from "../_lib/sailings";
+import { CUTOFF_TONE, cutoffState, cutoffWords, nextSailingStart, sailingHref, sailingsInOrder } from "../_lib/sailings";
 import { canManageServices } from "../_lib/services";
 import { BoxFillChip } from "./BoxFillChip";
 import { CreateSailingModal } from "./CreateSailingModal";
@@ -38,7 +38,7 @@ function ProfitCell({ profit }: { profit: Parameters<typeof profitGlance>[0] }) 
 // A Co-Loading Concept service's sailings over its shipments: those still to come by departure, the
 // soonest first, then the ones that have left, folded away (Council Outlay 14, A2). "Create new
 // sailing" on the right, above the grid's Export. A closed service takes no new sailing until it is reopened.
-export function CoLoadingSailings({ serviceId, closed }: { serviceId: string; closed: boolean }) {
+export function CoLoadingSailings({ serviceId, closed, frequency }: { serviceId: string; closed: boolean; /** weekly | bi_weekly | ad_hoc: how far the next sailing is moved on */ frequency: string }) {
   const { sailings, isLoading, isError, create } = useCoLoadingSailings(serviceId);
   // Managers and admins see each sailing's profit (Council Outlay 13, D19); nobody else asks for it.
   const { user } = useAuth();
@@ -168,6 +168,7 @@ export function CoLoadingSailings({ serviceId, closed }: { serviceId: string; cl
         open={creating}
         onClose={() => setCreating(false)}
         saving={create.isPending}
+        start={nextSailingStart(sailings, frequency, today)}
         onCreate={async (input) => {
           const { sailing } = await create.mutateAsync(input);
           message.success(

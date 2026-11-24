@@ -34,7 +34,7 @@ export type LinkedCargo = Omit<BoxShipment, "cancelled" | "odd"> & {
   masterJobId: string | null;
 };
 
-// One of the shipments to link got a live link meanwhile: the links of this call are undone.
+// One of the shipments to link got a live link meanwhile (or, for a move or a removal of several, one was no longer on the sailing): the writes of this call are undone.
 class LinkedMeanwhile extends Error {}
 
 // A Co-Loading Concept service's sailings (lib/coLoadingSailing), always read within one company.
@@ -247,6 +247,49 @@ class CoLoadingSailingRepository {
       await tx.insert(links).values({ companyId, sailingId: toSailingId, shipmentId, createdById: by.id, createdByName: by.name });
       return true;
     });
+  }
+
+  /**
+   * Moves several shipments from one sailing to another in one turn, all or none (Council Outlay 14,
+   * A9): each link here is taken off, saying where it went and why, and each is linked there. False,
+   * with nothing written, when one of them was not on the first sailing.
+   */
+  async moveMany(fromSailingId: string, toSailingId: string, shipmentIds: string[], companyId: string, by: { id: string; name: string }, note: string): Promise<boolean> {
+    try {
+      await db.transaction(async (tx) => {
+        const now = new Date();
+        const off = await tx
+          .update(links)
+          .set({ deletedAt: now, updatedAt: now, removedById: by.id, removedByName: by.name, removedReason: "moved", movedToSailingId: toSailingId, removedNote: note })
+          .where(and(eq(links.companyId, companyId), eq(links.sailingId, fromSailingId), inArray(links.shipmentId, shipmentIds), isNull(links.deletedAt)))
+          .returning({ id: links.id });
+        // Thrown to undo the transaction: that is the "none" of all or none.
+        if (off.length !== shipmentIds.length) throw new LinkedMeanwhile();
+        await tx.insert(links).values(shipmentIds.map((shipmentId) => ({ companyId, sailingId: toSailingId, shipmentId, createdById: by.id, createdByName: by.name })));
+      });
+      return true;
+    } catch (err) {
+      if (err instanceof LinkedMeanwhile) return false;
+      throw err;
+    }
+  }
+
+  /** Takes several shipments off the sailing in one turn, all or none, recording who did; false when one of them was not on it. */
+  async unlinkMany(sailingId: string, shipmentIds: string[], companyId: string, by: { id: string; name: string }): Promise<boolean> {
+    try {
+      await db.transaction(async (tx) => {
+        const off = await tx
+          .update(links)
+          .set({ deletedAt: new Date(), updatedAt: new Date(), removedById: by.id, removedByName: by.name, removedReason: "removed" })
+          .where(and(eq(links.companyId, companyId), eq(links.sailingId, sailingId), inArray(links.shipmentId, shipmentIds), isNull(links.deletedAt)))
+          .returning({ id: links.id });
+        if (off.length !== shipmentIds.length) throw new LinkedMeanwhile();
+      });
+      return true;
+    } catch (err) {
+      if (err instanceof LinkedMeanwhile) return false;
+      throw err;
+    }
   }
 
   /** The shipments taken off the sailing, the last one first: its history of removals. A deleted shipment is named too. */
