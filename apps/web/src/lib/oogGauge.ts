@@ -207,6 +207,12 @@ export function gaugeAdvice(type: string): string | null {
   return GAUGES[type.trim()]?.advice ?? null;
 }
 
+/** The in-gauge measures of a type in cm, and whether it is a flat rack; null for a type the table does not hold. What an out-of-gauge request is measured against. */
+export function gaugeMeasures(type: string): { length: number; width: number; height: number; flatRack: boolean } | null {
+  const gauge = GAUGES[type.trim()];
+  return gauge ? { length: gauge.length, width: gauge.width, height: gauge.height, flatRack: gauge.flatRack } : null;
+}
+
 /**
  * How an open top takes one piece (its length along the box, width and height in cm): from the top
  * through the roof opening - any height - or through its doors; null when neither, and for a type

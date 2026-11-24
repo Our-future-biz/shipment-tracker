@@ -13,6 +13,8 @@ import type { ContainerLoad, LoadPlan } from "../_lib/plan";
 import { formatDim, formatKg, formatSize, type DimUnit } from "../_lib/units";
 import { FloorPlan } from "./FloorPlan";
 import { LoadView3D } from "./LoadView3D";
+import { OogRequestModal } from "./OogRequestModal";
+import { oogRequestOf } from "../_lib/oogRequest";
 
 interface ResultPanelProps {
   plan: LoadPlan;
@@ -27,6 +29,8 @@ interface ResultPanelProps {
   tooMuch: string | null;
   /** "Nominate equipment" is on and no type is chosen yet. */
   nothingNominated: boolean;
+  /** The plan's name, for the out-of-gauge request's first line; "" while it has none. */
+  planName?: string;
 }
 
 const pctText = (value: number) => `${Math.round(value)}%`;
@@ -62,10 +66,14 @@ interface LoadCardProps {
   colourOf: ResultPanelProps["colourOf"];
   numberOf: ResultPanelProps["numberOf"];
   onShow3D: () => void;
+  planName: string;
 }
 
-function LoadCard({ load, number, unit, colourOf, numberOf, onShow3D }: LoadCardProps) {
+function LoadCard({ load, number, unit, colourOf, numberOf, onShow3D, planName }: LoadCardProps) {
   const stats = loadStats(load);
+  // What the carrier's out-of-gauge form asks about this container (Council Outlay 14, P10); null when there is nothing to request.
+  const request = stats.outOfGauge ? oogRequestOf(load, number) : null;
+  const [requesting, setRequesting] = useState(false);
   const { balance } = stats;
   const { container } = load;
   const along = Math.abs(balance.cogZ - container.internalL / 2);
@@ -79,6 +87,11 @@ function LoadCard({ load, number, unit, colourOf, numberOf, onShow3D }: LoadCard
           {stats.outOfGauge && <Pill tone="amber">Out of gauge</Pill>}
           {stats.linerConfirm && <Pill tone="amber">Liner to confirm</Pill>}
           <Pill tone={balance.ok ? "green" : "red"}>{balance.ok ? "Balanced" : "Out of balance"}</Pill>
+          {request && (
+            <button type="button" className={BTN_BAR} onClick={() => setRequesting(true)}>
+              Out-of-gauge request
+            </button>
+          )}
           <button type="button" className={BTN_BAR} onClick={onShow3D}>
             Show in 3D
           </button>
@@ -175,13 +188,14 @@ function LoadCard({ load, number, unit, colourOf, numberOf, onShow3D }: LoadCard
         </p>
       )}
       {!hasDoors(container) && <p className={`${HINT} m-0`}>A flat rack has no doors: positions are measured from the left end wall.</p>}
+      <OogRequestModal request={requesting ? request : null} planName={planName} onClose={() => setRequesting(false)} />
     </SectionCard>
   );
 }
 
 // What the planner made of the cargo: the totals, the pieces it could not load with the reason, the
 // containers in 3D, and every container with its floor drawn from above, its figures and its pieces.
-export function ResultPanel({ plan, unit, colourOf, numberOf, unplanned, tooMuch, nothingNominated }: ResultPanelProps) {
+export function ResultPanel({ plan, unit, colourOf, numberOf, unplanned, tooMuch, nothingNominated, planName = "" }: ResultPanelProps) {
   const [shown, setShown] = useState(0);
   // A plan worked out again may have fewer containers than the one being looked at.
   const inView = Math.min(shown, Math.max(0, plan.loads.length - 1));
@@ -269,6 +283,7 @@ export function ResultPanel({ plan, unit, colourOf, numberOf, unplanned, tooMuch
             unit={unit}
             colourOf={colourOf}
             numberOf={numberOf}
+            planName={planName}
             onShow3D={() => {
               setShown(index);
               document.getElementById("loading-plan-3d")?.scrollIntoView({ behavior: "smooth", block: "center" });

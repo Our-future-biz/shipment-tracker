@@ -532,6 +532,7 @@ function PlanEditor({ saved }: { saved: interfaces.LoadingPlanItem | null }) {
           unplanned={unplanned}
           tooMuch={tooMuch}
           nothingNominated={nominated !== null && nominated.length === 0 && cargo.length > 0}
+          planName={name}
         />
       </div>
 
