@@ -5,7 +5,7 @@ import { businessDay } from "../../../lib/businessDate";
 import { isUuid } from "../../../lib/uuid";
 import { hasEveryWord } from "../../../lib/mainSearch";
 import { capacityOf, containerCapacity } from "../../../lib/containerCapacity";
-import type { BoxCostChange, BoxUtilization, CoLoadingBoard, CoLoadingSailingItem, SailingEarnings, SailingProfit, SailingPlanCargo, SailingRemovedShipment, SearchCoLoadingItem, ShipmentSailing } from "../interfaces/interfaces";
+import type { BoxCostChange, BoxUtilization, CoLoadingBoard, CoLoadingSailingItem, SailingEarnings, SailingProfit, SailingPlanCargo, SailingRemovedShipment, SearchCoLoadingItem, ServiceTrend, ShipmentSailing } from "../interfaces/interfaces";
 import { boxCostsOf, checkBoxCosts, type BoxCostLineInput, type BoxCostStored, type BoxRates } from "../lib/coLoadingBoxCosts";
 import { canManageServices } from "../lib/coLoadingService";
 import { BoxCostsChangedMeanwhile, coLoadingBoxCostRepository as boxCostRepo } from "../repositories/coLoadingBoxCost.repository";
@@ -13,6 +13,7 @@ import { sailingEarnings, sailingProfit, type ShipmentMoney } from "../lib/coLoa
 import { boxFillOf, boxUtilization } from "../lib/boxUtilization";
 import { planCargoOf, sailingReference } from "../lib/coLoadingPlanCargo";
 import { boxOverNotice } from "../lib/coLoadingBoxOverNotice";
+import { moneyOfRow, serviceTrend, withFloor } from "../lib/coLoadingServiceMoney";
 import { boxIsOver, overStep } from "../lib/coLoadingCargoChange";
 import { CANCELLED_STATUS } from "../lib/fieldDefaults";
 import { checkSailingInput, isSailingStage, LINK_AT_ONCE_MAX, linkReasonRefusal, linkRefusal, moveRefusal, stageChange, oddInBox, sailingEdit, sailingRemovalRefusal, type SailingDetails, type SailingInput } from "../lib/coLoadingSailing";
@@ -171,7 +172,9 @@ class CoLoadingSailingService {
     const stored = (await boxCostRepo.list(sailing.id, companyId)).map(storedCost);
     // The rates are asked for only once a cost is set.
     const day = stored.some((s) => s.amount !== null) ? await ratesOn(sailing.departureDate) : null;
-    return sailingEarnings(box.rows, await moneyOf(linked), mastersOf(linked), boxCostsOf(sailing.containerCount, stored, day, sailing.departureDate), box.fullPct);
+    const earnings = sailingEarnings(box.rows, await moneyOf(linked), mastersOf(linked), boxCostsOf(sailing.containerCount, stored, day, sailing.departureDate), box.fullPct);
+    // The service's minimum earning per W/M marks the rows below it (Council Outlay 14, B4).
+    return withFloor(earnings, (await coLoadingServiceService.money(sailing.serviceId, companyId)).minEarningPerWm);
   }
 
   /**
@@ -184,6 +187,24 @@ class CoLoadingSailingService {
    * the rates service.
    */
   async profits(serviceId: string, companyId: string): Promise<SailingProfit[]> {
+    return (await this.earningsOfService(serviceId, companyId)).map(({ row, earnings }) => sailingProfit(row.id, earnings));
+  }
+
+  /**
+   * The service's trend (Council Outlay 14, B5): its last sailings that have left, with how full
+   * each was, what it made and whether it covered its box. Live figures, worked out as the list of
+   * sailings works out its profits. For managers: the controller lets only them ask.
+   */
+  async trend(serviceId: string, companyId: string): Promise<ServiceTrend> {
+    const all = await this.earningsOfService(serviceId, companyId);
+    return serviceTrend(
+      all.map(({ row, fullPct, earnings }) => ({ sailingId: row.id, name: [row.vessel, row.voyage].filter(Boolean).join(" "), departureDate: row.departureDate, stage: row.stage, createdAt: row.createdAt, fullPct, earnings })),
+      today(),
+    );
+  }
+
+  /** Every sailing of the service with its earnings, read together (see `profits`). */
+  private async earningsOfService(serviceId: string, companyId: string): Promise<{ row: Awaited<ReturnType<typeof repo.listByService>>[number]; fullPct: number | null; earnings: SailingEarnings }[]> {
     const service = await coLoadingServiceService.get(serviceId, companyId);
     const rows = await repo.listByService(serviceId, companyId);
     if (rows.length === 0) return [];
@@ -198,7 +219,7 @@ class CoLoadingSailingService {
       const linked = cargo.get(r.id) ?? [];
       const box = fillOf(r, service, planningPct, linked);
       const boxCosts = boxCostsOf(r.containerCount, costsOf.get(r.id) ?? [], days.get(r.departureDate ?? "") ?? null, r.departureDate);
-      return sailingProfit(r.id, sailingEarnings(box.rows, money, mastersOf(linked), boxCosts, box.fullPct));
+      return { row: r, fullPct: box.fullPct, earnings: sailingEarnings(box.rows, money, mastersOf(linked), boxCosts, box.fullPct) };
     });
   }
 
@@ -609,13 +630,24 @@ class CoLoadingSailingService {
     if ("error" in checked) throw APIError.invalidArgument(checked.error);
     // A closed service takes nothing new until it is reopened.
     const service = await coLoadingServiceService.requireOpen(serviceId, actor.companyID);
+    const by = { id: actor.userID, name: await userNameOf(actor.userID) };
     const row = await repo.create({
       companyId: actor.companyID,
       serviceId: service.id,
       ...checked.values,
-      createdById: actor.userID,
-      createdByName: await userNameOf(actor.userID),
+      createdById: by.id,
+      createdByName: by.name,
     });
+    // The service's default box costs, on each of the new sailing's containers (Council Outlay 14, B4):
+    // it has costs from day one, which a manager corrects. Best effort - the sailing is made either way.
+    const defaults = moneyOfRow(service).defaultBoxCosts;
+    if (defaults) {
+      try {
+        for (let containerNo = 1; containerNo <= row.containerCount; containerNo++) await boxCostRepo.save(row.id, actor.companyID, containerNo, defaults.map((d) => ({ ...d, note: d.note || "Service default" })), null, by);
+      } catch (err) {
+        log.warn(err, "Co-Loading: a new sailing did not get its service's default box costs", { sailingId: row.id });
+      }
+    }
     return toItem(row);
   }
 }

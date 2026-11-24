@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { check, pgTable, text, timestamp, uniqueIndex, uuid, integer } from "drizzle-orm/pg-core";
+import { check, jsonb, numeric, pgTable, text, timestamp, uniqueIndex, uuid, integer } from "drizzle-orm/pg-core";
 import { defaultTableColumns, defaultTableIndexes, tenantColumns, tenantIndex } from "../../../lib/db/defaults";
 import type { CoLoadingDirection, CoLoadingMode } from "../lib/coLoadingService";
 
@@ -25,6 +25,12 @@ export const coLoadingServiceTable = pgTable(
     // A lower cargo weight for the inland leg between the port and the hub, in kg, set by a manager;
     // null for none. A box of this service is then full at it, where it is below the box's own limit.
     inlandWeightKg: integer("inland_weight_kg"),
+    // Managers' money settings (Council Outlay 14, B4). The box costs a new sailing of the service
+    // starts with, for each of its containers: Origin Costs, Ocean Freight, Destination Costs as
+    // { kind, amount, currency, note }; null for none. And the least a shipment should earn per W/M
+    // before the box, in EUR: rows below it are marked on Earnings; null for none.
+    defaultBoxCosts: jsonb("default_box_costs").$type<{ kind: string; amount: number | null; currency: string; note: string }[]>(),
+    minEarningPerWm: numeric("min_earning_per_wm", { precision: 14, scale: 2 }),
     // Who made it, as named then; none for the service the module starts with.
     createdById: uuid("created_by_id"),
     createdByName: text("created_by_name").notNull().default(""),

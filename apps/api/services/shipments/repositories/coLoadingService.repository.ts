@@ -55,6 +55,16 @@ class CoLoadingServiceRepository {
   }
 
   /** Sets the service's inland weight (null for none); the service as it is now, null when not found. */
+  /** Sets the service's default box costs and its minimum earning per W/M (EUR); null clears each. */
+  async setMoney(id: string, companyId: string, money: { defaultBoxCosts: { kind: string; amount: number | null; currency: string; note: string }[] | null; minEarningPerWm: number | null }): Promise<CoLoadingServiceRecord | null> {
+    const [row] = await db
+      .update(services)
+      .set({ defaultBoxCosts: money.defaultBoxCosts, minEarningPerWm: money.minEarningPerWm === null ? null : String(money.minEarningPerWm), updatedAt: new Date() })
+      .where(and(eq(services.id, id), eq(services.companyId, companyId), isNull(services.deletedAt)))
+      .returning();
+    return row ?? null;
+  }
+
   async setInlandWeight(id: string, companyId: string, inlandWeightKg: number | null): Promise<CoLoadingServiceRecord | null> {
     const [row] = await db
       .update(services)

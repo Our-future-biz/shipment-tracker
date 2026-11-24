@@ -2,7 +2,8 @@ import { api } from "encore.dev/api";
 import type { MaxLen } from "encore.dev/validate";
 import { getAuthData } from "~encore/auth";
 import { requireRole } from "../../../lib/rbac";
-import type { CoLoadingServiceItem, CoLoadingSettings } from "../interfaces/interfaces";
+import type { CoLoadingServiceItem, CoLoadingSettings, ServiceMoney, ServiceTrend } from "../interfaces/interfaces";
+import { coLoadingSailingService } from "../services/coLoadingSailing.service";
 import { coLoadingServiceService as service } from "../services/coLoadingService.service";
 
 // Co-Loading Concept's services (lib/coLoadingService). Everyone in the company works in them; managers
@@ -70,6 +71,38 @@ export const coLoadingSettingsChecklist = api(
   { expose: true, auth: true, method: "PUT", path: "/co-loading/settings/checklist" },
   async ({ direction, steps }: { direction: string & MaxLen<10>; steps: (string & MaxLen<200>)[] & MaxLen<50> }): Promise<CoLoadingSettings> => {
     return service.saveChecklist(direction, steps, managers());
+  },
+);
+
+// A service's money settings (Council Outlay 14, B4): the box costs a new sailing starts with, and the minimum earning per W/M. Managers only.
+export const coLoadingServiceMoney = api(
+  { expose: true, auth: true, method: "GET", path: "/co-loading/services/:id/money" },
+  async ({ id }: { id: string }): Promise<ServiceMoney> => {
+    return service.money(id, managers().companyID);
+  },
+);
+
+interface ServiceMoneyRequest {
+  id: string;
+  /** One container's Origin Costs, Ocean Freight and Destination Costs; null for none */
+  defaultBoxCosts: { kind: string & MaxLen<20>; amount: number | null; currency: string & MaxLen<3>; note: string & MaxLen<300> }[] | null;
+  /** In EUR per W/M; null for none */
+  minEarningPerWm: number | null;
+}
+
+// A manager sets them. Sailings that exist keep their own box costs.
+export const coLoadingServiceMoneySet = api(
+  { expose: true, auth: true, method: "PUT", path: "/co-loading/services/:id/money" },
+  async ({ id, defaultBoxCosts, minEarningPerWm }: ServiceMoneyRequest): Promise<ServiceMoney> => {
+    return service.saveMoney(id, { defaultBoxCosts, minEarningPerWm }, managers().companyID);
+  },
+);
+
+// The service's trend (Council Outlay 14, B5): its last sailings that have left, how full, what they made, whether they covered their box. Managers only.
+export const coLoadingServiceTrend = api(
+  { expose: true, auth: true, method: "GET", path: "/co-loading/services/:id/trend" },
+  async ({ id }: { id: string }): Promise<ServiceTrend> => {
+    return coLoadingSailingService.trend(id, managers().companyID);
   },
 );
 

@@ -2294,6 +2294,39 @@ export interface CoLoadingServiceItem {
   inlandWeightKg: number | null;
 }
 
+/** A service's money settings, for managers (Council Outlay 14, B4). */
+export interface ServiceMoney {
+  /** The box costs a new sailing of the service starts with, for each of its containers; null for none. */
+  defaultBoxCosts: { kind: BoxCostKind; amount: number | null; currency: string; note: string }[] | null;
+  /** The least a shipment should earn per W/M before the box, in EUR; null for none. Rows below it are marked on Earnings. */
+  minEarningPerWm: number | null;
+}
+
+/** One sailing of a service's trend. */
+export interface TrendSailing {
+  sailingId: string;
+  name: string;
+  departureDate: string | null;
+  /** How full its box is, in whole %; null where the box has no capacity. */
+  fullPct: number | null;
+  /** Its profit after the box costs, in EUR; null while not known (no box costs, money not read, no EUR rate). */
+  profitEur: number | null;
+  marginPct: number | null;
+  /** True when it did not cover its box costs; null while that cannot be said. */
+  belowBreakEven: boolean | null;
+}
+
+/** A service's trend (Council Outlay 14, B5): its last sailings that have left, the oldest first, and what they come to together. Live figures, for managers. */
+export interface ServiceTrend {
+  sailings: TrendSailing[];
+  averageFillPct: number | null;
+  averageProfitEur: number | null;
+  /** How many of them have a known profit, and how many could be judged against their break-even. */
+  profitKnown: number;
+  belowBreakEven: number;
+  breakEvenKnown: number;
+}
+
 /** The company's Co-Loading Concept settings. */
 export interface CoLoadingSettings {
   /** The share of a box's inside volume planned with, in whole percent. */
@@ -2691,6 +2724,8 @@ export interface EarningsRow {
   odd: string | null;
   /** Road freight lines typed by hand on it: the trunk haul to the hub belongs to the box's Origin Costs. */
   handRoadLines: number;
+  /** It earns less per W/M before the box than the service's minimum (Council Outlay 14, B4): a mark, nothing more. */
+  belowFloor?: boolean;
   noSelling: boolean;
   untickedLines: number;
   unrecognisedLines: number;
@@ -2740,6 +2775,9 @@ export interface SailingEarnings {
   } | null;
   /** How many loaded shipments are not priced yet (no selling lines, or money not known): break-even is not worked out until none is. */
   breakEvenWaitsFor: number;
+  /** The service's minimum earning per W/M before the box, in EUR, and how many rows are below it; null and 0 while the service has none. Left out where the sailing's earnings are worked out without the service. */
+  minEarningPerWm?: number | null;
+  belowFloor?: number;
   /** The space of the box not sold, in % of the box, and its share of the box costs; null without box costs or a capacity, or while a box cost could not be valued. */
   unsold: { pct: number; cost: EarningsAmount } | null;
   /** How many counted shipments each remark is about. */

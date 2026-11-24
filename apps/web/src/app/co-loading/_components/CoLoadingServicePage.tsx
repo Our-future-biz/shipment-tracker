@@ -14,6 +14,8 @@ import { useMessages } from "@/lib/toast";
 import { BTN, HINT, LINK, PAGE_SUBTITLE, PAGE_TITLE } from "@/styles/ui";
 import { canManageServices, closedLine, tileLine } from "../_lib/services";
 import { InlandWeightModal } from "./InlandWeightModal";
+import { ServiceMoneyModal } from "./ServiceMoneyModal";
+import { ServiceTrendCard } from "./ServiceTrendCard";
 import { CoLoadingSailings } from "./CoLoadingSailings";
 import { CoLoadingServiceShipments } from "./CoLoadingServiceShipments";
 import { WaitingShipments } from "./WaitingShipments";
@@ -29,6 +31,7 @@ export function CoLoadingServicePage() {
   const { user } = useAuth();
   const isManager = canManageServices(user?.role);
   const [inlandOpen, setInlandOpen] = useState(false);
+  const [moneyOpen, setMoneyOpen] = useState(false);
   const { modal } = App.useApp();
   const message = useMessages();
 
@@ -88,6 +91,12 @@ export function CoLoadingServicePage() {
                 {service.closedAt && <Pill tone="slate">Closed</Pill>}
               </div>
               <div className="flex flex-wrap items-center gap-2">
+              {/* Managers' money settings: default box costs for new sailings, and the minimum earning per W/M. */}
+              {isManager && (
+                <button type="button" onClick={() => setMoneyOpen(true)} className={BTN}>
+                  Money settings
+                </button>
+              )}
               {isManager && !service.closedAt && (
                 <button type="button" onClick={() => setInlandOpen(true)} className={BTN}>
                   Inland weight
@@ -115,6 +124,7 @@ export function CoLoadingServicePage() {
               </p>
             )}
             <InlandWeightModal open={inlandOpen} onClose={() => setInlandOpen(false)} service={service} />
+            {isManager && <ServiceMoneyModal open={moneyOpen} onClose={() => setMoneyOpen(false)} service={service} />}
             {service.closedAt && (
               <div role="status" className="mt-3 rounded-xl border border-slate-200 bg-white px-4 py-3 text-[13px] text-slate-700">
                 <span className="font-semibold">{closedLine(service, formatDate)}.</span> Users no longer see its tile, and nothing new can be put
@@ -123,6 +133,8 @@ export function CoLoadingServicePage() {
             )}
             <div className="mt-4 flex flex-col gap-5">
               <CoLoadingSailings serviceId={service.id} closed={!!service.closedAt} frequency={service.frequency} />
+              {/* How the service's last sailings did: managers only, as all of its money. */}
+              {isManager && <ServiceTrendCard serviceId={service.id} />}
               {service.serviceName && <WaitingShipments serviceId={service.id} serviceName={service.serviceName} serviceMode={service.mode} closed={!!service.closedAt} />}
               {service.serviceName ? (
                 <CoLoadingServiceShipments serviceName={service.serviceName} closed={!!service.closedAt} />

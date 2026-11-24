@@ -1,6 +1,7 @@
 import { APIError } from "encore.dev/api";
 import { isUuid } from "../../../lib/uuid";
-import type { CoLoadingServiceItem, CoLoadingSettings } from "../interfaces/interfaces";
+import type { CoLoadingServiceItem, CoLoadingSettings, ServiceMoney } from "../interfaces/interfaces";
+import { cleanServiceMoney, moneyOfRow, type ServiceMoneyInput } from "../lib/coLoadingServiceMoney";
 import { checklistFor, cleanChecklist, isChecklistDirection } from "../lib/coLoadingLog";
 import { DEFAULT_PLANNING_VOLUME_PCT, inlandWeightProblem, planningPctProblem } from "../lib/coLoadingSettings";
 import { coLoadingSettingRepository } from "../repositories/coLoadingSetting.repository";
@@ -78,6 +79,21 @@ class CoLoadingServiceService {
     if (problem) throw APIError.invalidArgument(problem);
     await coLoadingSettingRepository.savePlanningPct(actor.companyID, planningVolumePct, actor.userID);
     return this.settings(actor.companyID, actor.role);
+  }
+
+  /** The service's money settings, for managers (the controller lets only them ask). */
+  async money(id: string, companyId: string): Promise<ServiceMoney> {
+    return moneyOfRow(await this.row(id, companyId));
+  }
+
+  /** A manager sets the box costs a new sailing starts with and the minimum earning per W/M. Sailings that exist keep their own box costs. */
+  async saveMoney(id: string, input: ServiceMoneyInput, companyId: string): Promise<ServiceMoney> {
+    const cleaned = cleanServiceMoney(input);
+    if ("error" in cleaned) throw APIError.invalidArgument(cleaned.error);
+    await this.row(id, companyId);
+    const row = await repo.setMoney(id, companyId, cleaned.money);
+    if (!row) throw APIError.notFound("Service not found");
+    return moneyOfRow(row);
   }
 
   /** Sets a lower cargo weight for the service's inland leg, or takes it off (null). Not while the service is closed. */

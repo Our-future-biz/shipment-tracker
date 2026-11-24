@@ -3457,6 +3457,9 @@ export namespace shipments {
             this.coLoadingSettingsGet = this.coLoadingSettingsGet.bind(this)
             this.coLoadingSettingsSet = this.coLoadingSettingsSet.bind(this)
             this.coLoadingSettingsChecklist = this.coLoadingSettingsChecklist.bind(this)
+            this.coLoadingServiceMoney = this.coLoadingServiceMoney.bind(this)
+            this.coLoadingServiceMoneySet = this.coLoadingServiceMoneySet.bind(this)
+            this.coLoadingServiceTrend = this.coLoadingServiceTrend.bind(this)
             this.coLoadingSailingLog = this.coLoadingSailingLog.bind(this)
             this.coLoadingSailingNotices = this.coLoadingSailingNotices.bind(this)
             this.coLoadingSailingMasterJob = this.coLoadingSailingMasterJob.bind(this)
@@ -3998,6 +4001,27 @@ export namespace shipments {
         /**
          * A manager sets the planning share (50 to 100 percent).
          */
+        /**
+         * A service's money settings: the box costs a new sailing starts with, and the minimum earning per W/M. Managers only.
+         */
+        public async coLoadingServiceMoney(id: string): Promise<interfaces.ServiceMoney> {
+            const resp = await this.baseClient.callTypedAPI("GET", `/co-loading/services/${encodeURIComponent(id)}/money`)
+            return await resp.json() as interfaces.ServiceMoney
+        }
+
+        public async coLoadingServiceMoneySet(id: string, params: { defaultBoxCosts: { kind: string; amount: number | null; currency: string; note: string }[] | null; minEarningPerWm: number | null }): Promise<interfaces.ServiceMoney> {
+            const resp = await this.baseClient.callTypedAPI("PUT", `/co-loading/services/${encodeURIComponent(id)}/money`, JSON.stringify(params))
+            return await resp.json() as interfaces.ServiceMoney
+        }
+
+        /**
+         * The service's trend: its last sailings that have left. Managers only.
+         */
+        public async coLoadingServiceTrend(id: string): Promise<interfaces.ServiceTrend> {
+            const resp = await this.baseClient.callTypedAPI("GET", `/co-loading/services/${encodeURIComponent(id)}/trend`)
+            return await resp.json() as interfaces.ServiceTrend
+        }
+
         /**
          * A manager sets the steps of the sailings' checklist, for "import" or for "export" services.
          */
@@ -16469,6 +16493,11 @@ export namespace interfaces {
          * Road freight lines typed by hand on it: the trunk haul to the hub belongs to the box's Origin Costs.
          */
         handRoadLines: number
+
+        /**
+         * It earns less per W/M before the box than the service's minimum: a mark, nothing more.
+         */
+        belowFloor?: boolean
         noSelling: boolean
         untickedLines: number
         unrecognisedLines: number
@@ -16518,6 +16547,12 @@ export namespace interfaces {
          * How many loaded shipments are not priced yet: break-even is not worked out until none is.
          */
         breakEvenWaitsFor: number
+
+        /**
+         * The service's minimum earning per W/M before the box, in EUR, and how many rows are below it; null and 0 while the service has none.
+         */
+        minEarningPerWm?: number | null
+        belowFloor?: number
         /**
          * The space of the box not sold, in % of the box, and its share of the box costs; null without box costs or a capacity, or while a box cost could not be valued.
          */
@@ -16926,6 +16961,39 @@ export namespace interfaces {
     /**
      * The company's Co-Loading Concept settings.
      */
+    /**
+     * A service's money settings, for managers.
+     */
+    export interface ServiceMoney {
+        defaultBoxCosts: { kind: BoxCostKind; amount: number | null; currency: string; note: string }[] | null
+        /**
+         * The least a shipment should earn per W/M before the box, in EUR; null for none.
+         */
+        minEarningPerWm: number | null
+    }
+
+    export interface TrendSailing {
+        sailingId: string
+        name: string
+        departureDate: string | null
+        fullPct: number | null
+        profitEur: number | null
+        marginPct: number | null
+        belowBreakEven: boolean | null
+    }
+
+    /**
+     * A service's trend: its last sailings that have left, the oldest first, and what they come to together.
+     */
+    export interface ServiceTrend {
+        sailings: TrendSailing[]
+        averageFillPct: number | null
+        averageProfitEur: number | null
+        profitKnown: number
+        belowBreakEven: number
+        breakEvenKnown: number
+    }
+
     export interface CoLoadingSettings {
         /**
          * The share of a box's inside volume planned with, in whole percent.

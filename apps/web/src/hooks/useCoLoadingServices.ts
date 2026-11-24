@@ -427,3 +427,21 @@ export function useSailingMasterJob(id: string) {
   const unlink = useMutation({ mutationFn: () => api.shipments.coLoadingSailingMasterJobUnlink(id), onSuccess: settle });
   return { data: query.data ?? null, isLoading: query.isLoading, isError: query.isError, create, link, putOn, unlink };
 }
+
+/** A service's money settings (Council Outlay 14, B4), for managers: the box costs a new sailing starts with, and the minimum earning per W/M. Saving reads every sailing's earnings again. */
+export function useServiceMoney(serviceId: string, enabled: boolean) {
+  const qc = useQueryClient();
+  const key = [...LIST_KEY, "service-money", serviceId];
+  const query = useQuery({ queryKey: key, queryFn: () => api.shipments.coLoadingServiceMoney(serviceId), enabled: enabled && isUuid(serviceId) });
+  const save = useMutation({
+    mutationFn: (money: { defaultBoxCosts: { kind: string; amount: number | null; currency: string; note: string }[] | null; minEarningPerWm: number | null }) => api.shipments.coLoadingServiceMoneySet(serviceId, money),
+    onSuccess: () => qc.invalidateQueries({ queryKey: LIST_KEY }),
+  });
+  return { money: query.data ?? null, isLoading: query.isLoading, isError: query.isError, save };
+}
+
+/** A service's trend (Council Outlay 14, B5), for managers: live figures, read again when the page is looked at. */
+export function useServiceTrend(serviceId: string, enabled: boolean) {
+  const query = useQuery({ queryKey: [...LIST_KEY, "service-trend", serviceId], queryFn: () => api.shipments.coLoadingServiceTrend(serviceId), enabled: enabled && isUuid(serviceId), staleTime: 0, refetchOnWindowFocus: true });
+  return { trend: query.data ?? null, isLoading: query.isLoading, isError: query.isError };
+}

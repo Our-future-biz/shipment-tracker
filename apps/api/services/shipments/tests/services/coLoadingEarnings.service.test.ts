@@ -33,7 +33,7 @@ const boxCosts = vi.hoisted(() => {
   return { BoxCostsChangedMeanwhile, repo: { list: vi.fn(), listOf: vi.fn(), save: vi.fn(), changes: vi.fn(), costedContainers: vi.fn() } };
 });
 const chat = vi.hoisted(() => ({ users: vi.fn(async () => [] as { id: string; email: string; displayName: string }[]), post: vi.fn() }));
-const services = vi.hoisted(() => ({ get: vi.fn(), list: vi.fn(), requireOpen: vi.fn(), planningVolumePct: vi.fn() }));
+const services = vi.hoisted(() => ({ get: vi.fn(), list: vi.fn(), requireOpen: vi.fn(), planningVolumePct: vi.fn(), money: vi.fn() }));
 const fx = vi.hoisted(() => ({ fxRatesOn: vi.fn() }));
 const invoicing = vi.hoisted(() => ({ _internalCoLoadingMoney: vi.fn() }));
 const names = vi.hoisted(() => ({ userNameOf: vi.fn() }));
@@ -130,6 +130,7 @@ beforeEach(() => {
   boxCosts.repo.list.mockResolvedValue([]);
   boxCosts.repo.costedContainers.mockResolvedValue([]);
   services.get.mockResolvedValue({ id: SERVICE, mode: "sea_lcl", inlandWeightKg: null, serviceName: "ISHA", closedAt: null });
+  services.money.mockResolvedValue({ defaultBoxCosts: null, minEarningPerWm: null });
   services.requireOpen.mockResolvedValue({ id: SERVICE, mode: "sea_lcl", inlandWeightKg: null, serviceName: "ISHA", closedAt: null });
   services.planningVolumePct.mockResolvedValue(85);
   fx.fxRatesOn.mockResolvedValue(rates());
@@ -807,5 +808,43 @@ describe("cargo changed since linked (Council Outlay 14, C4)", () => {
   it("never fails the shipment's save when the box cannot be read", async () => {
     repo.boxShipments.mockRejectedValue(new Error("db down"));
     await expect(service.cargoChanged(A, COMPANY, "u-other")).resolves.toBeUndefined();
+  });
+});
+
+describe("a service's money settings on its sailings (Council Outlay 14, B4)", () => {
+  it("gives a new sailing the service's default box costs on each of its containers", async () => {
+    const defaults = [
+      { kind: "origin", amount: null, currency: "EUR", note: "" },
+      { kind: "ocean", amount: 2100, currency: "USD", note: "" },
+      { kind: "destination", amount: 300, currency: "EUR", note: "terminal" },
+    ];
+    // Whatever an earlier test left this stand-in doing is taken off first.
+    boxCosts.repo.save.mockReset();
+    boxCosts.repo.save.mockResolvedValue(undefined);
+    services.requireOpen.mockResolvedValue({ id: SERVICE, defaultBoxCosts: defaults, minEarningPerWm: null });
+    repo.create.mockResolvedValue(sailing({ containerCount: 2 }));
+    await service.create(SERVICE, { vessel: "WEEK 2", voyage: "", pol: "Shanghai (CNSHA)", pod: "Hamburg (DEHAM)", hub: "Praha (CZPRG)", containerType: "40' HC", containerCount: 2 }, USER);
+    expect(boxCosts.repo.save).toHaveBeenCalledTimes(2);
+    expect(boxCosts.repo.save).toHaveBeenCalledWith(SAILING, COMPANY, 1, expect.arrayContaining([expect.objectContaining({ kind: "ocean", amount: 2100, currency: "USD", note: "Service default" }), expect.objectContaining({ kind: "destination", note: "terminal" })]), null, { id: "u-user", name: "Jana Nová" });
+    expect(boxCosts.repo.save).toHaveBeenCalledWith(SAILING, COMPANY, 2, expect.anything(), null, expect.anything());
+  });
+
+  it("makes the sailing all the same when it has no defaults, or when they cannot be written", async () => {
+    boxCosts.repo.save.mockReset();
+    services.requireOpen.mockResolvedValue({ id: SERVICE });
+    repo.create.mockResolvedValue(sailing());
+    const input = { vessel: "WEEK 2", voyage: "", pol: "Shanghai (CNSHA)", pod: "Hamburg (DEHAM)", hub: "Praha (CZPRG)", containerType: "40' HC" };
+    expect((await service.create(SERVICE, input, USER)).id).toBe(SAILING);
+    expect(boxCosts.repo.save).not.toHaveBeenCalled();
+    services.requireOpen.mockResolvedValue({ id: SERVICE, defaultBoxCosts: [{ kind: "ocean", amount: 1, currency: "EUR", note: "" }] });
+    boxCosts.repo.save.mockRejectedValue(new Error("db down"));
+    expect((await service.create(SERVICE, input, USER)).id).toBe(SAILING);
+  });
+
+  it("marks the rows below the service's minimum on the sailing's earnings", async () => {
+    services.money.mockResolvedValue({ defaultBoxCosts: null, minEarningPerWm: 1_000_000 });
+    const earnings = await service.earnings(SAILING, COMPANY);
+    expect(earnings.minEarningPerWm).toBe(1_000_000);
+    expect(earnings.belowFloor).toBe(earnings.rows.filter((r) => r.belowFloor).length);
   });
 });

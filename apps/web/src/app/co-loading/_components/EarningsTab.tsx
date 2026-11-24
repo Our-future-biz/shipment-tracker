@@ -14,7 +14,7 @@ import { earnedPerWm, sellRestOf, sellRestWords } from "../_lib/sellRest";
 import { WhatIfCard } from "./WhatIfCard";
 import { BTN, BTN_PRIMARY, CARD, EMPTY_STATE, HINT, LINK, REF, TD, TD_TOTAL, TH } from "@/styles/ui";
 import { tableFreightTons } from "../_lib/boxUtilization";
-import {
+import { floorWords,
   BOX_COST_LABEL,
   amountWords,
   boxCostWords,
@@ -330,6 +330,12 @@ export function EarningsTab({ sailingId, containerType, closed, onOpenShipments 
       </div>
 
       <Checks checks={earningsChecks(earnings)} />
+      {/* The service's minimum earning per W/M (Council Outlay 14, B4): how the shipments stand against it. A mark only. */}
+      {floorWords(earnings) && (
+        <p className={`m-0 text-[13px] ${(earnings.belowFloor ?? 0) > 0 ? "font-medium text-amber-700" : "text-slate-500"}`} role="status">
+          {floorWords(earnings)}
+        </p>
+      )}
 
       {known && (breakEvenWords(earnings) || unsoldWords(earnings) || unpriced.length > 0) && (
         <section className={`${CARD} flex flex-col gap-1.5 px-5 py-4 text-[13px] text-slate-700`} aria-label="Break-even and unused space">

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { checksSummary, earningsChecks, unpricedShipments, lead, breakEvenWords, profitGlance, unsoldWords, profitProvisional, amountWords, boxCostWords, boxRateWords, changeWords, earningsNotes, earningsWarnings, invoicedHint, marginWords, sailingProfitOf, type BoxCostChange, type EarningsAmount, type EarningsRow, type SailingBoxCosts, type SailingEarnings } from "./earnings";
+import { checksSummary, earningsChecks, unpricedShipments, lead, breakEvenWords, profitGlance, unsoldWords, profitProvisional, amountWords, boxCostWords, boxRateWords, changeWords, earningsNotes, floorWords, trendArrow, trendWords, earningsWarnings, invoicedHint, marginWords, sailingProfitOf, type BoxCostChange, type EarningsAmount, type EarningsRow, type SailingBoxCosts, type SailingEarnings } from "./earnings";
 // The server's own reading of a sailing's profit (shipments lib/coLoadingEarnings): pure, so it runs here
 // beside the header's copy, and the two cannot drift apart unseen.
 import { sailingProfit as serverSailingProfit } from "../../../../../api/services/shipments/lib/coLoadingEarnings";
@@ -424,5 +424,30 @@ describe("a sailing's profit read off its earnings, for its header", () => {
       earnings(),
     ];
     for (const e of cases) expect(sailingProfitOf("s1", e)).toEqual(serverSailingProfit("s1", e));
+  });
+});
+
+describe("the service's minimum and its trend (Council Outlay 14, B4 and B5)", () => {
+  it("says how the shipments stand against the minimum, and nothing while there is none", () => {
+    expect(floorWords({ minEarningPerWm: null, belowFloor: 0 })).toBe("");
+    expect(floorWords({})).toBe("");
+    expect(floorWords({ minEarningPerWm: 85.5, belowFloor: 0 })).toBe("Every shipment earns at least the service's minimum of 85.50 EUR per W/M before the box.");
+    expect(floorWords({ minEarningPerWm: 85.5, belowFloor: 2 })).toBe("2 shipments earn less than the service's minimum of 85.50 EUR per W/M before the box.");
+  });
+
+  it("says the trend in one sentence, and what of it is known", () => {
+    const base = { sailings: Array(8).fill(null), averageFillPct: 62, averageProfitEur: 1240, profitKnown: 8, belowBreakEven: 2, breakEvenKnown: 8 };
+    expect(trendWords(base)).toBe("Last 8 sailings: average fill 62%, average profit 1,240.00 EUR, 2 below break-even.");
+    expect(trendWords({ ...base, profitKnown: 5, breakEvenKnown: 6 })).toBe("Last 8 sailings: average fill 62%, average profit 1,240.00 EUR (of 5 known), 2 below break-even (of 6 known).");
+    expect(trendWords({ sailings: [null], averageFillPct: null, averageProfitEur: null, profitKnown: 0, belowBreakEven: 0, breakEvenKnown: 0 })).toBe("Last sailing: fill not known, profit not known, break-even not known.");
+    expect(trendWords({ ...base, sailings: [] })).toBe("No sailing of this service has left yet.");
+  });
+
+  it("points an arrow against the sailing before, and none where a figure is not known", () => {
+    expect(trendArrow(60, 50)).toBe("up");
+    expect(trendArrow(-10, 50)).toBe("down");
+    expect(trendArrow(50, 50)).toBe("same");
+    expect(trendArrow(null, 50)).toBeNull();
+    expect(trendArrow(50, undefined)).toBeNull();
   });
 });

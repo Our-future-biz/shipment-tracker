@@ -225,6 +225,8 @@ export function earningsNotes(row: EarningsRow): EarningsNote[] {
   if (row.cargoImplausible) add("Check cargo figures", "red", "Its cargo figures cannot be right, so its share of the box costs is not to be trusted.");
   else if (row.cargoGap) add(`${row.cargoGap === "weight" ? "Weight" : "Volume"} missing`, "amber", `Its ${row.cargoGap} is missing: its share of the box costs may be too low.`);
   if (row.handRoadLines > 0) add("Road freight by hand", "slate", "Road freight typed by hand: if it is the trunk haul to the hub, it belongs under Origin Costs of the box.");
+  // Below the service's minimum earning per W/M (Council Outlay 14, B4): a mark, nothing is refused.
+  if (row.belowFloor) add("Below the minimum", "amber", "It earns less per W/M before the box than the minimum set for this service.");
   if (row.counted && lead(row.beforeBox) < 0) add("Sells below cost", "red", "Its own costs are more than it sells for, before any box costs.");
   else if (row.profit && lead(row.profit) < 0) add("Loss after box share", "red", "It earns less than its share of the box costs.");
   if (row.ownBox.czk !== 0) add(`Own freight ${amountWords(row.ownBox).main}`, "amber", "Freight, fuel or terminal handling as its own buying cost: not counted here, the box costs cover it.");
@@ -240,4 +242,31 @@ export function invoicedHint(e: SailingEarnings): string {
   // "All" only when all of it is: 99.6% is not all of the revenue.
   if (invoiced.czk >= selling.czk) return "fully invoiced";
   return `${Math.min(99, Math.floor((invoiced.czk / selling.czk) * 100))}% invoiced`;
+}
+
+/** The Earnings tab's line about the service's minimum earning per W/M; "" while the service has none (Council Outlay 14, B4). */
+export function floorWords(e: Pick<SailingEarnings, "minEarningPerWm" | "belowFloor">): string {
+  if (e.minEarningPerWm == null) return "";
+  const min = `${e.minEarningPerWm.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} EUR per W/M`;
+  const below = e.belowFloor ?? 0;
+  return below === 0 ? `Every shipment earns at least the service's minimum of ${min} before the box.` : `${below === 1 ? "1 shipment earns" : `${below} shipments earn`} less than the service's minimum of ${min} before the box.`;
+}
+
+/** How a figure stands against the sailing before it: "up", "down", "same"; null when either is not known. */
+export const trendArrow = (now: number | null, before: number | null | undefined): "up" | "down" | "same" | null => (now === null || before == null ? null : now > before ? "up" : now < before ? "down" : "same");
+
+/** A service's trend in one sentence: "Last 8 sailings: average fill 62%, average profit 1,240.00 EUR, 2 below break-even." */
+export function trendWords(t: { sailings: readonly unknown[]; averageFillPct: number | null; averageProfitEur: number | null; profitKnown: number; belowBreakEven: number; breakEvenKnown: number }): string {
+  const n = t.sailings.length;
+  if (n === 0) return "No sailing of this service has left yet.";
+  const eur = (v: number) => `${v.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} EUR`;
+  const of = (known: number) => (known < n ? ` (of ${known} known)` : "");
+  return [
+    `Last ${n === 1 ? "sailing" : `${n} sailings`}:`,
+    [
+      t.averageFillPct === null ? "fill not known" : `average fill ${t.averageFillPct}%`,
+      t.averageProfitEur === null ? "profit not known" : `average profit ${eur(t.averageProfitEur)}${of(t.profitKnown)}`,
+      t.breakEvenKnown === 0 ? "break-even not known" : `${t.belowBreakEven} below break-even${of(t.breakEvenKnown)}`,
+    ].join(", "),
+  ].join(" ") + ".";
 }

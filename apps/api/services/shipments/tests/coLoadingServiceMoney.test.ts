@@ -1,0 +1,94 @@
+import { describe, expect, it } from "vitest";
+import type { EarningsRow, SailingEarnings } from "../interfaces/interfaces";
+import { cleanServiceMoney, earnedPerWmEur, moneyOfRow, serviceTrend, withFloor, type TrendInput } from "../lib/coLoadingServiceMoney";
+
+const amount = (eur: number | null, czk = (eur ?? 0) * 25) => ({ czk, eur });
+const row = (more: Partial<EarningsRow> = {}): EarningsRow => ({ shipmentId: "s", counted: true, moneyKnown: true, freightTons: 4, beforeBox: amount(400), ...more }) as EarningsRow;
+
+describe("a service's money settings (Council Outlay 14, B4)", () => {
+  it("keeps the default box costs as a container's three costs, and stores none when no amount is given", () => {
+    const set = cleanServiceMoney({ defaultBoxCosts: [{ kind: "ocean", amount: 2100, currency: "usd", note: " carrier's tariff " }], minEarningPerWm: 85.5 });
+    expect(set).toEqual({
+      money: {
+        defaultBoxCosts: [
+          { kind: "origin", amount: null, currency: "EUR", note: "" },
+          { kind: "ocean", amount: 2100, currency: "USD", note: "carrier's tariff" },
+          { kind: "destination", amount: null, currency: "EUR", note: "" },
+        ],
+        minEarningPerWm: 85.5,
+      },
+    });
+    expect(cleanServiceMoney({ defaultBoxCosts: [{ kind: "ocean", amount: null, currency: "EUR", note: "" }], minEarningPerWm: null })).toEqual({ money: { defaultBoxCosts: null, minEarningPerWm: null } });
+    expect(cleanServiceMoney({ defaultBoxCosts: null, minEarningPerWm: null })).toEqual({ money: { defaultBoxCosts: null, minEarningPerWm: null } });
+  });
+
+  it("refuses a cost that is none and a minimum that is no amount", () => {
+    expect(cleanServiceMoney({ defaultBoxCosts: [{ kind: "ocean", amount: -1, currency: "EUR", note: "" }], minEarningPerWm: null })).toHaveProperty("error");
+    expect(cleanServiceMoney({ defaultBoxCosts: [{ kind: "fuel", amount: 1, currency: "EUR", note: "" }], minEarningPerWm: null })).toHaveProperty("error");
+    expect(cleanServiceMoney({ defaultBoxCosts: null, minEarningPerWm: 0 })).toHaveProperty("error");
+    expect(cleanServiceMoney({ defaultBoxCosts: null, minEarningPerWm: 10.123 })).toHaveProperty("error");
+  });
+
+  it("reads a stored service's settings, and none from a service that has none", () => {
+    expect(moneyOfRow({ defaultBoxCosts: null, minEarningPerWm: "85.50" })).toEqual({ defaultBoxCosts: null, minEarningPerWm: 85.5 });
+    expect(moneyOfRow({})).toEqual({ defaultBoxCosts: null, minEarningPerWm: null });
+  });
+
+  it("marks the rows that earn less per W/M than the minimum, and none where that cannot be said", () => {
+    expect(earnedPerWmEur(row())).toBe(100);
+    expect(earnedPerWmEur(row({ freightTons: 0 }))).toBeNull();
+    expect(earnedPerWmEur(row({ beforeBox: amount(null, 9000) }))).toBeNull();
+    expect(earnedPerWmEur(row({ counted: false }))).toBeNull();
+    const earnings = { rows: [row({ shipmentId: "low", beforeBox: amount(200) }), row({ shipmentId: "fine" }), row({ shipmentId: "unknown", moneyKnown: false })] } as SailingEarnings;
+    const marked = withFloor(earnings, 80);
+    expect(marked.rows.map((r) => [r.shipmentId, r.belowFloor ?? false])).toEqual([["low", true], ["fine", false], ["unknown", false]]);
+    expect(marked).toMatchObject({ minEarningPerWm: 80, belowFloor: 1 });
+    // No minimum: nothing is marked.
+    expect(withFloor(earnings, null)).toMatchObject({ minEarningPerWm: null, belowFloor: 0 });
+    expect(withFloor(earnings, null).rows.some((r) => r.belowFloor)).toBe(false);
+  });
+});
+
+describe("a service's trend (Council Outlay 14, B5)", () => {
+  const TODAY = "2026-11-24";
+  const sailing = (n: number, more: Partial<TrendInput> = {}, money: { profit?: number | null; reached?: boolean | null; known?: boolean } = {}): TrendInput => ({
+    sailingId: `s${n}`,
+    name: `WEEK ${n}`,
+    departureDate: `2026-${String(Math.ceil(n / 4)).padStart(2, "0")}-${String(((n - 1) % 4) * 7 + 1).padStart(2, "0")}`,
+    stage: "open",
+    createdAt: new Date(2026, 0, n),
+    fullPct: 50 + n,
+    earnings: {
+      moneyKnown: money.known ?? true,
+      totals: { profit: money.profit === null ? null : amount(money.profit ?? n * 100), marginPct: 10 },
+      breakEven: money.reached === null ? null : { reached: money.reached ?? true },
+    } as SailingEarnings,
+    ...more,
+  });
+
+  it("takes the last eight sailings that have left, the oldest first, and averages them", () => {
+    const all = Array.from({ length: 10 }, (_, i) => sailing(i + 1));
+    const trend = serviceTrend([...all, sailing(60, { departureDate: "2026-12-20" }), sailing(61, { departureDate: null })], TODAY);
+    expect(trend.sailings.map((s) => s.name)).toEqual(["WEEK 3", "WEEK 4", "WEEK 5", "WEEK 6", "WEEK 7", "WEEK 8", "WEEK 9", "WEEK 10"]);
+    expect(trend.averageFillPct).toBe(57);
+    expect(trend.averageProfitEur).toBe(650);
+    expect(trend).toMatchObject({ profitKnown: 8, belowBreakEven: 0, breakEvenKnown: 8 });
+  });
+
+  it("counts a sailing set to Departed by hand, whatever its date", () => {
+    expect(serviceTrend([sailing(1, { departureDate: null, stage: "departed" }), sailing(2, { departureDate: "2026-12-20", stage: "arrived" })], TODAY).sailings).toHaveLength(2);
+    expect(serviceTrend([sailing(1, { departureDate: "2026-12-20", stage: "closed" })], TODAY).sailings).toEqual([]);
+  });
+
+  it("leaves a figure that is not known out of its average, and counts those below break-even", () => {
+    const trend = serviceTrend([sailing(1, {}, { profit: -200, reached: false }), sailing(2, {}, { profit: null, reached: null }), sailing(3, { fullPct: null }, { known: false }), sailing(4, {}, { profit: 400, reached: true })], TODAY);
+    expect(trend.sailings.map((s) => [s.profitEur, s.belowBreakEven])).toEqual([[-200, true], [null, null], [null, false], [400, false]]);
+    expect(trend.averageProfitEur).toBe(100);
+    expect(trend.averageFillPct).toBe(52);
+    expect(trend).toMatchObject({ profitKnown: 2, belowBreakEven: 1, breakEvenKnown: 3 });
+  });
+
+  it("is empty for a service whose sailings are all still to come", () => {
+    expect(serviceTrend([sailing(60, { departureDate: "2026-12-20" })], TODAY)).toEqual({ sailings: [], averageFillPct: null, averageProfitEur: null, profitKnown: 0, belowBreakEven: 0, breakEvenKnown: 0 });
+  });
+});
