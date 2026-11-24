@@ -3,8 +3,9 @@ import type { MaxLen } from "encore.dev/validate";
 import { getAuthData } from "~encore/auth";
 import { mainSearchInput } from "../../../lib/mainSearch";
 import { requireRole } from "../../../lib/rbac";
-import type { BoxCostChange, BoxUtilization, CoLoadingBoard, CoLoadingSailingItem, SearchCoLoadingItem, SearchMasterJobsRequest, SailingEarnings, SailingProfit, SailingCopyResult, SailingPlanCargo, SailingRemovedShipment, SailingShipmentFacts, ShipmentSailing } from "../interfaces/interfaces";
+import type { BoxCostChange, BoxUtilization, CoLoadingBoard, CoLoadingSailingItem, SearchCoLoadingItem, SearchMasterJobsRequest, SailingEarnings, SailingLog, SailingProfit, SailingCopyResult, SailingPlanCargo, SailingRemovedShipment, SailingShipmentFacts, ShipmentSailing } from "../interfaces/interfaces";
 import { coLoadingCopyService } from "../services/coLoadingCopy.service";
+import { coLoadingLogService } from "../services/coLoadingLog.service";
 import { coLoadingSailingService as service } from "../services/coLoadingSailing.service";
 
 // A Co-Loading Concept service's sailings (lib/coLoadingSailing), for everyone in the company.
@@ -288,5 +289,29 @@ export const _internalSailingRef = api(
   { expose: false, auth: true, method: "POST", path: "/internal/co-loading/sailing-ref" },
   async ({ sailingId }: { sailingId: string }): Promise<{ reference: string | null }> => {
     return { reference: await service.referenceOf(sailingId, getAuthData()!.companyID) };
+  },
+);
+
+// A sailing's checklist, hand-over note and history (Council Outlay 14, C5). For everyone; no money.
+export const coLoadingSailingLog = api(
+  { expose: true, auth: true, method: "GET", path: "/co-loading/sailings/:id/log" },
+  async ({ id }: { id: string }): Promise<SailingLog> => {
+    return coLoadingLogService.log(id, getAuthData()!.companyID);
+  },
+);
+
+// Ticks or unticks a step of the sailing's checklist. Refused while the service is closed.
+export const coLoadingSailingTick = api(
+  { expose: true, auth: true, method: "PUT", path: "/co-loading/sailings/:id/checklist" },
+  async ({ id, step, done }: { id: string; step: string & MaxLen<200>; done: boolean }): Promise<SailingLog> => {
+    return coLoadingLogService.setTick(id, step, done, getAuthData()!);
+  },
+);
+
+// Writes the sailing's hand-over note; "" clears it. Refused while the service is closed.
+export const coLoadingSailingNote = api(
+  { expose: true, auth: true, method: "PUT", path: "/co-loading/sailings/:id/note" },
+  async ({ id, note }: { id: string; note: string & MaxLen<4000> }): Promise<SailingLog> => {
+    return coLoadingLogService.setNote(id, note, getAuthData()!);
   },
 );

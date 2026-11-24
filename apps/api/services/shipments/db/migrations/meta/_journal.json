@@ -736,6 +736,13 @@
       "when": 1795531542472,
       "tag": "0104_co_loading_sailing_stage",
       "breakpoints": true
+    },
+    {
+      "idx": 105,
+      "version": "7",
+      "when": 1795533013874,
+      "tag": "0105_co_loading_checklist_note",
+      "breakpoints": true
     }
   ]
 }

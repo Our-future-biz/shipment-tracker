@@ -87,14 +87,16 @@ describe("a sailing's page", () => {
     expect(SAILING_TABS.map((t) => t.label)).toEqual([
       "Box utilization",
       "Linked shipments",
+      "Checklist and history",
       "Earnings",
     ]);
+    expect(sailingTabOf("log", false)).toBe("log");
     expect(sailingTabOf(null)).toBe("box");
     expect(sailingTabOf("earnings")).toBe("earnings");
     expect(sailingTabOf("nonsense")).toBe("box");
     // Earnings is the managers' tab: nobody else sees it or opens it by its address.
-    expect(sailingTabsFor(true).map((t) => t.key)).toEqual(["box", "shipments", "earnings"]);
-    expect(sailingTabsFor(false).map((t) => t.key)).toEqual(["box", "shipments"]);
+    expect(sailingTabsFor(true).map((t) => t.key)).toEqual(["box", "shipments", "log", "earnings"]);
+    expect(sailingTabsFor(false).map((t) => t.key)).toEqual(["box", "shipments", "log"]);
     expect(sailingTabOf("earnings", false)).toBe("box");
   });
 });

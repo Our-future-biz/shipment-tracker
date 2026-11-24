@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const repo = vi.hoisted(() => ({ list: vi.fn(), get: vi.fn(), byName: vi.fn(), setClosed: vi.fn(), setInlandWeight: vi.fn(), create: vi.fn() }));
-const settings = vi.hoisted(() => ({ get: vi.fn(), savePlanningPct: vi.fn() }));
+const settings = vi.hoisted(() => ({ get: vi.fn(), savePlanningPct: vi.fn(), saveChecklist: vi.fn() }));
 vi.mock("encore.dev/api", () => import("../../../../lib/tests/encoreApi.stub"));
 vi.mock("../../lib/userName", () => ({ userNameOf: async () => "Jana Nová" }));
 vi.mock("../../repositories/coLoadingService.repository", () => ({ coLoadingServiceRepository: repo }));
@@ -110,10 +110,23 @@ describe("a service's inland weight", () => {
 describe("the company's planning share", () => {
   it("is 85% until a manager changes it, and saved for the caller's company only", async () => {
     settings.get.mockResolvedValue(null);
-    expect(await service.settings(COMPANY, "user")).toEqual({ planningVolumePct: 85, changed: false, canEdit: false });
+    expect(await service.settings(COMPANY, "user")).toMatchObject({ planningVolumePct: 85, changed: false, canEdit: false });
     await expect(service.saveSettings(49, MANAGER)).rejects.toMatchObject({ code: "invalid_argument" });
     settings.get.mockResolvedValue({ companyId: COMPANY, planningVolumePct: 80 });
-    expect(await service.saveSettings(80, MANAGER)).toEqual({ planningVolumePct: 80, changed: true, canEdit: true });
+    expect(await service.saveSettings(80, MANAGER)).toMatchObject({ planningVolumePct: 80, changed: true, canEdit: true });
     expect(settings.savePlanningPct).toHaveBeenCalledWith(COMPANY, 80, "u-manager");
+  });
+
+  it("keeps the company's own checklist per direction, tidied, and the six steps where none is set (C5)", async () => {
+    settings.get.mockResolvedValue(null);
+    expect((await service.settings(COMPANY, "user")).checklistImport).toHaveLength(6);
+    await expect(service.saveChecklist("sideways", ["A"], MANAGER)).rejects.toMatchObject({ code: "invalid_argument" });
+    await expect(service.saveChecklist("import", ["A", "a"], MANAGER)).rejects.toMatchObject({ code: "invalid_argument" });
+    settings.get.mockResolvedValue({ companyId: COMPANY, planningVolumePct: 85, checklistImport: ["Booking confirmed", "Devanned"], checklistExport: null });
+    const saved = await service.saveChecklist("import", [" Booking confirmed ", "Devanned", ""], MANAGER);
+    expect(settings.saveChecklist).toHaveBeenCalledWith(COMPANY, "import", ["Booking confirmed", "Devanned"], "u-manager", 85);
+    // A row made for the checklist alone still plans with the starting figure.
+    expect(saved).toMatchObject({ changed: false, checklistImport: ["Booking confirmed", "Devanned"] });
+    expect(saved.checklistExport).toHaveLength(6);
   });
 });

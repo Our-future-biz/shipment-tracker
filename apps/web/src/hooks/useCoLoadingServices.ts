@@ -43,7 +43,23 @@ export function useCoLoadingSettings() {
     // Every box's fill is worked out with the share: all of Co-Loading is read again.
     onSuccess: () => qc.invalidateQueries({ queryKey: LIST_KEY }),
   });
-  return { settings: query.data ?? null, isLoading: query.isLoading, isError: query.isError, save };
+  // The steps of the sailings' checklist, for import or for export services: every sailing's checklist is read again.
+  const saveChecklist = useMutation({
+    mutationFn: (input: { direction: "import" | "export"; steps: string[] }) => api.shipments.coLoadingSettingsChecklist(input),
+    onSuccess: () => qc.invalidateQueries({ queryKey: LIST_KEY }),
+  });
+  return { settings: query.data ?? null, isLoading: query.isLoading, isError: query.isError, save, saveChecklist };
+}
+
+/** A sailing's checklist, hand-over note and history (Council Outlay 14, C5), with the tick and the note to set. Read again with every other view of the sailing. */
+export function useSailingLog(id: string) {
+  const qc = useQueryClient();
+  const key = [...LIST_KEY, "sailing-log", id];
+  const query = useQuery({ queryKey: key, queryFn: () => api.shipments.coLoadingSailingLog(id), enabled: !!id });
+  const took = (log: interfaces.SailingLog) => qc.setQueryData(key, log);
+  const tick = useMutation({ mutationFn: (input: { step: string; done: boolean }) => api.shipments.coLoadingSailingTick(id, input), onSuccess: took });
+  const note = useMutation({ mutationFn: (text: string) => api.shipments.coLoadingSailingNote(id, { note: text }), onSuccess: took });
+  return { log: query.data ?? null, isLoading: query.isLoading, isError: query.isError, tick, note };
 }
 
 /** A manager sets a service's lower cargo weight for its inland leg, or takes it off. */

@@ -9,6 +9,8 @@ vi.mock("encore.dev/api", async () => ({ ...(await import("../../../lib/tests/en
 vi.mock("~encore/auth", () => ({ getAuthData: () => ({ userID: "u1", companyID: COMPANY, role: who.role }) }));
 // The copy to shipments goes through the shipment service, which needs the database: a stand-in keeps this file to the controller.
 vi.mock("../services/coLoadingCopy.service", () => ({ coLoadingCopyService: { facts: vi.fn(), copy: vi.fn() } }));
+// The checklist, note and history read the database: a stand-in, as for the copy.
+vi.mock("../services/coLoadingLog.service", () => ({ coLoadingLogService: { log: vi.fn(), setTick: vi.fn(), setNote: vi.fn() } }));
 vi.mock("../services/coLoadingSailing.service", () => ({ coLoadingSailingService: service }));
 
 import * as controller from "../controllers/coLoadingSailing.controller";

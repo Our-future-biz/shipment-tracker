@@ -2301,6 +2301,39 @@ export interface CoLoadingSettings {
   /** A manager changed it; false while the company plans with the starting figure. */
   changed: boolean;
   canEdit: boolean;
+  /** The steps of a sailing's checklist on an import service, and on an export one (Council Outlay 14, C5). */
+  checklistImport: string[];
+  checklistExport: string[];
+}
+
+/** One step of a sailing's checklist. */
+export interface SailingChecklistItem {
+  step: string;
+  /** Who ticked it and when (ISO); null while it is not ticked. */
+  doneByName: string | null;
+  doneAt: string | null;
+  /** Ticked on this sailing, but no longer a step of the company's list: shown until it is unticked. */
+  offList?: true;
+}
+
+/** One thing that happened to a sailing. No money. */
+export interface SailingHistoryEntry {
+  at: string;
+  /** Who did it, as named then; "" when not known. */
+  by: string;
+  kind: "created" | "changed" | "stage" | "note" | "check" | "linked" | "removed" | "moved";
+  text: string;
+}
+
+/** A sailing's checklist, hand-over note and history (Council Outlay 14, C5). */
+export interface SailingLog {
+  checklist: SailingChecklistItem[];
+  note: string;
+  /** Who wrote the note last and when (ISO); "" and null while there is none. */
+  noteByName: string;
+  noteAt: string | null;
+  /** The latest first: its making, every kept change of it, every shipment that came on or left. */
+  history: SailingHistoryEntry[];
 }
 
 /** A Co-Loading Concept service's sailing, as its page lists it (lib/coLoadingSailing). */
@@ -2738,7 +2771,7 @@ export interface BoxCostChange {
    * A box cost, or a change of the sailing itself: "containers" (old and new number in the amounts), "departure" and
    * "cutoff" (old and new date in the notes), "vessel", "voyage", "pol", "pod", "hub", "container_type" (old and new words in the notes).
    */
-  kind: BoxCostKind | "containers" | "departure" | "cutoff" | "vessel" | "voyage" | "pol" | "pod" | "hub" | "container_type";
+  kind: BoxCostKind | "containers" | "departure" | "cutoff" | "vessel" | "voyage" | "pol" | "pod" | "hub" | "container_type" | "stage" | "note" | "check";
   oldAmount: number | null;
   oldCurrency: string;
   oldNote: string;

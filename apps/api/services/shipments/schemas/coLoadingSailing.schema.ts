@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { check, date, index, integer, pgTable, text, uuid } from "drizzle-orm/pg-core";
+import { check, date, index, integer, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
 import { defaultTableColumns, defaultTableIndexes, tenantColumns, tenantIndex } from "../../../lib/db/defaults";
 
 // A Co-Loading Concept service's sailing (lib/coLoadingSailing): the vessel the service's cargo goes on,
@@ -29,6 +29,10 @@ export const coLoadingSailingTable = pgTable(
     // Where the sailing stands, set by hand (Council Outlay 14, C3): open, closed (for cargo), departed,
     // arrived, devanned. From "closed" on, linking a shipment asks for a reason.
     stage: text("stage").notNull().default("open"),
+    // A free note for hand-overs (Council Outlay 14, C5), with who wrote it last and when.
+    note: text("note").notNull().default(""),
+    noteByName: text("note_by_name").notNull().default(""),
+    noteAt: timestamp("note_at", { withTimezone: true }),
     createdById: uuid("created_by_id"),
     createdByName: text("created_by_name").notNull().default(""),
   },

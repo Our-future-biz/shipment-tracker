@@ -188,6 +188,7 @@ export const sailingTitle = (s: { vessel: string; voyage: string }) =>
 export const SAILING_TABS = [
   { key: "box", label: "Box utilization" },
   { key: "shipments", label: "Linked shipments" },
+  { key: "log", label: "Checklist and history" },
   { key: "earnings", label: "Earnings" },
 ] as const;
 export type SailingTab = (typeof SAILING_TABS)[number]["key"];

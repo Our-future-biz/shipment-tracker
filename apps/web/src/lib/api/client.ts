@@ -3456,6 +3456,10 @@ export namespace shipments {
             this.coLoadingServiceReopen = this.coLoadingServiceReopen.bind(this)
             this.coLoadingSettingsGet = this.coLoadingSettingsGet.bind(this)
             this.coLoadingSettingsSet = this.coLoadingSettingsSet.bind(this)
+            this.coLoadingSettingsChecklist = this.coLoadingSettingsChecklist.bind(this)
+            this.coLoadingSailingLog = this.coLoadingSailingLog.bind(this)
+            this.coLoadingSailingTick = this.coLoadingSailingTick.bind(this)
+            this.coLoadingSailingNote = this.coLoadingSailingNote.bind(this)
             this.commentCreate = this.commentCreate.bind(this)
             this.commentDelete = this.commentDelete.bind(this)
             this.commentList = this.commentList.bind(this)
@@ -3988,6 +3992,38 @@ export namespace shipments {
         /**
          * A manager sets the planning share (50 to 100 percent).
          */
+        /**
+         * A manager sets the steps of the sailings' checklist, for "import" or for "export" services.
+         */
+        public async coLoadingSettingsChecklist(params: { direction: string; steps: string[] }): Promise<interfaces.CoLoadingSettings> {
+            const resp = await this.baseClient.callTypedAPI("PUT", `/co-loading/settings/checklist`, JSON.stringify(params))
+            return await resp.json() as interfaces.CoLoadingSettings
+        }
+
+        /**
+         * A sailing's checklist, hand-over note and history. For everyone; no money.
+         */
+        public async coLoadingSailingLog(id: string): Promise<interfaces.SailingLog> {
+            const resp = await this.baseClient.callTypedAPI("GET", `/co-loading/sailings/${encodeURIComponent(id)}/log`)
+            return await resp.json() as interfaces.SailingLog
+        }
+
+        /**
+         * Ticks or unticks a step of the sailing's checklist.
+         */
+        public async coLoadingSailingTick(id: string, params: { step: string; done: boolean }): Promise<interfaces.SailingLog> {
+            const resp = await this.baseClient.callTypedAPI("PUT", `/co-loading/sailings/${encodeURIComponent(id)}/checklist`, JSON.stringify(params))
+            return await resp.json() as interfaces.SailingLog
+        }
+
+        /**
+         * Writes the sailing's hand-over note; "" clears it.
+         */
+        public async coLoadingSailingNote(id: string, params: { note: string }): Promise<interfaces.SailingLog> {
+            const resp = await this.baseClient.callTypedAPI("PUT", `/co-loading/sailings/${encodeURIComponent(id)}/note`, JSON.stringify(params))
+            return await resp.json() as interfaces.SailingLog
+        }
+
         public async coLoadingSettingsSet(params: { planningVolumePct: number }): Promise<interfaces.CoLoadingSettings> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("PUT", `/co-loading/settings`, JSON.stringify(params))
@@ -16297,7 +16333,7 @@ export namespace interfaces {
         /**
          * A box cost, or a change of the sailing that moves them: "containers" (numbers in the amounts) or "departure" (dates in the notes).
          */
-        kind: BoxCostKind | "containers" | "departure" | "cutoff" | "vessel" | "voyage" | "pol" | "pod" | "hub" | "container_type"
+        kind: BoxCostKind | "containers" | "departure" | "cutoff" | "vessel" | "voyage" | "pol" | "pod" | "hub" | "container_type" | "stage" | "note" | "check"
         oldAmount: number | null
         oldCurrency: string
         oldNote: string
@@ -16831,6 +16867,48 @@ export namespace interfaces {
          */
         changed: boolean
         canEdit: boolean
+        /**
+         * The steps of a sailing's checklist on an import service, and on an export one.
+         */
+        checklistImport: string[]
+        checklistExport: string[]
+    }
+
+    /**
+     * One step of a sailing's checklist.
+     */
+    export interface SailingChecklistItem {
+        step: string
+        /**
+         * Who ticked it and when (ISO); null while it is not ticked.
+         */
+        doneByName: string | null
+        doneAt: string | null
+        /**
+         * Ticked on this sailing, but no longer a step of the company's list: shown until it is unticked.
+         */
+        offList?: true
+    }
+
+    /**
+     * One thing that happened to a sailing. No money.
+     */
+    export interface SailingHistoryEntry {
+        at: string
+        by: string
+        kind: "created" | "changed" | "stage" | "note" | "check" | "linked" | "removed" | "moved"
+        text: string
+    }
+
+    /**
+     * A sailing's checklist, hand-over note and history.
+     */
+    export interface SailingLog {
+        checklist: SailingChecklistItem[]
+        note: string
+        noteByName: string
+        noteAt: string | null
+        history: SailingHistoryEntry[]
     }
 
     /**

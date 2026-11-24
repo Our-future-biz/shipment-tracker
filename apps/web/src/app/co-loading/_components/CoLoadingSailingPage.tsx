@@ -17,6 +17,7 @@ import { sailingAttention } from "../_lib/attention";
 import { AttentionChips } from "./AttentionChips";
 import { BoxFillChip } from "./BoxFillChip";
 import { EditSailingModal } from "./EditSailingModal";
+import { SailingLogTab } from "./SailingLogTab";
 import { SailingStageControl } from "./SailingStageControl";
 import { BoxUtilizationTab } from "./BoxUtilizationTab";
 import { EarningsTab } from "./EarningsTab";
@@ -220,6 +221,9 @@ export function CoLoadingSailingPage() {
           )
         ) : sailing && tab === "box" ? (
           <BoxUtilizationTab sailingId={sailing.id} onOpenShipments={() => openTab("shipments")} />
+        ) : sailing && tab === "log" ? (
+          // Until the service is read the ticks and the note stay read-only: a closed service changes nothing.
+          <SailingLogTab sailingId={sailing.id} closed={!service || !!service.closedAt} />
         ) : sailing ? (
           <EarningsTab sailingId={sailing.id} containerType={sailing.containerType} closed={!!service?.closedAt} onOpenShipments={() => openTab("shipments")} />
         ) : isLoading ? (

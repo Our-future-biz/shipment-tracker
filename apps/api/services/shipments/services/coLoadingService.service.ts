@@ -1,6 +1,7 @@
 import { APIError } from "encore.dev/api";
 import { isUuid } from "../../../lib/uuid";
 import type { CoLoadingServiceItem, CoLoadingSettings } from "../interfaces/interfaces";
+import { checklistFor, cleanChecklist, isChecklistDirection } from "../lib/coLoadingLog";
 import { DEFAULT_PLANNING_VOLUME_PCT, inlandWeightProblem, planningPctProblem } from "../lib/coLoadingSettings";
 import { coLoadingSettingRepository } from "../repositories/coLoadingSetting.repository";
 import { canManageServices, checkServiceInput, closedServiceError, servicesSeenBy, type CoLoadingServiceInput } from "../lib/coLoadingService";
@@ -53,7 +54,23 @@ class CoLoadingServiceService {
   /** The company's settings: read by everyone, changed by managers. */
   async settings(companyId: string, role: string): Promise<CoLoadingSettings> {
     const row = await coLoadingSettingRepository.get(companyId);
-    return { planningVolumePct: row?.planningVolumePct ?? DEFAULT_PLANNING_VOLUME_PCT, changed: row !== null, canEdit: canManageServices(role) };
+    return {
+      planningVolumePct: row?.planningVolumePct ?? DEFAULT_PLANNING_VOLUME_PCT,
+      // A row made only to keep a checklist still plans with the starting figure.
+      changed: row !== null && row.planningVolumePct !== DEFAULT_PLANNING_VOLUME_PCT,
+      canEdit: canManageServices(role),
+      checklistImport: checklistFor(row, "import"),
+      checklistExport: checklistFor(row, "export"),
+    };
+  }
+
+  /** A manager sets the steps of the sailings' checklist, for import or for export services (Council Outlay 14, C5, D12). */
+  async saveChecklist(direction: string, steps: string[], actor: { userID: string; companyID: string; role: string }): Promise<CoLoadingSettings> {
+    if (!isChecklistDirection(direction)) throw APIError.invalidArgument("Say whether the checklist is for import or for export.");
+    const cleaned = cleanChecklist(steps);
+    if ("error" in cleaned) throw APIError.invalidArgument(cleaned.error);
+    await coLoadingSettingRepository.saveChecklist(actor.companyID, direction, cleaned.steps, actor.userID, await this.planningVolumePct(actor.companyID));
+    return this.settings(actor.companyID, actor.role);
   }
 
   async saveSettings(planningVolumePct: number, actor: { userID: string; companyID: string; role: string }): Promise<CoLoadingSettings> {

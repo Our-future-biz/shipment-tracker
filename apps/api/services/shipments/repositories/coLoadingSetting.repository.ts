@@ -18,4 +18,18 @@ export const coLoadingSettingRepository = {
       .returning();
     return row!;
   },
+
+  /**
+   * Writes the company's checklist for import or for export sailings (Council Outlay 14, C5). A
+   * company with no settings row yet gets one, with the planning share it was planning with.
+   */
+  async saveChecklist(companyId: string, direction: "import" | "export", steps: string[], userId: string, planningVolumePct: number): Promise<CoLoadingSettingRecord> {
+    const set = direction === "export" ? { checklistExport: steps } : { checklistImport: steps };
+    const [row] = await db
+      .insert(t)
+      .values({ companyId, planningVolumePct, ...set, updatedById: userId })
+      .onConflictDoUpdate({ target: t.companyId, set: { ...set, updatedById: userId, updatedAt: sql`now()` } })
+      .returning();
+    return row!;
+  },
 };

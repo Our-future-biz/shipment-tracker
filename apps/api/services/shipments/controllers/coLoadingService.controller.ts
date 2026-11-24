@@ -65,6 +65,14 @@ export const coLoadingSettingsSet = api(
   },
 );
 
+// A manager sets the steps of the sailings' checklist, for "import" or for "export" services (at most 15 steps of 60 characters).
+export const coLoadingSettingsChecklist = api(
+  { expose: true, auth: true, method: "PUT", path: "/co-loading/settings/checklist" },
+  async ({ direction, steps }: { direction: string & MaxLen<10>; steps: (string & MaxLen<200>)[] & MaxLen<50> }): Promise<CoLoadingSettings> => {
+    return service.saveChecklist(direction, steps, managers());
+  },
+);
+
 // A manager sets a lower cargo weight for the service's inland leg, or takes it off (null).
 export const coLoadingServiceInlandWeight = api(
   { expose: true, auth: true, method: "PUT", path: "/co-loading/services/:id/inland-weight" },
