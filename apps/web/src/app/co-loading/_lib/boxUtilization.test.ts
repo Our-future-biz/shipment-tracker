@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { boxCargoOf, breakEvenMark, fillOfBox, fillWords, fullWords, meterBar, meterScale, meterTone, meterWords, missingNote, noVolumeWords, containersWords, cutoffWarning, oddInBox, oddWarning, overfillWarning, removedReasonWords, rowNotes, shareWords, specialCargoOf, usedOfLimit, type BoxMeter, type BoxRow, type BoxUtilization } from "./boxUtilization";
+import { boxCargoOf, breakEvenMark, fillOfBox, fillWords, fullWords, meterBar, meterScale, meterTone, meterWords, missingNote, noVolumeWords, containersWords, cutoffWarning, oddInBox, oddWarning, overfillWarning, removedReasonWords, rowNotes, shareWords, sinceLinkedWords, specialCargoOf, usedOfLimit, type BoxMeter, type BoxRow, type BoxUtilization } from "./boxUtilization";
 
 const HC = { containerType: "40' HC", insideCbm: 76.4, planningCbm: 64.9, standardKg: 26200, heavyTestedKg: 28400, maxKg: 28400, inlandKg: null as number | null, planningPct: 85, containers: 1 };
 const OT = { containerType: "40' OT", insideCbm: 67.3, planningCbm: 57.2, standardKg: 26600, heavyTestedKg: null, maxKg: 28550, inlandKg: null, planningPct: 85, containers: 1 };
@@ -283,5 +283,14 @@ describe("the dangerous and special cargo of a box (Council Outlay 14, A11)", ()
   it("says when two or more classes share the box", () => {
     const special = specialCargoOf(box({ rows: [row({ dangerous: true, adr: ["UN 1263 · class 3"] }), row({ shipmentId: "s2", dangerous: true, adr: ["UN 1789 · class 8", "UN 1993 · class 3"] })] }));
     expect(special).toMatchObject({ classes: ["3", "8"], mixedClasses: true, unnamed: 0 });
+  });
+});
+
+describe("cargo changed since linked (Council Outlay 14, C4)", () => {
+  it("says the change in words, as the server's alert does", () => {
+    expect(sinceLinkedWords({ weightKg: 350, volumeCbm: 2.4 })).toBe("+2.4 cbm, +350 kg since linked");
+    expect(sinceLinkedWords({ weightKg: 0, volumeCbm: -1.25 })).toBe("−1.25 cbm since linked");
+    expect(sinceLinkedWords(null)).toBe("");
+    expect(sinceLinkedWords(undefined)).toBe("");
   });
 });

@@ -20,6 +20,9 @@ const repo = vi.hoisted(() => ({
   unlinkMany: vi.fn(),
   sailingOfShipment: vi.fn(),
   comingOfServices: vi.fn(),
+  rememberLinked: vi.fn(),
+  setOverNotified: vi.fn(),
+  peopleOf: vi.fn(),
 }));
 const boxCosts = vi.hoisted(() => {
   class BoxCostsChangedMeanwhile extends Error {
@@ -29,6 +32,7 @@ const boxCosts = vi.hoisted(() => {
   }
   return { BoxCostsChangedMeanwhile, repo: { list: vi.fn(), listOf: vi.fn(), save: vi.fn(), changes: vi.fn(), costedContainers: vi.fn() } };
 });
+const chat = vi.hoisted(() => ({ users: vi.fn(async () => [] as { id: string; email: string; displayName: string }[]), post: vi.fn() }));
 const services = vi.hoisted(() => ({ get: vi.fn(), list: vi.fn(), requireOpen: vi.fn(), planningVolumePct: vi.fn() }));
 const fx = vi.hoisted(() => ({ fxRatesOn: vi.fn() }));
 const invoicing = vi.hoisted(() => ({ _internalCoLoadingMoney: vi.fn() }));
@@ -38,6 +42,9 @@ vi.mock("encore.dev/api", () => import("../../../../lib/tests/encoreApi.stub"));
 vi.mock("~encore/clients", () => ({ fx, invoicing }));
 vi.mock("../../lib/userName", () => names);
 vi.mock("../../repositories/coLoadingSailing.repository", () => ({ coLoadingSailingRepository: repo }));
+// A cargo change that takes a box over is told in the shipment's chat: the users and the chat are stand-ins.
+vi.mock("../../../../lib/companyUsers", () => ({ companyUsers: chat.users }));
+vi.mock("../../repositories/shipmentComment.repository", () => ({ shipmentCommentRepository: { createForCompany: chat.post } }));
 vi.mock("../../repositories/coLoadingBoxCost.repository", () => ({ coLoadingBoxCostRepository: boxCosts.repo, BoxCostsChangedMeanwhile: boxCosts.BoxCostsChangedMeanwhile }));
 vi.mock("../../services/coLoadingService.service", () => ({ coLoadingServiceService: services }));
 
@@ -69,6 +76,8 @@ const sailing = (more = {}) => ({
   cutoffDate: null as string | null,
   departureDate: null as string | null,
   stage: "open",
+  overNotified: false,
+  createdById: "u-maker" as string | null,
   createdByName: "Jan",
   createdAt: new Date("2026-11-23T08:00:00Z"),
   ...more,
@@ -739,5 +748,64 @@ describe("the board of all services (Council Outlay 14, A6)", () => {
     expect((await service.searchMain(COMPANY, "manager", "week 51", 5)).items).toMatchObject([{ kind: "sailing", id: SAILING, serviceId: SERVICE, serviceLabel: "Import from Shanghai", pol: "Shanghai (CNSHA)" }]);
     expect(await service.searchMain(COMPANY, "user", "rotterdam", 5)).toEqual({ items: [], total: 0 });
     expect(await service.searchMain(COMPANY, "user", "shanghai", 1)).toMatchObject({ total: 2, items: [{ kind: "service" }] });
+  });
+});
+
+describe("cargo changed since linked (Council Outlay 14, C4)", () => {
+  const A = "00000000-0000-4000-8000-0000000000c1";
+  // A 40' HC is planned to about 65 cbm: 70 cbm is over.
+  const big = () => shipment({ id: A, jobNumber: "CZLCL1", totalVolumeCbm: "70", linkedWeightKg: "1000.0", linkedVolumeCbm: "60.000" });
+  beforeEach(() => {
+    repo.sailingsOf.mockResolvedValue([{ shipmentId: A, sailingId: SAILING, serviceId: SERVICE, vessel: "WEEK 51", voyage: "" }]);
+    repo.peopleOf.mockResolvedValue({ jobNumber: "CZLCL1", personInCharge: "pic@x.cz", holidayCover: "" });
+    chat.users.mockResolvedValue([
+      { id: "u-pic", email: "pic@x.cz", displayName: "Jana" },
+      { id: "u-maker", email: "maker@x.cz", displayName: "Petr" },
+    ]);
+  });
+
+  it("remembers what a linked shipment counts on the day it is linked", async () => {
+    repo.shipmentsToLink.mockImplementation(async (asked: string[]) => asked.map((id) => ({ id, jobNumber: "CZLCL1", serviceName: "ISHA", freightMode: "Sea Freight", loadType: "Consolidation" })));
+    repo.sailingsOf.mockResolvedValue([]);
+    repo.link.mockResolvedValue(true);
+    repo.boxShipments.mockResolvedValue([shipment({ id: A, totalWeightTons: "1", totalVolumeCbm: "2" })]);
+    await service.linkShipments(SAILING, [A], USER);
+    expect(repo.rememberLinked).toHaveBeenCalledWith(SAILING, COMPANY, [expect.objectContaining({ shipmentId: A, weightKg: 1000, volumeCbm: 2 })]);
+    // Within its limits and nobody told: the mark is left alone.
+    expect(repo.setOverNotified).not.toHaveBeenCalled();
+  });
+
+  it("tells the Person in Charge and the sailing's maker when a change takes the box over, once", async () => {
+    repo.boxShipments.mockResolvedValue([big()]);
+    await service.cargoChanged(A, COMPANY, "u-other");
+    expect(repo.setOverNotified).toHaveBeenCalledWith(SAILING, COMPANY, true);
+    expect(chat.post).toHaveBeenCalledWith(COMPANY, expect.objectContaining({ shipmentId: A, authorId: "u-other", mentionedUserIds: ["u-pic", "u-maker"] }));
+    expect(chat.post.mock.calls[0]![1].message).toContain("Co-Loading sailing WEEK 51 is now over its limit: volume 70 of");
+    expect(chat.post.mock.calls[0]![1].message).toContain("+10 cbm since linked");
+    // Already told: a later change of the still-over box says nothing more.
+    vi.clearAllMocks();
+    repo.get.mockResolvedValue(sailing({ overNotified: true }));
+    repo.boxShipments.mockResolvedValue([big()]);
+    repo.sailingsOf.mockResolvedValue([{ shipmentId: A, sailingId: SAILING, serviceId: SERVICE, vessel: "WEEK 51", voyage: "" }]);
+    await service.cargoChanged(A, COMPANY, "u-other");
+    expect(chat.post).not.toHaveBeenCalled();
+    expect(repo.setOverNotified).not.toHaveBeenCalled();
+  });
+
+  it("clears the mark once the box is back within its limits, and says nothing for a shipment on no sailing", async () => {
+    repo.get.mockResolvedValue(sailing({ overNotified: true }));
+    repo.boxShipments.mockResolvedValue([shipment({ id: A, totalVolumeCbm: "10" })]);
+    await service.cargoChanged(A, COMPANY, "u-other");
+    expect(repo.setOverNotified).toHaveBeenCalledWith(SAILING, COMPANY, false);
+    expect(chat.post).not.toHaveBeenCalled();
+    vi.clearAllMocks();
+    repo.sailingsOf.mockResolvedValue([]);
+    await service.cargoChanged(A, COMPANY, "u-other");
+    expect(repo.get).not.toHaveBeenCalled();
+  });
+
+  it("never fails the shipment's save when the box cannot be read", async () => {
+    repo.boxShipments.mockRejectedValue(new Error("db down"));
+    await expect(service.cargoChanged(A, COMPANY, "u-other")).resolves.toBeUndefined();
   });
 });

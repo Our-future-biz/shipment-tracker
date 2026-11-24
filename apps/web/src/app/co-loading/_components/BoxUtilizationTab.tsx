@@ -29,7 +29,7 @@ import {
   usedOfLimit,
   type BoxMeter,
   type BoxUtilization,
-  type MeterKind, specialCargoOf } from "../_lib/boxUtilization";
+  type MeterKind, sinceLinkedWords, specialCargoOf } from "../_lib/boxUtilization";
 
 const BAR_TONE = { indigo: "bg-indigo-500", amber: "bg-amber-500", red: "bg-red-500" } as const;
 const WORDS_TONE = { indigo: "text-slate-700", amber: "text-amber-700", red: "text-red-600" } as const;
@@ -251,6 +251,12 @@ export function BoxUtilizationTab({ sailingId, onOpenShipments }: BoxUtilization
                         <Link href={`/shipments/${row.shipmentId}`} className={`${REF} ${LINK} font-semibold`}>
                           {row.jobNumber || "(no number yet)"}
                         </Link>
+                        {/* What its cargo changed by since it was linked (Council Outlay 14, C4). */}
+                        {sinceLinkedWords(row.sinceLinked) && (
+                          <span className={`block text-[11px] font-medium ${row.sinceLinked!.weightKg > 0 || row.sinceLinked!.volumeCbm > 0 ? "text-amber-700" : "text-slate-500"}`} role="note">
+                            {sinceLinkedWords(row.sinceLinked)}
+                          </span>
+                        )}
                       </td>
                       <td className={`${TD} max-sm:hidden`}>{row.customer || EMPTY_CELL}</td>
                       <td className={`${TD} text-right tabular-nums max-sm:hidden`}>{row.colli > 0 ? row.colli.toLocaleString("en-US") : EMPTY_CELL}</td>

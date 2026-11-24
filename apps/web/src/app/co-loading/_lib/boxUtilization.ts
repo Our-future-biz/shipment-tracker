@@ -259,3 +259,11 @@ export const containersWords = (s: { containerType: string; containerCount?: num
 export const cutoffWarning = (cutoffDate: string | null | undefined, today: string, shown: string): string | null =>
   cutoffDate && today > cutoffDate ? `The cut-off of this sailing was ${shown}. You can still link shipments.` : null;
 
+
+/** A shipment's change since it was linked, in words: "+2.4 cbm, +350 kg since linked"; "" for none (Council Outlay 14, C4). The server words its alert the same. */
+export function sinceLinkedWords(change: { weightKg: number; volumeCbm: number } | null | undefined): string {
+  if (!change) return "";
+  const signed = (value: number, unit: string, decimals: number) => `${value > 0 ? "+" : "−"}${Math.abs(value).toLocaleString("en-US", { maximumFractionDigits: decimals })} ${unit}`;
+  const parts = [change.volumeCbm !== 0 ? signed(change.volumeCbm, "cbm", 2) : "", change.weightKg !== 0 ? signed(change.weightKg, "kg", 0) : ""].filter(Boolean);
+  return parts.length ? `${parts.join(", ")} since linked` : "";
+}

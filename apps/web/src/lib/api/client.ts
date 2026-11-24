@@ -16523,6 +16523,11 @@ export namespace interfaces {
          * Why it was linked after the sailing was closed for cargo; "" or left out for one linked while it was open.
          */
         lateReason?: string
+
+        /**
+         * What its cargo has changed by since it was linked, in kg and cbm; null or left out for no change, and for a link from before this was remembered.
+         */
+        sinceLinked?: { weightKg: number; volumeCbm: number } | null
     }
 
     /**

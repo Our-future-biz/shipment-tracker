@@ -204,6 +204,9 @@ const reasonOf = (err: unknown): string => (err instanceof APIError ? err.messag
  * What an update may write: any of the shipment's own fields, plus its detail rows. Whether the
  * reference is final is not one of them: only Invoicing marks it (finalizeReference).
  */
+/** The fields of an update that change what a shipment counts in its Co-Loading box: its cargo figures, and its status (a cancelled one is not counted). */
+const BOX_FIGURE_FIELDS = ["pcs", "totalWeightTons", "totalVolumeCbm", "cargoDimensions", "status"] as const;
+
 export type ShipmentUpdateData = Partial<Omit<NewShipmentRecord, "customsPriority" | "jobNumberFinal">> & BlankablePriority & DetailRows;
 
 /**
@@ -1830,6 +1833,9 @@ class ShipmentService {
       await this.tellQuote(companyId, nextSalesNumber ?? "");
       await this.tellQuote(companyId, previousSalesNumber);
     }
+
+    // Its cargo, or whether it counts, was changed: a Co-Loading box that this takes over its limit is told about (Council Outlay 14, C4). Never throws.
+    if (BOX_FIGURE_FIELDS.some((field) => field in data)) await coLoadingSailingService.cargoChanged(id, companyId, userId);
 
     return (await this.getById(id, companyId))!;
   }

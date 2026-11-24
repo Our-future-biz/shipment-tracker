@@ -7,6 +7,7 @@
 // counted. A shipment without a weight or a volume counts as zero and is named: a total with gaps
 // says so. Over the limit is a state to show, never an error.
 
+import { sinceLinked } from "./coLoadingCargoChange";
 import type { ContainerCapacity } from "../../../lib/containerCapacity";
 import type { BoxFill, BoxMeter, BoxMeterState, BoxUtilization, BoxUtilizationRow } from "../interfaces/interfaces";
 import { NOT_STACKABLE } from "./cargoProjection";
@@ -30,6 +31,9 @@ export interface BoxShipment {
   temperatureControlled: string;
   /** Why it was linked after the sailing was closed for cargo; "" or left out for one linked while it was open. */
   linkedNote?: string;
+  /** What it counted in the box on the day it was linked, as stored (kg, cbm); null or left out when not remembered. */
+  linkedWeightKg?: string | null;
+  linkedVolumeCbm?: string | null;
   pcs: string | null;
   totalWeightTons: string | null;
   totalVolumeCbm: string | null;
@@ -125,6 +129,7 @@ export function boxUtilization(containerType: string, capacity: ContainerCapacit
       odd: s.odd,
       implausible: tooBig || oddDensity(weightKg, volumeCbm),
       lateReason: (s.linkedNote ?? "").trim(),
+      sinceLinked: sinceLinked({ weightKg, volumeCbm }, { weightKg: s.linkedWeightKg == null ? null : Number(s.linkedWeightKg), volumeCbm: s.linkedVolumeCbm == null ? null : Number(s.linkedVolumeCbm) }),
     };
   });
 

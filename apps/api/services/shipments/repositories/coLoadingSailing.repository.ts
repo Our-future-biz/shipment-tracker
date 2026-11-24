@@ -116,6 +116,34 @@ class CoLoadingSailingRepository {
     });
   }
 
+  /**
+   * Remembers what each shipment counts in the box now as its figures of the day of linking
+   * (Council Outlay 14, C4): only on its live link here, and only where none is remembered yet.
+   */
+  async rememberLinked(sailingId: string, companyId: string, figures: readonly { shipmentId: string; weightKg: number; volumeCbm: number }[]): Promise<void> {
+    for (const f of figures) {
+      await db
+        .update(links)
+        .set({ linkedWeightKg: String(f.weightKg), linkedVolumeCbm: String(f.volumeCbm) })
+        .where(and(eq(links.companyId, companyId), eq(links.sailingId, sailingId), eq(links.shipmentId, f.shipmentId), isNull(links.deletedAt), isNull(links.linkedWeightKg)));
+    }
+  }
+
+  /** A shipment's job number and the people on it, for a notice in its chat; null when it is not found. */
+  async peopleOf(shipmentId: string, companyId: string): Promise<{ jobNumber: string; personInCharge: string; holidayCover: string } | null> {
+    const [row] = await db
+      .select({ jobNumber: shipmentTable.jobNumber, personInCharge: shipmentTable.personInCharge, holidayCover: shipmentTable.holidayCover })
+      .from(shipmentTable)
+      .where(and(eq(shipmentTable.id, shipmentId), eq(shipmentTable.companyId, companyId), isNull(shipmentTable.deletedAt)))
+      .limit(1);
+    return row ?? null;
+  }
+
+  /** Marks whether the people who must act were told that the sailing's box is over its limit. */
+  async setOverNotified(sailingId: string, companyId: string, told: boolean): Promise<void> {
+    await db.update(sailings).set({ overNotified: told }).where(and(eq(sailings.id, sailingId), eq(sailings.companyId, companyId)));
+  }
+
   /** Takes the shipment off the sailing, recording who did; false when it was not on it. */
   async unlink(sailingId: string, shipmentId: string, companyId: string, by: { id: string; name: string }): Promise<boolean> {
     const rows = await db
@@ -400,6 +428,8 @@ class CoLoadingSailingRepository {
         outOfGauge: shipmentTable.outOfGauge,
         temperatureControlled: shipmentTable.temperatureControlled,
         linkedNote: links.linkedNote,
+        linkedWeightKg: links.linkedWeightKg,
+        linkedVolumeCbm: links.linkedVolumeCbm,
         pcs: shipmentTable.pcs,
         totalWeightTons: shipmentTable.totalWeightTons,
         totalVolumeCbm: shipmentTable.totalVolumeCbm,

@@ -12,9 +12,13 @@ import { BoxCostsChangedMeanwhile, coLoadingBoxCostRepository as boxCostRepo } f
 import { sailingEarnings, sailingProfit, type ShipmentMoney } from "../lib/coLoadingEarnings";
 import { boxFillOf, boxUtilization } from "../lib/boxUtilization";
 import { planCargoOf, sailingReference } from "../lib/coLoadingPlanCargo";
+import { boxOverNotice } from "../lib/coLoadingBoxOverNotice";
+import { boxIsOver, overStep } from "../lib/coLoadingCargoChange";
 import { CANCELLED_STATUS } from "../lib/fieldDefaults";
 import { checkSailingInput, isSailingStage, LINK_AT_ONCE_MAX, linkReasonRefusal, linkRefusal, moveRefusal, stageChange, oddInBox, sailingEdit, sailingRemovalRefusal, type SailingDetails, type SailingInput } from "../lib/coLoadingSailing";
 import { userNameOf } from "../lib/userName";
+import { companyUsers } from "../../../lib/companyUsers";
+import { shipmentCommentRepository } from "../repositories/shipmentComment.repository";
 import { coLoadingSailingRepository as repo, type LinkedCargo } from "../repositories/coLoadingSailing.repository";
 import type { CoLoadingSailingRecord } from "../schemas/coLoadingSailing.schema";
 import { coLoadingServiceService } from "./coLoadingService.service";
@@ -461,6 +465,55 @@ class CoLoadingSailingService {
     if (moved && odd) throw APIError.failedPrecondition(`${moved.jobNumber} is ${odd}: it cannot go on another sailing of this service. Remove it from this one instead.`);
     const by = { id: actor.userID, name: await userNameOf(actor.userID) };
     if (!isUuid(shipmentId) || !(await repo.move(from.id, toSailingId, shipmentId, actor.companyID, by, reason.trim(), to && to.stage !== "open" ? reason.trim() : ""))) throw APIError.notFound("The shipment is not on this sailing.");
+    await Promise.all([this.boxTouched(toSailingId, actor.companyID, [shipmentId]), this.boxTouched(from.id, actor.companyID)]);
+  }
+
+  /**
+   * After the box's shipments changed by hand (linked, moved, taken off): remembers what each of
+   * `linked` counts now as its figures of the day of linking, and sets the sailing's "told that it
+   * is over" mark to how the box stands - quietly: whoever links over the limit was warned on the
+   * screen (Council Outlay 14, C4). Best effort: the link itself is made either way.
+   */
+  private async boxTouched(sailingId: string, companyId: string, linked: readonly string[] = []): Promise<void> {
+    try {
+      const sailing = await repo.get(sailingId, companyId);
+      if (!sailing) return;
+      const service = await coLoadingServiceService.get(sailing.serviceId, companyId);
+      const box = fillOf(sailing, service, await coLoadingServiceService.planningVolumePct(companyId), await repo.boxShipments(sailing.id, companyId));
+      if (linked.length > 0) await repo.rememberLinked(sailing.id, companyId, box.rows.filter((r) => linked.includes(r.shipmentId)));
+      const over = boxIsOver(box);
+      if (over !== sailing.overNotified) await repo.setOverNotified(sailing.id, companyId, over);
+    } catch (err) {
+      log.warn(err, "Co-Loading: a box's remembered figures could not be brought up to date", { sailingId });
+    }
+  }
+
+  /**
+   * A shipment's cargo, or whether it counts (its status), was changed (Council Outlay 14, C4): when
+   * that takes its sailing's box over the limit, a line goes into the shipment's chat tagging its
+   * Person in Charge and Holiday Cover and whoever made the sailing (D11) - once, until the box is
+   * back within its limits. Best effort, after the shipment is saved: it never fails the save.
+   */
+  async cargoChanged(shipmentId: string, companyId: string, authorId: string): Promise<void> {
+    try {
+      const [link] = await repo.sailingsOf([shipmentId], companyId);
+      if (!link) return;
+      const sailing = await repo.get(link.sailingId, companyId);
+      if (!sailing) return;
+      const service = await coLoadingServiceService.get(sailing.serviceId, companyId);
+      const box = fillOf(sailing, service, await coLoadingServiceService.planningVolumePct(companyId), await repo.boxShipments(sailing.id, companyId));
+      const step = overStep(boxIsOver(box), sailing.overNotified);
+      if (step === "keep") return;
+      await repo.setOverNotified(sailing.id, companyId, step === "tell");
+      const row = box.rows.find((r) => r.shipmentId === shipmentId);
+      if (step !== "tell" || !row) return;
+      const shipment = await repo.peopleOf(shipmentId, companyId);
+      if (!shipment) return;
+      const notice = boxOverNotice(shipment, { name: [sailing.vessel, sailing.voyage].filter(Boolean).join(" "), createdById: sailing.createdById }, await companyUsers(), box, { now: row, change: row.sinceLinked ?? null }, authorId);
+      await shipmentCommentRepository.createForCompany(companyId, { shipmentId, authorId, message: notice.message, mentionedUserIds: notice.tagged.map((u) => u.id) });
+    } catch (err) {
+      log.warn(err, "Co-Loading: a cargo change could not be checked against its box", { shipmentId });
+    }
   }
 
   /** The shipments named, each once: at least one, at most what one call takes. */
@@ -492,6 +545,7 @@ class CoLoadingSailingService {
     if (odd.length > 0) throw APIError.failedPrecondition(`${odd.join(", ")}: ${odd.length === 1 ? "it" : "they"} cannot go on another sailing of this service. Remove ${odd.length === 1 ? "it" : "them"} from this one instead. Nothing was moved.`);
     const by = { id: actor.userID, name: await userNameOf(actor.userID) };
     if (!(await repo.moveMany(from.id, toSailingId, ids, actor.companyID, by, reason.trim(), to && to.stage !== "open" ? reason.trim() : ""))) throw APIError.notFound("A shipment is no longer on this sailing: nothing was moved. Read the list again.");
+    await Promise.all([this.boxTouched(toSailingId, actor.companyID, ids), this.boxTouched(from.id, actor.companyID)]);
     return { moved: ids.length };
   }
 
@@ -502,6 +556,7 @@ class CoLoadingSailingService {
     await coLoadingServiceService.requireOpen(sailing.serviceId, actor.companyID);
     const by = { id: actor.userID, name: await userNameOf(actor.userID) };
     if (!(await repo.unlinkMany(sailing.id, ids, actor.companyID, by))) throw APIError.notFound("A shipment is no longer on this sailing: nothing was removed. Read the list again.");
+    await this.boxTouched(sailing.id, actor.companyID);
     return { removed: ids.length };
   }
 
@@ -528,6 +583,7 @@ class CoLoadingSailingService {
     const linked = await repo.link(sailingId, ids, actor.companyID, { id: actor.userID, name: await userNameOf(actor.userID) }, sailing.stage === "open" ? "" : (reason ?? "").trim());
     // Linked meanwhile by someone else: nothing is linked, and the list read again shows where.
     if (!linked) throw APIError.alreadyExists("A shipment was linked to a sailing meanwhile: nothing was linked. Try again.");
+    await this.boxTouched(sailingId, actor.companyID, ids);
     return { linked: ids.length };
   }
 
@@ -537,6 +593,7 @@ class CoLoadingSailingService {
     await coLoadingServiceService.requireOpen(sailing.serviceId, actor.companyID);
     const by = { id: actor.userID, name: await userNameOf(actor.userID) };
     if (!isUuid(shipmentId) || !(await repo.unlink(sailingId, shipmentId, actor.companyID, by))) throw APIError.notFound("The shipment is not on this sailing.");
+    await this.boxTouched(sailingId, actor.companyID);
   }
 
   /**

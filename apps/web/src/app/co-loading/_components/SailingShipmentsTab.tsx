@@ -26,7 +26,7 @@ import { businessToday, formatDate, formatDateTime } from "@/lib/date";
 import { placeCodeOf } from "@/lib/places";
 import { useMessages } from "@/lib/toast";
 import { ADD_BTN, EMPTY_STATE, HINT, LINK, MODAL_TITLE, REF, TD, TD_TOTAL, TH } from "@/styles/ui";
-import { boxCargoOf, cutoffWarning, oddInBox, oddWarning, overfillWarning, removedReasonWords, tableCbm, tableKg, type BoxUtilization } from "../_lib/boxUtilization";
+import { sinceLinkedWords, boxCargoOf, cutoffWarning, oddInBox, oddWarning, overfillWarning, removedReasonWords, tableCbm, tableKg, type BoxUtilization } from "../_lib/boxUtilization";
 import { downloadCsv } from "@/lib/csv";
 import { loadListCells, loadListFileName, loadListOf } from "../_lib/loadList";
 import { downloadLoadListPdf } from "../_lib/loadListPdf";
@@ -261,6 +261,12 @@ export function SailingShipmentsTab({
                         differs
                       </span>
                     </Tooltip>
+                  )}
+                  {/* Its cargo is not what it was on the day it was linked (Council Outlay 14, C4): more is amber, less is quiet. */}
+                  {sinceLinkedWords(part?.sinceLinked) && (
+                    <span className={`block text-[11px] font-medium ${(part!.sinceLinked!.weightKg > 0 || part!.sinceLinked!.volumeCbm > 0) ? "text-amber-700" : "text-slate-500"}`} role="note">
+                      {sinceLinkedWords(part?.sinceLinked)}
+                    </span>
                   )}
                   {/* Linked after the sailing was closed for cargo: the reason given then (Council Outlay 14, C3). */}
                   {part?.lateReason && (

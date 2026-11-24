@@ -2568,6 +2568,8 @@ export interface BoxUtilizationRow {
   implausible: boolean;
   /** Why it was linked after the sailing was closed for cargo (Council Outlay 14, C3); "" or left out for one linked while it was open. */
   lateReason?: string;
+  /** What its cargo has changed by since it was linked, in kg and cbm (Council Outlay 14, C4); null or left out for no change, and for a link from before this was remembered. */
+  sinceLinked?: { weightKg: number; volumeCbm: number } | null;
 }
 
 /** How full a Co-Loading Concept sailing's box is (lib/boxUtilization). */

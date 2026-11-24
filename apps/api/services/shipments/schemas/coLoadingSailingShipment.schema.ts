@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { index, pgTable, text, uniqueIndex, uuid } from "drizzle-orm/pg-core";
+import { index, numeric, pgTable, text, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 import { defaultTableColumns, defaultTableIndexes, tenantColumns, tenantIndex } from "../../../lib/db/defaults";
 
 // A shipment linked to a Co-Loading Concept sailing (its box), on the sailing's Linked shipments tab.
@@ -17,6 +17,10 @@ export const coLoadingSailingShipmentTable = pgTable(
     createdByName: text("created_by_name").notNull().default(""),
     // Why it was linked after the sailing was closed for cargo (Council Outlay 14, C3); "" for one linked while it was open.
     linkedNote: text("linked_note").notNull().default(""),
+    // What the shipment counted in the box on the day it was linked, in kg and cbm (Council Outlay 14,
+    // C4): the row says what has changed since. Null on a link from before this was remembered.
+    linkedWeightKg: numeric("linked_weight_kg", { precision: 12, scale: 1 }),
+    linkedVolumeCbm: numeric("linked_volume_cbm", { precision: 12, scale: 3 }),
     // A link taken off (deleted_at set): who took it off, as named then, and why - "removed" by
     // hand, or "shipment_deleted" when the shipment itself was deleted. "" on a live link, and on
     // one taken off before this was recorded.
