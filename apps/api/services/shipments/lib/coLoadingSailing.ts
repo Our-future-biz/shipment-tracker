@@ -297,3 +297,76 @@ export function linkRefusal(shipment: ShipmentToLink, serviceName: string, saili
   if (shipment.onSailing) return `${shipment.jobNumber} is on ${shipment.onSailing.name}: remove it from there first.`;
   return null;
 }
+
+// ─── A sailing's facts on its shipments (Council Outlay 14, A3) ───
+
+/** A linked shipment as its facts are compared with its sailing's. */
+export interface ShipmentFacts {
+  status: string;
+  masterJobId: string | null;
+  vessel: string;
+  voyage: string;
+  estimatedDeparture: string | null;
+  closingDate: string | null;
+  actualDeparture: string | null;
+  pol: string;
+  pod: string;
+}
+
+/** The shipment fields "Copy to linked shipments" writes. */
+export type CopiedField = "vessel" | "voyage" | "estimatedDeparture" | "closingDate";
+
+/** One field the copy would change on a shipment: what it holds now and what the sailing gives. */
+export interface FactChange {
+  field: CopiedField;
+  label: string;
+  old: string;
+  next: string;
+}
+
+/** What stands between a sailing and one of its shipments. */
+export interface ShipmentFactsDiff {
+  /** What the copy would write. Empty when the shipment agrees, and when it is skipped. */
+  changes: FactChange[];
+  /** What differs and is never copied - the ports: a shipment on the wrong lane is for a person to judge. */
+  mismatches: { label: string; shipment: string; sailing: string }[];
+  /** Why the shipment is left alone, in words; null when it is not. */
+  skipped: string | null;
+}
+
+/** A place read for comparing: its UN/LOCODE when it carries one ("Shanghai (CNSHA)"), else its text, in lower case. */
+const placeKey = (place: string) => (/\(([A-Za-z]{5})\)\s*$/.exec(place)?.[1] ?? place).trim().toLowerCase();
+
+/**
+ * A sailing's facts beside one of its shipments. The copy writes the vessel and the voyage once the
+ * vessel is named (a week is no vessel), the departure date as the shipment's ETD and the cut-off as
+ * its Closing Date - each only where the sailing has it, so nothing on a shipment is ever blanked.
+ * A shipment in a master job takes these from its master job; a cancelled one, and one that has
+ * departed, are left as they are. The ports are compared and never written.
+ */
+export function shipmentFactsDiff(sailing: SailingStored, shipment: ShipmentFacts, cancelledStatus: string): ShipmentFactsDiff {
+  const mismatches: ShipmentFactsDiff["mismatches"] = [];
+  for (const [label, mine, theirs] of [
+    ["Port of Loading", shipment.pol, sailing.pol],
+    ["Port of Discharge", shipment.pod, sailing.pod],
+  ] as const)
+    if (mine.trim() && placeKey(mine) !== placeKey(theirs)) mismatches.push({ label, shipment: mine.trim(), sailing: theirs });
+  const skipped = shipment.masterJobId
+    ? "In a master job: its vessel and dates come from there."
+    : shipment.status === cancelledStatus
+      ? "Cancelled."
+      : shipment.actualDeparture
+        ? "Has departed already."
+        : null;
+  const changes: FactChange[] = [];
+  const give = (field: CopiedField, label: string, old: string | null, next: string | null) => {
+    if (next && next !== (old ?? "").trim()) changes.push({ field, label, old: (old ?? "").trim(), next });
+  };
+  const named = sailingWeek(sailing.vessel) === null;
+  give("vessel", "Vessel", shipment.vessel, named ? sailing.vessel : null);
+  give("voyage", "Voyage", shipment.voyage, named ? sailing.voyage : null);
+  give("estimatedDeparture", "ETD", shipment.estimatedDeparture, sailing.departureDate);
+  give("closingDate", "Closing Date", shipment.closingDate, sailing.cutoffDate);
+  // A skipped shipment still shows what differs: the row says why nothing will be written.
+  return { changes, mismatches, skipped };
+}

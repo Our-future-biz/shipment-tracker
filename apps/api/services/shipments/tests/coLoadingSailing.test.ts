@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { checkSailingInput, linkRefusal, moveRefusal, oddInBox, sailingDetailsProblem, sailingEdit, sailingRemovalRefusal, SAILING_CONTAINER_TYPES, sailingWeek, VESSEL_MAX } from "../lib/coLoadingSailing";
+import { checkSailingInput, linkRefusal, moveRefusal, oddInBox, sailingDetailsProblem, sailingEdit, sailingRemovalRefusal, shipmentFactsDiff, SAILING_CONTAINER_TYPES, sailingWeek, VESSEL_MAX } from "../lib/coLoadingSailing";
 
 const PORTS = { pol: "Shanghai (CNSHA)", pod: "Hamburg (DEHAM)", hub: "Praha (CZPRG)", containerType: "40' HC" };
 // A sailing made without them has one container and no cut-off.
@@ -248,5 +248,48 @@ describe("moving a shipment to another sailing", () => {
     expect(moveRefusal(from, { id: "b", serviceId: "s2" }, "x")).toBe("A shipment moves only to another sailing of the same service.");
     expect(moveRefusal(from, { id: "b", serviceId: "s1" }, "   ")).toBe("Say why the shipment is moved.");
     expect(moveRefusal(from, { id: "b", serviceId: "s1" }, "x".repeat(301))).toContain("at most 300");
+  });
+});
+
+describe("a sailing's facts beside one of its shipments (Council Outlay 14, A3)", () => {
+  const CANCELLED = "Cancelled Shipment";
+  const named = { vessel: "MSC Anna", voyage: "445W", ...PORTS, containerCount: 1, cutoffDate: "2026-12-03", departureDate: "2026-12-10" };
+  const job = (more = {}) => ({ status: "Booked [IMP]", masterJobId: null, vessel: "", voyage: "", estimatedDeparture: null, closingDate: null, actualDeparture: null, pol: "Shanghai (CNSHA)", pod: "Hamburg (DEHAM)", ...more });
+
+  it("gives the vessel, the voyage, the departure as ETD and the cut-off as Closing Date", () => {
+    expect(shipmentFactsDiff(named, job(), CANCELLED)).toEqual({
+      changes: [
+        { field: "vessel", label: "Vessel", old: "", next: "MSC Anna" },
+        { field: "voyage", label: "Voyage", old: "", next: "445W" },
+        { field: "estimatedDeparture", label: "ETD", old: "", next: "2026-12-10" },
+        { field: "closingDate", label: "Closing Date", old: "", next: "2026-12-03" },
+      ],
+      mismatches: [],
+      skipped: null,
+    });
+  });
+
+  it("changes nothing on a shipment that agrees, and says what it would overwrite on one that differs", () => {
+    expect(shipmentFactsDiff(named, job({ vessel: "MSC Anna", voyage: "445W", estimatedDeparture: "2026-12-10", closingDate: "2026-12-03" }), CANCELLED).changes).toEqual([]);
+    expect(shipmentFactsDiff(named, job({ vessel: "MSC Anna", voyage: "445W", estimatedDeparture: "2026-12-08", closingDate: "2026-12-03" }), CANCELLED).changes).toEqual([
+      { field: "estimatedDeparture", label: "ETD", old: "2026-12-08", next: "2026-12-10" },
+    ]);
+  });
+
+  it("never writes a week as a vessel, and never blanks what the sailing does not have", () => {
+    const week = { ...named, vessel: "WEEK 51", voyage: "", cutoffDate: null, departureDate: null };
+    expect(shipmentFactsDiff(week, job({ vessel: "MSC Old", voyage: "001E", estimatedDeparture: "2026-12-01", closingDate: "2026-11-25" }), CANCELLED).changes).toEqual([]);
+    expect(shipmentFactsDiff({ ...week, departureDate: "2026-12-17" }, job(), CANCELLED).changes.map((c) => c.field)).toEqual(["estimatedDeparture"]);
+  });
+
+  it("leaves a shipment in a master job, a cancelled one and a departed one alone, and says why", () => {
+    expect(shipmentFactsDiff(named, job({ masterJobId: "m1" }), CANCELLED).skipped).toBe("In a master job: its vessel and dates come from there.");
+    expect(shipmentFactsDiff(named, job({ status: CANCELLED }), CANCELLED).skipped).toBe("Cancelled.");
+    expect(shipmentFactsDiff(named, job({ actualDeparture: "2026-12-10" }), CANCELLED).skipped).toBe("Has departed already.");
+  });
+
+  it("names a port that differs and never copies it; the same port written another way is the same", () => {
+    expect(shipmentFactsDiff(named, job({ pol: "Ningbo (CNNGB)", pod: "HAMBURG (deham)" }), CANCELLED).mismatches).toEqual([{ label: "Port of Loading", shipment: "Ningbo (CNNGB)", sailing: "Shanghai (CNSHA)" }]);
+    expect(shipmentFactsDiff(named, job({ pol: "", pod: "" }), CANCELLED).mismatches).toEqual([]);
   });
 });

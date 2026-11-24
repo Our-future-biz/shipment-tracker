@@ -195,6 +195,7 @@ export function CoLoadingSailingPage() {
           service ? (
             <SailingShipmentsTab
               sailing={sailing}
+              serviceLabel={service.name}
               serviceName={service.serviceName}
               serviceMode={service.mode}
               closed={!!service.closedAt}

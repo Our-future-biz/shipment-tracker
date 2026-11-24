@@ -7,6 +7,8 @@ const who = vi.hoisted(() => ({ role: "user" }));
 const service = vi.hoisted(() => ({ earnings: vi.fn(), profits: vi.fn(), saveBoxCosts: vi.fn(), boxCostChanges: vi.fn(), utilization: vi.fn(), page: vi.fn(), list: vi.fn(), setDetails: vi.fn(), linkShipments: vi.fn() }));
 vi.mock("encore.dev/api", async () => ({ ...(await import("../../../lib/tests/encoreApi.stub")), api: (_opts: unknown, handler: unknown) => handler }));
 vi.mock("~encore/auth", () => ({ getAuthData: () => ({ userID: "u1", companyID: COMPANY, role: who.role }) }));
+// The copy to shipments goes through the shipment service, which needs the database: a stand-in keeps this file to the controller.
+vi.mock("../services/coLoadingCopy.service", () => ({ coLoadingCopyService: { facts: vi.fn(), copy: vi.fn() } }));
 vi.mock("../services/coLoadingSailing.service", () => ({ coLoadingSailingService: service }));
 
 import * as controller from "../controllers/coLoadingSailing.controller";

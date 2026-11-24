@@ -2399,6 +2399,26 @@ export interface SearchCoLoadingItem {
   closed: boolean;
 }
 
+/** A linked shipment beside its sailing's facts (Council Outlay 14, A3): what "Copy to linked shipments" would write, and what differs and is not written. */
+export interface SailingShipmentFacts {
+  shipmentId: string;
+  jobNumber: string;
+  /** What the copy would change: the field, in words, with what the shipment holds now and what the sailing gives. */
+  changes: { field: string; label: string; old: string; next: string }[];
+  /** The ports that differ from the sailing's: shown, never copied. */
+  mismatches: { label: string; shipment: string; sailing: string }[];
+  /** Why the shipment is left alone (in a master job, cancelled, departed); null when it is not. */
+  skipped: string | null;
+}
+
+/** What "Copy to linked shipments" did. */
+export interface SailingCopyResult {
+  /** The shipments written to. */
+  copied: number;
+  /** The shipments it could not write to, each with why (its Person in Charge only, a locked field). */
+  refused: { jobNumber: string; reason: string }[];
+}
+
 /** A shipment taken off a sailing: who took it off, when and why. */
 export interface SailingRemovedShipment {
   shipmentId: string;

@@ -342,3 +342,26 @@ export function useBoardProfits(enabled: boolean) {
   });
   return { profits: new Map((query.data?.data ?? []).map((p) => [p.sailingId, p])), isLoading: query.isLoading };
 }
+
+/**
+ * A sailing's shipments beside its facts (Council Outlay 14, A3): what "Copy to linked shipments"
+ * would change on each, and the ports that differ. Shipments are edited on their own pages, so it is
+ * read again on opening and on coming back to the window.
+ */
+export function useSailingShipmentFacts(sailingId: string) {
+  const qc = useQueryClient();
+  const query = useQuery({
+    queryKey: [...LIST_KEY, "sailing", sailingId, "shipment-facts"],
+    queryFn: () => api.shipments.coLoadingSailingShipmentFacts(sailingId),
+    enabled: isUuid(sailingId),
+    staleTime: 0,
+    refetchOnWindowFocus: true,
+  });
+  // The shipments change: their lists and pages are read again, and the comparison with them.
+  const copy = useMutation({
+    mutationFn: (shipmentIds: string[]) => api.shipments.coLoadingSailingCopyToShipments(sailingId, { shipmentIds }),
+    onSuccess: () => Promise.all([qc.invalidateQueries({ queryKey: ["shipments"] }), qc.invalidateQueries({ queryKey: [...LIST_KEY, "sailing", sailingId] })]),
+  });
+  return { facts: query.data?.data ?? [], isLoading: query.isLoading, isError: query.isError, copy };
+}
+export type SailingShipmentFacts = ReturnType<typeof useSailingShipmentFacts>["facts"][number];

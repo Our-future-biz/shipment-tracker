@@ -421,6 +421,28 @@ class CoLoadingSailingRepository {
     return bySailing;
   }
 
+  /** The sailing's live shipments with the facts a sailing shares with them: vessel, voyage, dates and ports. By job number. */
+  async shipmentFacts(sailingId: string, companyId: string) {
+    return db
+      .select({
+        id: shipmentTable.id,
+        jobNumber: shipmentTable.jobNumber,
+        status: shipmentTable.status,
+        masterJobId: shipmentTable.masterJobId,
+        vessel: shipmentTable.vessel,
+        voyage: shipmentTable.voyage,
+        estimatedDeparture: shipmentTable.estimatedDeparture,
+        closingDate: shipmentTable.closingDate,
+        actualDeparture: shipmentTable.actualDeparture,
+        pol: shipmentTable.pol,
+        pod: shipmentTable.pod,
+      })
+      .from(links)
+      .innerJoin(shipmentTable, eq(shipmentTable.id, links.shipmentId))
+      .where(and(eq(links.companyId, companyId), eq(links.sailingId, sailingId), isNull(links.deletedAt), eq(shipmentTable.companyId, companyId), isNull(shipmentTable.deletedAt)))
+      .orderBy(asc(shipmentTable.jobNumber));
+  }
+
   async create(values: NewCoLoadingSailingRecord): Promise<CoLoadingSailingRecord> {
     const [row] = await db.insert(sailings).values(values).returning();
     return row!;

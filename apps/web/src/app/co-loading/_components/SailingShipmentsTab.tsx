@@ -4,7 +4,10 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { Button, Checkbox, Dropdown, Input, Modal, Space, Spin, Tooltip } from "antd";
 import {
+  CopyOutlined,
   DisconnectOutlined,
+  DownOutlined,
+  FileTextOutlined,
   SwapOutlined,
   EllipsisOutlined,
   PlusOutlined,
@@ -14,7 +17,7 @@ import {
 import { apiErrorMessage } from "@/lib/api";
 import { useDebounced } from "@/hooks/useDebounced";
 import { useShipments, type ShipmentItem } from "@/hooks/useShipments";
-import { useCoLoadingSailings, useSailingCandidates, useSailingRemoved, useSailingShipmentLinks, useSailingUtilization, type CoLoadingSailing } from "@/hooks/useCoLoadingServices";
+import { useCoLoadingSailings, useSailingCandidates, useSailingRemoved, useSailingShipmentFacts, useSailingShipmentLinks, useSailingUtilization, type CoLoadingSailing } from "@/hooks/useCoLoadingServices";
 import { linkedCount } from "@/app/shipments/_components/MasterJobDialog";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { EMPTY_CELL } from "@/components/EmptyCell";
@@ -24,7 +27,11 @@ import { placeCodeOf } from "@/lib/places";
 import { useMessages } from "@/lib/toast";
 import { ADD_BTN, EMPTY_STATE, HINT, LINK, MODAL_TITLE, REF, TD, TD_TOTAL, TH } from "@/styles/ui";
 import { boxCargoOf, cutoffWarning, oddInBox, oddWarning, overfillWarning, removedReasonWords, tableCbm, tableKg, type BoxUtilization } from "../_lib/boxUtilization";
+import { downloadCsv } from "@/lib/csv";
+import { loadListCells, loadListFileName, loadListOf } from "../_lib/loadList";
+import { downloadLoadListPdf } from "../_lib/loadListPdf";
 import { nextSailingAfter, sailingTitle } from "../_lib/sailings";
+import { CopyToShipmentsModal, copyResultWords } from "./CopyToShipmentsModal";
 import { MoveShipmentModal } from "./MoveShipmentModal";
 
 // The picker's head stays put while its rows scroll, as the master job's picker does.
@@ -42,11 +49,14 @@ const cell = (v: string | null | undefined) => (v ? <span title={v}>{v}</span> :
  */
 export function SailingShipmentsTab({
   sailing,
+  serviceLabel,
   serviceName,
   serviceMode,
   closed,
 }: {
   sailing: CoLoadingSailing;
+  /** The service's own name ("Import from Shanghai"), for the load list's heading. */
+  serviceLabel: string;
   serviceName: string;
   /** The service's mode of transport: a shipment of another kind is remarked on before it is linked. */
   serviceMode: string;
@@ -87,6 +97,27 @@ export function SailingShipmentsTab({
     </button>
   );
   const { removed } = useSailingRemoved(sailing.id);
+  // The sailing's facts beside each shipment's own (Council Outlay 14, A3): what a copy would change, and a port that differs.
+  const { facts, copy } = useSailingShipmentFacts(sailing.id);
+  const factsOf = new Map(facts.map((f) => [f.shipmentId, f]));
+  const toCopy = facts.filter((f) => !f.skipped && f.changes.length > 0).length;
+  const [copying, setCopying] = useState(false);
+  const [listBusy, setListBusy] = useState(false);
+  // The load list (A8) is made from what is on screen: the shipments' own fields and the box's figures.
+  const makeList = async (kind: "pdf" | "csv") => {
+    if (!box) return;
+    const list = loadListOf(sailing, serviceLabel, linked, box.rows, businessToday(), formatDate);
+    setListBusy(true);
+    try {
+      if (kind === "pdf") await downloadLoadListPdf(list);
+      else downloadCsv(`${loadListFileName(list.title)}.csv`, loadListCells(list));
+      message.success(`${list.title} downloaded`);
+    } catch (err) {
+      message.error(`The load list was not made - ${apiErrorMessage(err)}`);
+    } finally {
+      setListBusy(false);
+    }
+  };
   const message = useMessages();
   const [picking, setPicking] = useState(false);
   const [toRemove, setToRemove] = useState<ShipmentItem | null>(null);
@@ -101,6 +132,28 @@ export function SailingShipmentsTab({
       extra={
         <>
           {shipments.length > 0 && <CountChip count={shipments.length} />}
+          {/* What goes out of a sailing and onto its shipments. */}
+          <Dropdown
+            trigger={["click"]}
+            placement="bottomRight"
+            disabled={!box || shipments.length === 0}
+            menu={{
+              items: [
+                { key: "pdf", label: "PDF" },
+                { key: "csv", label: "Excel (CSV file)" },
+              ],
+              onClick: ({ key }) => void makeList(key === "pdf" ? "pdf" : "csv"),
+            }}
+          >
+            <Button size="small" icon={<FileTextOutlined />} loading={listBusy}>
+              Load list <DownOutlined className="text-[10px]" />
+            </Button>
+          </Dropdown>
+          <Tooltip title={closed ? closedHint : "The sailing's vessel, voyage, departure and cut-off, written to its shipments after a preview"}>
+            <Button size="small" icon={<CopyOutlined />} disabled={closed || shipments.length === 0} onClick={() => setCopying(true)}>
+              Copy to shipments{toCopy > 0 ? ` (${toCopy})` : ""}
+            </Button>
+          </Tooltip>
           <Tooltip title={closed ? closedHint : "Link shipments"}>
             <Button
               size="small"
@@ -148,7 +201,7 @@ export function SailingShipmentsTab({
                   onChange={(e) => setTicked(e.target.checked ? linked.map((s) => s.id) : [])}
                 />
               </th>
-              <th className={`${TH} w-[160px]`}>Internal Reference</th>
+              <th className={`${TH} w-[210px]`}>Internal Reference</th>
               <th className={TH}>Customer</th>
               <th className={TH}>Shipper</th>
               <th className={TH}>Consignee</th>
@@ -166,6 +219,11 @@ export function SailingShipmentsTab({
               const part = partOf.get(s.id);
               const { colli, weightKg, volumeCbm } = part ?? boxCargoOf(s);
               const isTicked = ticked.includes(s.id);
+              // How the shipment differs from its sailing: a port (never copied), or what a copy would change.
+              const fact = factsOf.get(s.id);
+              const differs = fact
+                ? [...fact.mismatches.map((m) => `${m.label}: ${m.shipment}, the sailing's is ${m.sailing}`), ...(fact.skipped ? [] : fact.changes.map((c) => `${c.label}: ${c.old || "empty"}, the sailing's is ${c.next}`))].join(" · ")
+                : "";
               return (
               <tr key={s.id} className={`${part && !part.counted ? "text-slate-400" : ""} ${isTicked ? "bg-indigo-50/60" : ""}`}>
                 <td className={TD}>
@@ -180,6 +238,13 @@ export function SailingShipmentsTab({
                   <Link href={`/shipments/${s.id}`} className={`${REF} ${LINK} font-semibold`}>
                     {s.jobNumber}
                   </Link>
+                  {differs && (
+                    <Tooltip title={differs}>
+                      <span className="ml-1.5 rounded bg-amber-100 px-1 py-0.5 text-[10px] font-semibold text-amber-700" role="note" aria-label={`Differs from the sailing: ${differs}`}>
+                        differs
+                      </span>
+                    </Tooltip>
+                  )}
                 </td>
                 <td className={`${TD} truncate`}>{cell(s.customer)}</td>
                 <td className={`${TD} truncate`}>{cell(s.shipper)}</td>
@@ -352,6 +417,18 @@ export function SailingShipmentsTab({
           } finally {
             setBulk(null);
           }
+        }}
+      />
+      <CopyToShipmentsModal
+        open={copying}
+        onClose={() => setCopying(false)}
+        sailingName={name}
+        facts={facts}
+        copying={copy.isPending}
+        onCopy={async (ids) => {
+          const result = await copy.mutateAsync(ids);
+          if (result.refused.length === 0) message.success(copyResultWords(result));
+          return result;
         }}
       />
       <LinkSailingShipmentsModal

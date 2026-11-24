@@ -3433,6 +3433,8 @@ export namespace shipments {
             this.coLoadingSailingBoxCostsSave = this.coLoadingSailingBoxCostsSave.bind(this)
             this.coLoadingSailingDetails = this.coLoadingSailingDetails.bind(this)
             this.coLoadingSailingRemove = this.coLoadingSailingRemove.bind(this)
+            this.coLoadingSailingShipmentFacts = this.coLoadingSailingShipmentFacts.bind(this)
+            this.coLoadingSailingCopyToShipments = this.coLoadingSailingCopyToShipments.bind(this)
             this.coLoadingBoard = this.coLoadingBoard.bind(this)
             this.coLoadingBoardProfits = this.coLoadingBoardProfits.bind(this)
             this.searchCoLoading = this.searchCoLoading.bind(this)
@@ -3830,6 +3832,24 @@ export namespace shipments {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("GET", `/search/co-loading`, undefined, {query})
             return await resp.json() as { items: interfaces.SearchCoLoadingItem[]; total: number }
+        }
+
+        /**
+         * The sailing's shipments beside its facts: what "Copy to linked shipments" would change, and the ports that differ.
+         */
+        public async coLoadingSailingShipmentFacts(id: string): Promise<{ data: interfaces.SailingShipmentFacts[] }> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/co-loading/sailings/${encodeURIComponent(id)}/shipment-facts`)
+            return await resp.json() as { data: interfaces.SailingShipmentFacts[] }
+        }
+
+        /**
+         * "Copy to linked shipments": the sailing's vessel, voyage, departure (ETD) and cut-off (Closing Date) written to the shipments picked.
+         */
+        public async coLoadingSailingCopyToShipments(id: string, params: { shipmentIds: string[] }): Promise<interfaces.SailingCopyResult> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/co-loading/sailings/${encodeURIComponent(id)}/copy-to-shipments`, JSON.stringify(params))
+            return await resp.json() as interfaces.SailingCopyResult
         }
 
         /**
@@ -16595,6 +16615,28 @@ export namespace interfaces {
         cutoffDate: string | null
         departureDate: string | null
         closed: boolean
+    }
+
+    /**
+     * A linked shipment beside its sailing's facts (Council Outlay 14, A3): what "Copy to linked shipments" would write, and what differs and is not written.
+     */
+    export interface SailingShipmentFacts {
+        shipmentId: string
+        jobNumber: string
+        changes: { field: string; label: string; old: string; next: string }[]
+        mismatches: { label: string; shipment: string; sailing: string }[]
+        /**
+         * Why the shipment is left alone (in a master job, cancelled, departed); null when it is not.
+         */
+        skipped: string | null
+    }
+
+    /**
+     * What "Copy to linked shipments" did.
+     */
+    export interface SailingCopyResult {
+        copied: number
+        refused: { jobNumber: string; reason: string }[]
     }
 
     /**

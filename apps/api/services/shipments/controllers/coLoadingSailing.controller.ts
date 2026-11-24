@@ -3,7 +3,8 @@ import type { MaxLen } from "encore.dev/validate";
 import { getAuthData } from "~encore/auth";
 import { mainSearchInput } from "../../../lib/mainSearch";
 import { requireRole } from "../../../lib/rbac";
-import type { BoxCostChange, BoxUtilization, CoLoadingBoard, CoLoadingSailingItem, SearchCoLoadingItem, SearchMasterJobsRequest, SailingEarnings, SailingProfit, SailingRemovedShipment, ShipmentSailing } from "../interfaces/interfaces";
+import type { BoxCostChange, BoxUtilization, CoLoadingBoard, CoLoadingSailingItem, SearchCoLoadingItem, SearchMasterJobsRequest, SailingEarnings, SailingProfit, SailingCopyResult, SailingRemovedShipment, SailingShipmentFacts, ShipmentSailing } from "../interfaces/interfaces";
+import { coLoadingCopyService } from "../services/coLoadingCopy.service";
 import { coLoadingSailingService as service } from "../services/coLoadingSailing.service";
 
 // A Co-Loading Concept service's sailings (lib/coLoadingSailing), for everyone in the company.
@@ -242,5 +243,22 @@ export const searchCoLoading = api(
     if (!input) return { items: [], total: 0 };
     const auth = getAuthData()!;
     return service.searchMain(auth.companyID, auth.role, input.q, input.limit);
+  },
+);
+
+// The sailing's shipments beside its facts: what "Copy to linked shipments" would change, and the ports that differ (Council Outlay 14, A3).
+export const coLoadingSailingShipmentFacts = api(
+  { expose: true, auth: true, method: "GET", path: "/co-loading/sailings/:id/shipment-facts" },
+  async ({ id }: { id: string }): Promise<{ data: SailingShipmentFacts[] }> => {
+    return { data: await coLoadingCopyService.facts(id, getAuthData()!.companyID) };
+  },
+);
+
+// "Copy to linked shipments": the sailing's vessel, voyage, departure (ETD) and cut-off (Closing Date) written to the shipments
+// picked. Each through its own rules: one that refuses is named. Refused while the service is closed.
+export const coLoadingSailingCopyToShipments = api(
+  { expose: true, auth: true, method: "POST", path: "/co-loading/sailings/:id/copy-to-shipments" },
+  async ({ id, shipmentIds }: { id: string; shipmentIds: string[] & MaxLen<200> }): Promise<SailingCopyResult> => {
+    return coLoadingCopyService.copy(id, shipmentIds, getAuthData()!);
   },
 );
