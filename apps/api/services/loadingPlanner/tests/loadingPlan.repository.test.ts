@@ -4,12 +4,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 // The repository's statements, built for real and handed to a stand-in for the database that
 // records them and answers with the rows a test gives it. What Postgres makes of them is not
 // checked here.
-const asked = vi.hoisted(() => ({ statements: [] as { text: string; values: unknown[] }[], rows: [] as unknown[][] }));
+// `answer`, when a test sets it, gives the rows by the statement asked.
+const asked = vi.hoisted(() => ({ statements: [] as { text: string; values: unknown[] }[], rows: [] as unknown[][], answer: null as ((text: string) => unknown[][]) | null }));
 vi.mock("../db/db", () => ({
   db: drizzle({
     query: async (query: { text: string }, values: unknown[]) => {
       asked.statements.push({ text: query.text, values });
-      return { rows: asked.rows };
+      return { rows: asked.answer ? asked.answer(query.text) : asked.rows };
     },
   } as never),
 }));
@@ -25,6 +26,7 @@ const last = () => asked.statements.at(-1)!;
 beforeEach(() => {
   asked.statements = [];
   asked.rows = [];
+  asked.answer = null;
 });
 
 describe("listLatest", () => {
@@ -53,6 +55,51 @@ describe("listLatest", () => {
     await loadingPlanRepository.listLatest(COMPANY, { kind: "quote", id: QUOTE });
     expect(last().text).toContain(`"loading_plan"."link_kind" = $2 and "loading_plan"."link_id" = $3`);
     expect(last().values.slice(0, 3)).toEqual([COMPANY, "quote", QUOTE]);
+  });
+});
+
+describe("searchMain", () => {
+  const search = () => asked.statements.find((s) => s.text.includes("inner join"))!;
+  const count = () => asked.statements.find((s) => s.text.startsWith("select count(*)"))!;
+  // The name and the linked job's reference together, folded for the words: diacritics and case aside.
+  const FOLDED = `replace(lower(translate(regexp_replace(normalize(concat_ws(' ', "loading_plan"."name", "loading_plan"."link_ref"), NFD)`;
+
+  it("looks in every live plan of the company for each word, folded, in the name or the linked job's reference", async () => {
+    await loadingPlanRepository.searchMain(COMPANY, "Plzně  QCZ2026", 5);
+    for (const { text, values } of [search(), count()]) {
+      expect(text).toContain(`"loading_plan"."company_id" = $`);
+      expect(text).toContain(`"loading_plan"."deleted_at" is null`);
+      expect(text).toContain(FOLDED);
+      expect(text.match(/ LIKE \$\d+/g)).toHaveLength(2);
+      expect(values).toEqual(expect.arrayContaining([COMPANY, "%plzne%", "%qcz2026%"]));
+    }
+  });
+
+  it("gives the last saved first, at most the limit, and adds up the cargo of those plans only", async () => {
+    await loadingPlanRepository.searchMain(COMPANY, "plzen", 7);
+    const { text, values } = search();
+    // The page of plans is picked first, without the sums; the sums are worked out on it.
+    const page = text.slice(text.indexOf("inner join"));
+    expect(page).toMatch(/^inner join \(select "id" from "loading_plan" where .* order by "loading_plan"\."updated_at" desc limit \$\d+\) "page"/);
+    expect(page).not.toContain("jsonb_array_elements");
+    expect(text.slice(0, text.indexOf("inner join"))).toContain("jsonb_array_elements");
+    expect(text).toMatch(/order by "loading_plan"\."updated_at" desc$/);
+    expect(values).toContain(7);
+    // The outer read is the company's too.
+    expect(text.slice(text.lastIndexOf("where"))).toContain(`"loading_plan"."company_id" = $`);
+  });
+
+  it("answers the rows and how many match in all", async () => {
+    asked.answer = (text) => (text.startsWith("select count(*)") ? [["731"]] : [["id-1", "Plzeň", null, null, "", "3", "1200.5", null, "a@example.com", "a@example.com", "2026-11-23 08:00:00+00", "2026-11-23 09:00:00+00"]]);
+    const found = await loadingPlanRepository.searchMain(COMPANY, "plzen", 5);
+    expect(found.total).toBe(731);
+    expect(found.rows).toHaveLength(1);
+    expect(found.rows[0]).toMatchObject({ id: "id-1", name: "Plzeň", colli: 3, weightKg: 1200.5 });
+  });
+
+  it("asks nothing for a text with no words", async () => {
+    await expect(loadingPlanRepository.searchMain(COMPANY, "   ", 5)).resolves.toEqual({ rows: [], total: 0 });
+    expect(asked.statements).toHaveLength(0);
   });
 });
 

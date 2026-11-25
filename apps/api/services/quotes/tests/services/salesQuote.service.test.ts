@@ -11,7 +11,7 @@ vi.mock("~encore/clients", () => ({
   customers: { customerActivate: vi.fn(), _internalCustomerRefs: vi.fn(), _internalSupplierApprovalStates: vi.fn() },
   fx: { fxRatesOn: vi.fn() },
   loadingPlanner: { _internalPlansMoveQuote: vi.fn() },
-  shipments: { _internalShipmentsNamingQuote: vi.fn(), _internalShipmentsMoveQuote: vi.fn(), _internalQuoteReferencesByJob: vi.fn() },
+  shipments: { _internalShipmentsNamingQuote: vi.fn(), _internalShipmentsMoveQuote: vi.fn(), _internalQuoteReferencesByJob: vi.fn(), _internalCoLoadingNextSailings: vi.fn() },
   trucking: { truckingRate: vi.fn(), _internalTruckingMarginFloor: vi.fn(), _internalTruckingNamingQuote: vi.fn() },
 }));
 vi.mock("../../topics", () => ({ quoteRenamed: { publish: vi.fn() } }));
@@ -71,6 +71,7 @@ const chat = vi.mocked(quoteCommentRepository);
 const usersList = vi.mocked(auth.usersList);
 const fxRatesOn = vi.mocked(fx.fxRatesOn);
 const namingShipments = vi.mocked(shipments._internalShipmentsNamingQuote);
+const nextSailings = vi.mocked(shipments._internalCoLoadingNextSailings);
 const truckingRate = vi.mocked(trucking.truckingRate);
 const marginFloor = vi.mocked(trucking._internalTruckingMarginFloor);
 const namingConsignments = vi.mocked(trucking._internalTruckingNamingQuote);
@@ -272,6 +273,56 @@ describe("get", () => {
     await expect(salesQuoteService.get(martin, REF)).resolves.toMatchObject({ ownerUserId: null, ownerName: "Jana Nováková" });
     expect(repository.recordOwnerMatch).not.toHaveBeenCalled();
     expect(log.warn).toHaveBeenCalled();
+  });
+});
+
+describe("the next sailings of a Sea LCL quote's Co-Loading service (Council Outlay 14, C7)", () => {
+  const SERVICE = "11111111-1111-4111-8111-111111111111";
+  const lcl = (more: Record<string, unknown> = {}) => quote({ data: { ...(quote().data as object), serviceType: "Sea LCL", coLoadingServiceId: SERVICE, ...more } });
+  const SAILING = { id: "sailing-1", serviceId: SERVICE, vessel: "WEEK 51", voyage: "", cutoffDate: "2026-12-01", departureDate: "2026-12-08" };
+
+  it("are asked of Co-Loading Concept for the service the quote names, and come with the quote", async () => {
+    stored = lcl();
+    nextSailings.mockResolvedValue({ open: true, name: "Import from Shanghai", sailings: [SAILING] } as never);
+    await expect(salesQuoteService.get(martin, REF)).resolves.toMatchObject({ nextSailings: { serviceId: SERVICE, state: "open", serviceName: "Import from Shanghai", sailings: [SAILING] } });
+    expect(nextSailings).toHaveBeenCalledWith({ serviceId: SERVICE });
+  });
+
+  it("come with a save's answer for the service it names now, so another pick shows that one's", async () => {
+    const OTHER = "33333333-3333-4333-8333-333333333333";
+    repository.saveDocument.mockResolvedValue(lcl({ coLoadingServiceId: OTHER }));
+    nextSailings.mockResolvedValue({ open: true, name: "Import from Busan", sailings: [] } as never);
+    await expect(salesQuoteService.save(martin, REF, { serviceType: "Sea LCL", coLoadingServiceId: OTHER }, 3)).resolves.toMatchObject({ nextSailings: { serviceId: OTHER, serviceName: "Import from Busan" } });
+    expect(nextSailings).toHaveBeenCalledWith({ serviceId: OTHER });
+  });
+
+  it("say the service is gone when Co-Loading no longer has it open", async () => {
+    stored = lcl();
+    nextSailings.mockResolvedValue({ open: false, name: "", sailings: [] } as never);
+    await expect(salesQuoteService.get(martin, REF)).resolves.toMatchObject({ nextSailings: { serviceId: SERVICE, state: "gone", sailings: [] } });
+  });
+
+  it("are not asked for a quote that is no Sea LCL quote, or names no service", async () => {
+    stored = quote({ data: { ...(quote().data as object), serviceType: "Sea FCL", coLoadingServiceId: SERVICE } });
+    await expect(salesQuoteService.get(martin, REF)).resolves.toMatchObject({ nextSailings: null });
+    stored = lcl({ coLoadingServiceId: undefined });
+    await expect(salesQuoteService.get(martin, REF)).resolves.toMatchObject({ nextSailings: null });
+    expect(nextSailings).not.toHaveBeenCalled();
+  });
+
+  it("say they could not be read - never that there are none - when Co-Loading does not answer, and the quote still opens", async () => {
+    stored = lcl();
+    nextSailings.mockRejectedValue(new Error("connect ECONNREFUSED"));
+    await expect(salesQuoteService.get(martin, REF)).resolves.toMatchObject({ quoteNumber: REF, nextSailings: { serviceId: SERVICE, state: "unavailable", sailings: [] } });
+    expect(log.warn).toHaveBeenCalled();
+  });
+
+  it("are not asked for the quotes of a list", async () => {
+    stored = lcl();
+    repository.list.mockResolvedValue({ rows: [lcl()], total: 1 });
+    const page = await salesQuoteService.list(martin, {});
+    expect(page.data[0]).not.toHaveProperty("nextSailings");
+    expect(nextSailings).not.toHaveBeenCalled();
   });
 });
 

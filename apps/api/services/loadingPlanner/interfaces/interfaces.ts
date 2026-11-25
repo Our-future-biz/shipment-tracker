@@ -1,5 +1,7 @@
 // Plain API types of the Loading Planner. Never import Drizzle table types here — Encore's parser
 // cannot resolve the $inferSelect generic chain.
+import type { QuotePackageLine } from "../../quotes/interfaces/interfaces";
+import type { CargoDimensionLine, SailingPlanCargo } from "../../shipments/interfaces/interfaces";
 
 /** What a plan can be linked to: a shipment, a quote, or a Co-Loading Concept sailing (its box). A plan without a link is a what-if plan. */
 export type PlanLinkKind = "shipment" | "quote" | "sailing";
@@ -70,6 +72,25 @@ export interface LoadingPlanItem extends PlanInput {
    * plan is opened or saved; the plan stays linked until the user unlinks it.
    */
   linkGone: boolean;
+  /**
+   * When one plan is opened (its GET): the linked job's cargo as the job holds it now, for the
+   * "cargo differs" mark. Null when the plan has no link, its job is gone, or the service that owns
+   * the job did not answer - the plan then opens without the mark. Left out of a save's answer.
+   */
+  jobCargo?: PlanJobCargo | null;
+}
+
+/**
+ * The cargo of the job a plan is linked to, in the job's own shape, as the service that owns the
+ * job answers it (Council Outlay 14, P3). One of the three, by the kind of the link.
+ */
+export interface PlanJobCargo {
+  /** A shipment's Dimensions rows (Cargo Details), and the dimensions booked with its quote. */
+  shipment?: { cargoDimensions: CargoDimensionLine[]; bookedDimensions: CargoDimensionLine[] };
+  /** A quote's package lines. */
+  quote?: { packages: QuotePackageLine[] };
+  /** A sailing's box: its counted shipments' cargo lines by job number, and its containers. */
+  sailing?: SailingPlanCargo;
 }
 
 /** A plan as the list shows it. */

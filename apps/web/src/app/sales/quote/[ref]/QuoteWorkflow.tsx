@@ -1475,7 +1475,7 @@ export function QuoteWorkflow() {
           </div>
           {/* A Sea LCL quote names its Co-Loading service and sees that service's next sailings (Council Outlay 14, C7). */}
           {draft.serviceType === "Sea LCL" && (
-            <QuoteNextSailings serviceId={draft.coLoadingServiceId} direction={draft.direction} readOnly={quoteClosed} onPick={(coLoadingServiceId) => set({ coLoadingServiceId })} />
+            <QuoteNextSailings serviceId={draft.coLoadingServiceId} direction={draft.direction} nextSailings={quote?.nextSailings} readOnly={quoteClosed} onPick={(coLoadingServiceId) => set({ coLoadingServiceId })} />
           )}
         </>
       ),

@@ -1,6 +1,7 @@
 import type { MaxLen } from "encore.dev/validate";
 import type { StoredFx } from "../lib/quoteFx";
 import type { ServiceLevelCode } from "../../trucking/interfaces/interfaces";
+import type { CoLoadingBoardSailing } from "../../shipments/interfaces/interfaces";
 // Plain interfaces for controllers. Never import Drizzle table types here.
 
 /**
@@ -80,6 +81,42 @@ export interface SalesQuoteItem {
     /** Whether the user may approve a margin below the Trucking margin floor (a manager). */
     canApproveMargin: boolean;
   };
+  /**
+   * On the reads of one quote - opening it, a save's and an action's answer: the next sailings of
+   * the Co-Loading service a Sea LCL quote names (data.coLoadingServiceId), asked of Co-Loading
+   * Concept as the quote is read; null for any other quote. Left out of lists.
+   */
+  nextSailings?: QuoteNextSailings | null;
+}
+
+/**
+ * A Sea LCL quote's Co-Loading Concept service and its next sailings (Council Outlay 14, C7), as
+ * Co-Loading has them when the quote is read: what the "Next sailings" card in Routing shows. No money.
+ */
+export interface QuoteNextSailings {
+  /** The service the quote names: the sailings are this one's. */
+  serviceId: string;
+  /**
+   * open: the service is open, its sailings below; gone: it is closed, or the company has no such
+   * service; unavailable: Co-Loading Concept could not be read just now, so nothing is known.
+   */
+  state: "open" | "gone" | "unavailable";
+  /** The service's name; "" unless open. */
+  serviceName: string;
+  /** Its sailings still to come, the soonest first, at most three, as the board of sailings shows them; none unless open. */
+  sailings: CoLoadingBoardSailing[];
+}
+
+/** One package line of a quote, as the quote's document holds it (data.packages): sizes in cm, the weight per piece in kg. */
+export interface QuotePackageLine {
+  qty?: number;
+  /** The package type: "Pallets", "Cartons". */
+  type?: string;
+  length?: number;
+  width?: number;
+  height?: number;
+  weight?: number;
+  stackable?: boolean;
 }
 
 /** The road transport of a quote as the Sales editor enters it (data.road; the editor's key). */

@@ -17,6 +17,7 @@ import { containerDetailsHref } from "@/app/shipments/_lib/containerLink";
 import { WAREHOUSE_SECTIONS } from "@/app/warehouse/_components/warehouseRules";
 import { warehouseRecordHref } from "@/app/warehouse/_lib/warehouseHref";
 import type { QuoteStatus } from "@/app/sales/_lib/types";
+import { searchKindAllowed } from "./searchAccess";
 import { matchPages, menuPages } from "./searchPages";
 import type { SearchGroup, SearchHit, SearchKind } from "./searchTypes";
 
@@ -144,7 +145,7 @@ const warehouse: Source<interfaces.SearchWarehouseItem> = {
   // No "Show all": the Warehouse pages list a shipment by where it is, not by its reference.
 };
 
-// Superadmins only, as the Warehouse Concept's pages are (the server refuses anyone else).
+// Superadmins only, as the Warehouse Concept's pages are (the server refuses anyone else): searchAccess.ts.
 const warehouseConcept: Source<interfaces.SearchGateRecordItem> = {
   kind: "warehouseConcept",
   label: "Warehouse Concept",
@@ -254,18 +255,20 @@ export function useGlobalSearch(q: string, limit: number): SearchGroup[] {
       : [];
   const pages: SearchGroup = { kind: "pages", label: "Pages", hits: pageHits, total: pageHits.length, isLoading: false, isError: false };
 
-  // A fixed list of sources, so the hooks are called in the same order every time.
+  // A fixed list of sources, so the hooks are called in the same order every time. Who may see a kind
+  // is judged by the kind (searchKindAllowed), so a source added or moved in the list keeps its rule.
+  const role = user?.role;
   const found = [
-    useSourceGroup(SOURCES[0], q, limit),
-    useSourceGroup(SOURCES[1], q, limit),
-    useSourceGroup(SOURCES[2], q, limit),
-    useSourceGroup(SOURCES[3], q, limit),
-    useSourceGroup(SOURCES[4], q, limit),
-    useSourceGroup(SOURCES[5], q, limit, user?.role === "superadmin"),
-    useSourceGroup(SOURCES[6], q, limit),
-    useSourceGroup(SOURCES[7], q, limit),
-    useSourceGroup(SOURCES[8], q, limit),
-    useSourceGroup(SOURCES[9], q, limit),
+    useSourceGroup(SOURCES[0], q, limit, searchKindAllowed(SOURCES[0].kind, role)),
+    useSourceGroup(SOURCES[1], q, limit, searchKindAllowed(SOURCES[1].kind, role)),
+    useSourceGroup(SOURCES[2], q, limit, searchKindAllowed(SOURCES[2].kind, role)),
+    useSourceGroup(SOURCES[3], q, limit, searchKindAllowed(SOURCES[3].kind, role)),
+    useSourceGroup(SOURCES[4], q, limit, searchKindAllowed(SOURCES[4].kind, role)),
+    useSourceGroup(SOURCES[5], q, limit, searchKindAllowed(SOURCES[5].kind, role)),
+    useSourceGroup(SOURCES[6], q, limit, searchKindAllowed(SOURCES[6].kind, role)),
+    useSourceGroup(SOURCES[7], q, limit, searchKindAllowed(SOURCES[7].kind, role)),
+    useSourceGroup(SOURCES[8], q, limit, searchKindAllowed(SOURCES[8].kind, role)),
+    useSourceGroup(SOURCES[9], q, limit, searchKindAllowed(SOURCES[9].kind, role)),
   ];
   return [pages, ...found];
 }

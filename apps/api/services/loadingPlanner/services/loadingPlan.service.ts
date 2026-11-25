@@ -1,11 +1,10 @@
-import { hasEveryWord } from "../../../lib/mainSearch";
 import { APIError } from "encore.dev/api";
 import log from "encore.dev/log";
 import { quotes, shipments } from "~encore/clients";
 import { userEmailOf } from "../../../lib/companyUsers";
 import { iso } from "../../../lib/db/serialize";
 import { isUuid } from "../../../lib/uuid";
-import type { LoadingPlanItem, LoadingPlanSummary, PlanInput, PlanLinkKind } from "../interfaces/interfaces";
+import type { LoadingPlanItem, LoadingPlanSummary, PlanInput, PlanJobCargo, PlanLinkKind } from "../interfaces/interfaces";
 import { changedSinceMessage, cleanPlan, linkNeedsCheck, type CleanPlan } from "../lib/planInput";
 import { loadingPlanRepository, type LoadingPlanListRow } from "../repositories/loadingPlan.repository";
 import type { LoadingPlanRecord } from "../schemas/loadingPlan.schema";
@@ -37,16 +36,32 @@ const cleaned = (input: PlanInput): CleanPlan => {
   return result.plan;
 };
 
+/** What the service that owns a linked job says of it now. */
+interface LinkNow {
+  /** What the job is called now; null when the caller's company has no such live job. */
+  ref: string | null;
+  /** Asked with the cargo, of a live job: its cargo in its own shape; null otherwise. */
+  cargo: PlanJobCargo | null;
+}
+
 /**
- * What the linked shipment or quote is called now, asked of the service that owns it; null when
- * the caller's company has no such live job (it was deleted, or never was theirs). The call
- * carries the user's login, so the company is theirs. `reference` is what the plan holds: a quote
- * is found by it. Throws when the owning service does not answer.
+ * The linked shipment, quote or sailing as it is now, asked of the service that owns it: what it is
+ * called (null when the caller's company has no such live job - it was deleted, or never was
+ * theirs), and with `withCargo` its cargo. The call carries the user's login, so the company is
+ * theirs. `reference` is what the plan holds: a quote is found by it. Throws when the owning service
+ * does not answer.
  */
-async function linkRefNow(kind: PlanLinkKind, id: string, reference: string): Promise<string | null> {
-  if (kind === "shipment") return (await shipments._internalShipmentJobRef({ shipmentId: id })).jobNumber;
-  if (kind === "sailing") return (await shipments._internalSailingRef({ sailingId: id })).reference;
-  return (await quotes._internalQuoteLinkRef({ quoteId: id, reference })).quoteNumber;
+async function linkNow(kind: PlanLinkKind, id: string, reference: string, withCargo = false): Promise<LinkNow> {
+  if (kind === "shipment") {
+    const { jobNumber, cargo } = await shipments._internalShipmentJobRef({ shipmentId: id, withCargo });
+    return { ref: jobNumber, cargo: cargo ? { shipment: cargo } : null };
+  }
+  if (kind === "sailing") {
+    const { reference: now, cargo } = await shipments._internalSailingRef({ sailingId: id, withCargo });
+    return { ref: now, cargo: cargo ? { sailing: cargo } : null };
+  }
+  const { quoteNumber, packages } = await quotes._internalQuoteLinkRef({ quoteId: id, reference, withCargo });
+  return { ref: quoteNumber, cargo: packages ? { quote: { packages } } : null };
 }
 
 /**
@@ -59,7 +74,7 @@ async function withCheckedLink(plan: CleanPlan): Promise<CleanPlan> {
   if (!plan.linkKind || !plan.linkId) return plan;
   let linkRef: string | null;
   try {
-    linkRef = await linkRefNow(plan.linkKind, plan.linkId, plan.linkRef);
+    linkRef = (await linkNow(plan.linkKind, plan.linkId, plan.linkRef)).ref;
   } catch (err) {
     log.warn(err, "whether a loading plan's linked job exists could not be checked; the plan was not saved", { linkKind: plan.linkKind });
     throw APIError.unavailable(`Whether the linked ${plan.linkKind} exists could not be checked just now, so the plan was not saved. Save it again in a moment.`);
@@ -73,18 +88,19 @@ async function withCheckedLink(plan: CleanPlan): Promise<CleanPlan> {
 /**
  * A link the plan already has, as it stands now: what the job is called today (a shipment's job
  * number changes its letters until it is final, a quote takes the letters of its Freight Mode),
- * or that the job is gone. Best effort - when the owning service does not answer, the reference
- * the plan holds is kept and the job is taken to be there. Never refuses: a plan whose job was
- * deleted stays linked, and can still be opened and saved, until the user unlinks it.
+ * or that the job is gone; with `withCargo` (a plan being opened) also the job's cargo. Best
+ * effort - when the owning service does not answer, the reference the plan holds is kept, the job
+ * is taken to be there, and its cargo is not known. Never refuses: a plan whose job was deleted
+ * stays linked, and can still be opened and saved, until the user unlinks it.
  */
-async function keptLink(stored: Pick<LoadingPlanRecord, "id" | "linkKind" | "linkId" | "linkRef">): Promise<{ linkRef: string; gone: boolean }> {
-  if (!stored.linkKind || !stored.linkId) return { linkRef: "", gone: false };
+async function keptLink(stored: Pick<LoadingPlanRecord, "id" | "linkKind" | "linkId" | "linkRef">, withCargo = false): Promise<{ linkRef: string; gone: boolean; cargo: PlanJobCargo | null }> {
+  if (!stored.linkKind || !stored.linkId) return { linkRef: "", gone: false, cargo: null };
   try {
-    const now = await linkRefNow(stored.linkKind, stored.linkId, stored.linkRef);
-    return { linkRef: now ?? stored.linkRef, gone: now === null };
+    const now = await linkNow(stored.linkKind, stored.linkId, stored.linkRef, withCargo);
+    return { linkRef: now.ref ?? stored.linkRef, gone: now.ref === null, cargo: now.cargo };
   } catch (err) {
     log.warn(err, "what a loading plan's linked job is called now could not be read; the plan keeps the reference it holds", { planId: stored.id, linkKind: stored.linkKind });
-    return { linkRef: stored.linkRef, gone: false };
+    return { linkRef: stored.linkRef, gone: false, cargo: null };
   }
 }
 
@@ -95,11 +111,10 @@ class LoadingPlanService {
     return { plans: rows.map(toSummary), capped };
   }
 
-  /** The main search: the plans that have every word typed in their name or their linked job's reference, the last saved first. Looked for among the plans the list shows. */
+  /** The main search: the company's plans that have every word typed in their name or their linked job's reference (diacritics and case aside), the last saved first, and how many in all. */
   async searchMain(companyId: string, q: string, limit: number): Promise<{ items: LoadingPlanSummary[]; total: number }> {
-    const { rows } = await loadingPlanRepository.listLatest(companyId);
-    const found = rows.filter((r) => hasEveryWord([r.name, r.linkRef], q)).map(toSummary);
-    return { items: found.slice(0, limit), total: found.length };
+    const { rows, total } = await loadingPlanRepository.searchMain(companyId, q, limit);
+    return { items: rows.map(toSummary), total };
   }
 
   // An id that is no id names no plan: answered so before Postgres refuses it with an error of its own.
@@ -109,14 +124,17 @@ class LoadingPlanService {
     return row;
   }
 
-  /** One plan, with its linked job as it is now: its reference today (stored when it changed), or that it is gone. */
+  /**
+   * One plan, with its linked job as it is now: its reference today (stored when it changed), or
+   * that it is gone, and the job's cargo - which the page compares with the plan's.
+   */
   async get(id: string, companyId: string): Promise<LoadingPlanItem> {
     const row = await this.stored(id, companyId);
-    const { linkRef, gone } = await keptLink(row);
+    const { linkRef, gone, cargo } = await keptLink(row, true);
     if (row.linkKind && row.linkId && linkRef !== row.linkRef) {
       await loadingPlanRepository.setLinkRef(row.id, companyId, { kind: row.linkKind, id: row.linkId }, linkRef);
     }
-    return toItem({ ...row, linkRef }, gone);
+    return { ...toItem({ ...row, linkRef }, gone), jobCargo: cargo };
   }
 
   async create(companyId: string, userId: string, input: PlanInput): Promise<LoadingPlanItem> {

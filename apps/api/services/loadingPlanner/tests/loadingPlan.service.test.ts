@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 // is not checked here (loadingPlan.repository.test).
 const repository = vi.hoisted(() => ({
   listLatest: vi.fn(),
+  searchMain: vi.fn(),
   getByIdForCompany: vi.fn(),
   createForCompany: vi.fn(),
   updateIfUnchanged: vi.fn(),
@@ -15,7 +16,7 @@ const repository = vi.hoisted(() => ({
 }));
 const clients = vi.hoisted(() => ({
   auth: { userLookup: vi.fn() },
-  shipments: { _internalShipmentJobRef: vi.fn() },
+  shipments: { _internalShipmentJobRef: vi.fn(), _internalSailingRef: vi.fn() },
   quotes: { _internalQuoteLinkRef: vi.fn() },
 }));
 vi.mock("encore.dev/api", () => import("../../../lib/tests/encoreApi.stub"));
@@ -33,6 +34,7 @@ const SHIPMENT = "44444444-4444-4444-8444-444444444444";
 const OTHER_SHIPMENT = "55555555-5555-4555-8555-555555555555";
 const QUOTE = "66666666-6666-4666-8666-666666666666";
 const REVISION = "77777777-7777-4777-8777-777777777777";
+const SAILING = "88888888-8888-4888-8888-888888888888";
 const OPENED = "2026-11-23T09:00:00.000Z";
 
 const input = (more: Partial<PlanInput> = {}): PlanInput => ({ name: "Machines to Nhava Sheva", linkKind: null, linkId: null, linkRef: "", lines: [], nominated: null, ...more });
@@ -61,7 +63,7 @@ describe("create", () => {
   it("checks the link with the shipments service and stores the job number it answers, not the one sent", async () => {
     clients.shipments._internalShipmentJobRef.mockResolvedValue({ jobNumber: "CZLCL00000053" });
     const plan = await loadingPlanService.create(COMPANY, USER, linked({ linkRef: "made up" }));
-    expect(clients.shipments._internalShipmentJobRef).toHaveBeenCalledWith({ shipmentId: SHIPMENT });
+    expect(clients.shipments._internalShipmentJobRef).toHaveBeenCalledWith({ shipmentId: SHIPMENT, withCargo: false });
     expect(repository.createForCompany).toHaveBeenCalledWith(COMPANY, expect.objectContaining({ linkId: SHIPMENT, linkRef: "CZLCL00000053", createdBy: "petr@example.com", updatedBy: "petr@example.com" }));
     expect(plan).toMatchObject({ linkRef: "CZLCL00000053", linkGone: false });
   });
@@ -69,7 +71,7 @@ describe("create", () => {
   it("checks a quote by its id and reference", async () => {
     clients.quotes._internalQuoteLinkRef.mockResolvedValue({ quoteNumber: "QCZLCL20261109001" });
     const plan = await loadingPlanService.create(COMPANY, USER, input({ linkKind: "quote", linkId: QUOTE, linkRef: "QCZ20261109001" }));
-    expect(clients.quotes._internalQuoteLinkRef).toHaveBeenCalledWith({ quoteId: QUOTE, reference: "QCZ20261109001" });
+    expect(clients.quotes._internalQuoteLinkRef).toHaveBeenCalledWith({ quoteId: QUOTE, reference: "QCZ20261109001", withCargo: false });
     expect(plan.linkRef).toBe("QCZLCL20261109001");
   });
 
@@ -85,7 +87,26 @@ describe("create", () => {
   it("asks no service about a plan without a link", async () => {
     await loadingPlanService.create(COMPANY, USER, input());
     expect(clients.shipments._internalShipmentJobRef).not.toHaveBeenCalled();
+    expect(clients.shipments._internalSailingRef).not.toHaveBeenCalled();
     expect(clients.quotes._internalQuoteLinkRef).not.toHaveBeenCalled();
+  });
+
+  it("checks a sailing's link with Co-Loading Concept and stores what the sailing is called now", async () => {
+    clients.shipments._internalSailingRef.mockResolvedValue({ reference: "WEEK 51 · Import from Shanghai" });
+    const plan = await loadingPlanService.create(COMPANY, USER, input({ linkKind: "sailing", linkId: SAILING, linkRef: "made up" }));
+    expect(clients.shipments._internalSailingRef).toHaveBeenCalledWith({ sailingId: SAILING, withCargo: false });
+    expect(clients.shipments._internalShipmentJobRef).not.toHaveBeenCalled();
+    expect(repository.createForCompany).toHaveBeenCalledWith(COMPANY, expect.objectContaining({ linkKind: "sailing", linkId: SAILING, linkRef: "WEEK 51 · Import from Shanghai" }));
+    expect(plan).toMatchObject({ linkRef: "WEEK 51 · Import from Shanghai", linkGone: false });
+  });
+
+  it("refuses a plan linked to a sailing the company does not have, and saves nothing", async () => {
+    clients.shipments._internalSailingRef.mockResolvedValue({ reference: null });
+    await expect(loadingPlanService.create(COMPANY, USER, input({ linkKind: "sailing", linkId: SAILING, linkRef: "WEEK 51" }))).rejects.toMatchObject({
+      code: "invalid_argument",
+      message: "The sailing this plan is linked to was not found. Link the plan again, or unlink it.",
+    });
+    expect(repository.createForCompany).not.toHaveBeenCalled();
   });
 
   it("refuses the plan, in a sentence of ours, when the owning service cannot be asked - and saves nothing", async () => {
@@ -107,7 +128,7 @@ describe("update", () => {
     repository.getByIdForCompany.mockResolvedValue(stored(linked()));
     clients.shipments._internalShipmentJobRef.mockResolvedValue({ jobNumber: null });
     await expect(loadingPlanService.update(PLAN, COMPANY, USER, linked({ linkId: OTHER_SHIPMENT }), OPENED)).rejects.toMatchObject({ code: "invalid_argument" });
-    expect(clients.shipments._internalShipmentJobRef).toHaveBeenCalledWith({ shipmentId: OTHER_SHIPMENT });
+    expect(clients.shipments._internalShipmentJobRef).toHaveBeenCalledWith({ shipmentId: OTHER_SHIPMENT, withCargo: false });
     expect(repository.updateIfUnchanged).not.toHaveBeenCalled();
   });
 
@@ -207,11 +228,68 @@ describe("get", () => {
     expect(repository.setLinkRef).not.toHaveBeenCalled();
   });
 
-  it("opens the plan as it is stored when the owning service does not answer", async () => {
+  it("opens the plan as it is stored when the owning service does not answer, without the job's cargo", async () => {
     repository.getByIdForCompany.mockResolvedValue(stored(linked()));
     clients.shipments._internalShipmentJobRef.mockRejectedValue(new Error("down"));
-    await expect(loadingPlanService.get(PLAN, COMPANY)).resolves.toMatchObject({ linkRef: "CZ00000053", linkGone: false });
+    await expect(loadingPlanService.get(PLAN, COMPANY)).resolves.toMatchObject({ linkRef: "CZ00000053", linkGone: false, jobCargo: null });
     expect(repository.setLinkRef).not.toHaveBeenCalled();
+  });
+
+  describe("with the linked job's cargo as it is now (Council Outlay 14, P3)", () => {
+    const dimension = { pieces: "4", lengthCm: "120", widthCm: "80", heightCm: "150", weightPerPcKg: "450", packageType: "Pallet(s)", stackable: "" };
+
+    it("gives a shipment's cargo as the shipments service answers it", async () => {
+      repository.getByIdForCompany.mockResolvedValue(stored(linked()));
+      const cargo = { cargoDimensions: [dimension], bookedDimensions: [] };
+      clients.shipments._internalShipmentJobRef.mockResolvedValue({ jobNumber: "CZ00000053", cargo });
+      await expect(loadingPlanService.get(PLAN, COMPANY)).resolves.toMatchObject({ linkGone: false, jobCargo: { shipment: cargo } });
+      expect(clients.shipments._internalShipmentJobRef).toHaveBeenCalledWith({ shipmentId: SHIPMENT, withCargo: true });
+    });
+
+    it("gives a quote's package lines", async () => {
+      repository.getByIdForCompany.mockResolvedValue(stored(input({ linkKind: "quote", linkId: QUOTE, linkRef: "QCZ20261109001" })));
+      const packages = [{ qty: 4, type: "Pallets", length: 120, width: 80, height: 150, weight: 450 }];
+      clients.quotes._internalQuoteLinkRef.mockResolvedValue({ quoteNumber: "QCZ20261109001", packages });
+      await expect(loadingPlanService.get(PLAN, COMPANY)).resolves.toMatchObject({ jobCargo: { quote: { packages } } });
+      expect(clients.quotes._internalQuoteLinkRef).toHaveBeenCalledWith({ quoteId: QUOTE, reference: "QCZ20261109001", withCargo: true });
+    });
+
+    it("gives a sailing's box", async () => {
+      repository.getByIdForCompany.mockResolvedValue(stored(input({ linkKind: "sailing", linkId: SAILING, linkRef: "WEEK 51" })));
+      const box = { sailingId: SAILING, serviceId: "s1", reference: "WEEK 51 · Import from Shanghai", containerType: "40' HC", containerCount: 1, shipments: [] };
+      clients.shipments._internalSailingRef.mockResolvedValue({ reference: "WEEK 51 · Import from Shanghai", cargo: box });
+      await expect(loadingPlanService.get(PLAN, COMPANY)).resolves.toMatchObject({ linkRef: "WEEK 51 · Import from Shanghai", jobCargo: { sailing: box } });
+      expect(clients.shipments._internalSailingRef).toHaveBeenCalledWith({ sailingId: SAILING, withCargo: true });
+    });
+
+    it("gives none for a job that is gone, and asks nothing for a plan without a link", async () => {
+      repository.getByIdForCompany.mockResolvedValue(stored(linked()));
+      clients.shipments._internalShipmentJobRef.mockResolvedValue({ jobNumber: null });
+      await expect(loadingPlanService.get(PLAN, COMPANY)).resolves.toMatchObject({ linkGone: true, jobCargo: null });
+      vi.clearAllMocks();
+      repository.getByIdForCompany.mockResolvedValue(stored());
+      await expect(loadingPlanService.get(PLAN, COMPANY)).resolves.toMatchObject({ linkKind: null, jobCargo: null });
+      expect(clients.shipments._internalShipmentJobRef).not.toHaveBeenCalled();
+      expect(clients.quotes._internalQuoteLinkRef).not.toHaveBeenCalled();
+    });
+
+    it("is not part of a save's answer, and a save does not ask for it", async () => {
+      repository.getByIdForCompany.mockResolvedValue(stored(linked()));
+      clients.shipments._internalShipmentJobRef.mockResolvedValue({ jobNumber: "CZ00000053" });
+      const plan = await loadingPlanService.update(PLAN, COMPANY, USER, linked(), OPENED);
+      expect(plan).not.toHaveProperty("jobCargo");
+      expect(clients.shipments._internalShipmentJobRef).toHaveBeenCalledWith({ shipmentId: SHIPMENT, withCargo: false });
+    });
+  });
+});
+
+describe("the main search", () => {
+  it("is the repository's search of the company's plans, with how many match in all", async () => {
+    const row = { id: PLAN, name: "Plzeň machines", linkKind: null, linkId: null, linkRef: "", colli: 12, weightKg: 6005, result: null, createdBy: "a@example.com", updatedBy: "b@example.com", createdAt: new Date(OPENED), updatedAt: new Date(OPENED) };
+    repository.searchMain.mockResolvedValue({ rows: [row], total: 731 });
+    await expect(loadingPlanService.searchMain(COMPANY, "plzen", 5)).resolves.toEqual({ items: [{ ...row, createdAt: OPENED, updatedAt: OPENED }], total: 731 });
+    expect(repository.searchMain).toHaveBeenCalledWith(COMPANY, "plzen", 5);
+    expect(repository.listLatest).not.toHaveBeenCalled();
   });
 });
 

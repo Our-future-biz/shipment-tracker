@@ -16,7 +16,7 @@ interface LoadingPlanCreateRequest {
   nominated: string[] | null;
   /** What the plan came to, as the browser worked it out: for the lists. Left out by a screen from before it was kept. */
   result?: PlanResult | null;
-  /** A free note for the stuffing gang, printed on the plan; left out, the stored one stays. */
+  /** A free note for the stuffing gang, printed on the plan; left out, the plan has none. */
   note?: string & MaxLen<2000>;
 }
 

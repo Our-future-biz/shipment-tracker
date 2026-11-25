@@ -9,7 +9,7 @@ import { BackLink } from "@/components/BackLink";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { Pill } from "@/components/Pill";
 import { SectionCard } from "@/components/SectionCard";
-import { JobNotFound, useLoadingPlanJob, type PlanJob } from "@/hooks/useLoadingPlanJob";
+import { JobNotFound, linkedJobOf, useLoadingPlanJob, type PlanJob } from "@/hooks/useLoadingPlanJob";
 import { useLoadingPlan, useLoadingPlanWrites } from "@/hooks/useLoadingPlans";
 import { usePlannerSettings } from "@/hooks/usePlannerSettings";
 import { apiErrorMessage, isNotFound } from "@/lib/api";
@@ -133,11 +133,19 @@ function PlanEditor({ saved }: { saved: interfaces.LoadingPlanItem | null }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [saved?.updatedAt]);
 
-  // The linked job's cargo as it is now (Council Outlay 14, P3): read when a linked plan opens and whenever
-  // the job is read, to say when the plan's cargo is no longer the job's. Null until it is known.
-  const [jobCargo, setJobCargo] = useState<{ id: string; lines: DraftLine[] } | null>(null);
+  // The linked job's cargo as it is now (Council Outlay 14, P3), to say when the plan's cargo is no longer the
+  // job's: a saved plan's GET brings it, read on the server with the plan; linking or reloading the cargo reads
+  // the job again. Null while it is not known - the owning service did not answer: then there is no mark.
+  const opened = useMemo(() => (saved ? linkedJobOf(saved) : null), [saved]);
+  const [jobCargo, setJobCargo] = useState<{ id: string; lines: DraftLine[] } | null>(() => (opened ? { id: opened.id, lines: opened.lines } : null));
   // A sailing's containers, to judge the plan against: known once the sailing is read.
-  const [sailingBox, setSailingBox] = useState<{ id: string; containerType: string; containerCount: number } | null>(null);
+  const [sailingBox, setSailingBox] = useState<{ id: string; containerType: string; containerCount: number } | null>(() => (opened?.box ? { id: opened.id, ...opened.box } : null));
+  // The plan read again (after a save, or a colleague's version) brings the job as it is now.
+  useEffect(() => {
+    if (!opened) return;
+    setJobCargo({ id: opened.id, lines: opened.lines });
+    if (opened.box) setSailingBox({ id: opened.id, ...opened.box });
+  }, [opened]);
   const takeJob = (job: PlanJob, loadCargo: boolean) => {
     setJobCargo({ id: job.id, lines: job.lines });
     if (job.box) setSailingBox({ id: job.id, ...job.box });
@@ -182,22 +190,6 @@ function PlanEditor({ saved }: { saved: interfaces.LoadingPlanItem | null }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // A saved, linked plan asks its job once, quietly: a job that cannot be read simply gives no mark.
-  const askedJob = useRef(false);
-  useEffect(() => {
-    const linked = linkOf(saved);
-    if (!linked || askedJob.current || saved?.linkGone) return;
-    askedJob.current = true;
-    readJob({ kind: linked.kind, key: jobKeyOf(linked) }).then(
-      (job) => {
-        setJobCargo({ id: job.id, lines: job.lines });
-        if (job.box) setSailingBox({ id: job.id, ...job.box });
-      },
-      () => undefined,
-    );
-    // Once, for the plan as it was opened.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
   // Only for the job the plan is linked to now, and only once that job has cargo lines to compare.
   const differsFromJob = link !== null && jobCargo !== null && jobCargo.id === link.id && jobCargo.lines.length > 0 && (link.kind === "sailing" ? boxCargoDiffers(lines, jobCargo.lines) : cargoDiffers(lines, jobCargo.lines));
 

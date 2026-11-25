@@ -34,7 +34,8 @@ export const SECTION_FIELDS: Record<SectionKey, (keyof SalesQuoteData)[]> = {
     "customerLabel",
   ],
   shipment: ["direction", "serviceType", "incoterm", "readyDate", "cy"],
-  routing: ["origin", "destination", "pol", "pod", "pickup", "delivery", "routingBlank"],
+  // A Sea LCL quote's Co-Loading service is picked in Routing (Council Outlay 14, C7): it goes with the route.
+  routing: ["origin", "destination", "pol", "pod", "pickup", "delivery", "routingBlank", "coLoadingServiceId"],
   cargo: ["commodity", "stackable", "dangerous", "adr", "packages", "containers", "reefer", "oog", "weight", "cbm"],
   // Rates are not copied: the copy is priced at today's ČNB rates until it is sent.
   pricing: ["buyingLines", "sellingLines", "currency", "fclPricing"],

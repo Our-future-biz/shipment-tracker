@@ -7,16 +7,19 @@ import { SailingStagePill } from "@/app/co-loading/_components/SailingStageContr
 import { freeWords } from "@/app/co-loading/_lib/attention";
 import { containersWords } from "@/app/co-loading/_lib/boxUtilization";
 import { CUTOFF_TONE, cutoffState, cutoffWords, sailingHref, sailingTitle } from "@/app/co-loading/_lib/sailings";
-import { useCoLoadingBoard, useCoLoadingServices } from "@/hooks/useCoLoadingServices";
+import { useCoLoadingServices } from "@/hooks/useCoLoadingServices";
+import type { interfaces } from "@/lib/api/client";
 import { businessToday, formatDate } from "@/lib/date";
 import { HINT, LABEL_TEXT, LINK, REF, TD, TH } from "@/styles/ui";
-import { lclServicesFor, nextSailingsEmpty, nextSailingsOf } from "../../../_lib/nextSailings";
+import { lclServicesFor, namedServiceLabel, nextSailingsEmpty, nextSailingsHidden, servicesProblem } from "../../../_lib/nextSailings";
 
 interface QuoteNextSailingsProps {
   /** The Co-Loading service the quote names; undefined while it names none. */
   serviceId: string | undefined;
   /** The quote's direction ("Import" / "Export"): its services are offered first. */
   direction: string | undefined;
+  /** The next sailings the quote was last read or saved with (SalesQuoteItem.nextSailings). */
+  nextSailings: interfaces.QuoteNextSailings | null | undefined;
   onPick: (serviceId: string | undefined) => void;
   readOnly: boolean;
 }
@@ -24,18 +27,18 @@ interface QuoteNextSailingsProps {
 // "Next sailings" in a Sea LCL quote's Routing (Council Outlay 14, C7): the quote names one of the
 // company's Co-Loading Concept services and shows its next three sailings - cut-off, departure and
 // the room left in the box - so sales answers "when is the next departure?" from the quote. The
-// figures are the board's own, read as the quote is looked at; nothing of them is stored on the
-// quote but the service's name. No money is shown.
-export function QuoteNextSailings({ serviceId, direction, onPick, readOnly }: QuoteNextSailingsProps) {
-  const { services, isLoading: servicesLoading } = useCoLoadingServices();
-  const { board, isLoading: boardLoading, isError } = useCoLoadingBoard();
+// quote stores only the service's id (coLoadingServiceId); the sailings come with the quote, asked
+// by the server of Co-Loading Concept whenever it reads or saves the quote, so another pick shows
+// its sailings once it is saved. No money is shown. The services to pick from are a lookup of their own.
+export function QuoteNextSailings({ serviceId, direction, nextSailings, onPick, readOnly }: QuoteNextSailingsProps) {
+  const { services, isLoading: servicesLoading, isError: servicesFailed } = useCoLoadingServices();
   const today = businessToday();
   const options = lclServicesFor(services, direction, serviceId);
   // Nothing to offer and nothing named: the company runs no sea-LCL service, and the quote says nothing about it.
-  if (!servicesLoading && options.length === 0 && !serviceId) return null;
-  const known = options.some((s) => s.id === serviceId && !s.closedAt);
-  const sailings = nextSailingsOf(board?.sailings ?? [], serviceId);
-  const empty = nextSailingsEmpty(!!serviceId, sailings.length, known);
+  if (nextSailingsHidden(serviceId, options.length, servicesLoading, servicesFailed)) return null;
+  const empty = nextSailingsEmpty(serviceId, nextSailings, servicesFailed);
+  const sailings = empty ? [] : (nextSailings?.sailings ?? []);
+  const pickProblem = servicesProblem(serviceId, servicesFailed);
 
   return (
     <div className="mt-4 rounded-xl border border-slate-200 bg-white">
@@ -54,20 +57,25 @@ export function QuoteNextSailings({ serviceId, direction, onPick, readOnly }: Qu
           // A service named earlier that this person can no longer see (closed, or removed) still reads as words.
           options={[
             ...options.map((s) => ({ value: s.id, label: s.closedAt ? `${s.name} (closed)` : s.name })),
-            ...(serviceId && !servicesLoading && !options.some((s) => s.id === serviceId) ? [{ value: serviceId, label: "A service no longer open" }] : []),
+            ...(serviceId && !servicesLoading && !options.some((s) => s.id === serviceId) ? [{ value: serviceId, label: namedServiceLabel(serviceId, nextSailings, servicesFailed) }] : []),
           ]}
         />
+        {pickProblem && (
+          <span className="text-[12px] text-red-600" role="alert">
+            {pickProblem}
+          </span>
+        )}
       </div>
-      {isError ? (
-        <p className="m-0 px-4 py-3 text-[13px] text-red-600" role="alert">
-          The sailings could not be read.
-        </p>
-      ) : boardLoading && serviceId ? (
-        <p className={`${HINT} m-0 px-4 py-3`}>Reading the sailings…</p>
-      ) : empty ? (
-        <p className={`${HINT} m-0 px-4 py-3`} role="status">
-          {empty}
-        </p>
+      {empty ? (
+        empty.alert ? (
+          <p className="m-0 px-4 py-3 text-[13px] text-red-600" role="alert">
+            {empty.text}
+          </p>
+        ) : (
+          <p className={`${HINT} m-0 px-4 py-3`} role="status">
+            {empty.text}
+          </p>
+        )
       ) : (
         <div className="overflow-x-auto px-4 py-3">
           <table className="w-full min-w-[620px] border-collapse">
@@ -108,8 +116,8 @@ export function QuoteNextSailings({ serviceId, direction, onPick, readOnly }: Qu
         </div>
       )}
       <p className={`${HINT} m-0 border-t border-slate-100 px-4 py-2.5`}>
-        The next three sailings of the service still to come, as they stand now. The room left is against what the box is planned to take; it promises no space until the shipment is linked to
-        the sailing.
+        The next three sailings of the service still to come, as they stood when the quote was opened or last saved. The room left is against what the box is planned to take; it promises no
+        space until the shipment is linked to the sailing.
       </p>
     </div>
   );

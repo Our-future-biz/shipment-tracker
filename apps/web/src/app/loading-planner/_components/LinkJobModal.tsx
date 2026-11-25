@@ -10,6 +10,7 @@ import type { interfaces } from "@/lib/api/client";
 import { JobNotFound, type PlanJob } from "@/hooks/useLoadingPlanJob";
 import { HINT, LABEL_TEXT } from "@/styles/ui";
 import { JOB_KIND_LABEL } from "../_lib/jobCargo";
+import { highlightsOption, linksOnEnter } from "../_lib/linkEnter";
 
 interface LinkJobModalProps {
   open: boolean;
@@ -101,8 +102,10 @@ export function LinkJobModal({ open, onClose, readJob, onLinked, hasCargo }: Lin
               setKey(value);
               setError(null);
             }}
+            // Enter links what is typed, unless it picks a highlighted job from the list instead.
             onInputKeyDown={(e) => {
-              if (e.key === "Enter" && (found.data ?? []).length === 0) void handleLink();
+              const offered = (found.data ?? []).map((o) => o.value);
+              if (e.key === "Enter" && linksOnEnter(key, offered, highlightsOption(e.currentTarget.getAttribute("aria-activedescendant")))) void handleLink();
             }}
           />
           <span className={HINT}>Type a few letters and pick the {JOB_KIND_LABEL[kind].toLowerCase()} from the list, or type its number in full.</span>

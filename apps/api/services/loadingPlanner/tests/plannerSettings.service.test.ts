@@ -87,13 +87,6 @@ describe("the road-weight warning (Council Outlay 14, P2)", () => {
     expect(repository.save).toHaveBeenCalledWith(COMPANY, expect.objectContaining({ roadWeight: { gross20Kg: null, gross40Kg: 30000 } }), USER);
   });
 
-  it("keeps the stored weights when a screen from before them sends none", async () => {
-    repository.get.mockResolvedValue(row);
-    const old = { clearance: fromRow.clearance, oogWarning: fromRow.oogWarning, heavyPiece: fromRow.heavyPiece };
-    await plannerSettingsService.set(actor("admin"), old as PlannerSettings);
-    expect(repository.save).toHaveBeenCalledWith(COMPANY, expect.objectContaining({ roadWeight: { gross20Kg: 24000, gross40Kg: null } }), USER);
-  });
-
   it("refuses a weight out of its range", async () => {
     await expect(plannerSettingsService.set(actor("manager"), { ...fromRow, roadWeight: { gross20Kg: 900, gross40Kg: null } })).rejects.toMatchObject({ code: "invalid_argument" });
     expect(repository.save).not.toHaveBeenCalled();

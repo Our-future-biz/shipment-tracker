@@ -9,6 +9,7 @@ import { PillTabs, SectionCard } from "@/components/SectionCard";
 import { BTN, HINT, ICON_BTN_DANGER, LINK, TD, TH } from "@/styles/ui";
 import { completeLine, isBlank, lineLabel, MAX_COLLI, missingFigures, type DraftLine } from "../_lib/cargoForm";
 import { duplicateLine, moveLine, pastedLines, STANDARD_UNITS, withStandardUnit } from "../_lib/cargoTools";
+import { stillTheList } from "../_lib/cargoUndo";
 import type { PlanRules } from "../_lib/containers";
 import { standardLabel } from "../_lib/gauge";
 import { dgWords, isDangerous, pinWords } from "../_lib/dangerous";
@@ -47,24 +48,28 @@ export function CargoCard({ lines, unit, onUnitChange, onChange, onAdd, newId, o
   const [notesOf, setNotesOf] = useState<string | null>(null);
   const patch = (id: string, change: Partial<DraftLine>) => onChange(lines.map((line) => (line.id === id ? { ...line, ...change } : line)));
 
-  // The line last removed, with its place: one click puts it back (Council Outlay 14, P5). Forgotten once the list changes otherwise.
-  const [removed, setRemoved] = useState<{ line: DraftLine; at: number; label: string } | null>(null);
-  // What a paste brought in, said under the table until the list changes again.
-  const [pasted, setPasted] = useState<string | null>(null);
+  // The line last removed, with its place: one click puts it back (Council Outlay 14, P5). And what a
+  // paste brought in, said under the table. Each is kept with the list as it left it, and forgotten once
+  // the list changes otherwise - here, or replaced from outside (stillTheList).
+  const [removed, setRemoved] = useState<{ line: DraftLine; at: number; label: string; after: DraftLine[] } | null>(null);
+  const [pasted, setPasted] = useState<{ text: string; after: DraftLine[] } | null>(null);
+  const undoable = removed && stillTheList(removed.after, lines) ? removed : null;
+  const pastedNote = pasted && stillTheList(pasted.after, lines) ? pasted.text : null;
   const change = (next: DraftLine[]) => {
     setRemoved(null);
     setPasted(null);
     onChange(next);
   };
   const remove = (line: DraftLine, at: number) => {
+    const next = lines.filter((l) => l.id !== line.id);
     setPasted(null);
-    onChange(lines.filter((l) => l.id !== line.id));
+    onChange(next);
     // A blank line is nothing to bring back.
-    setRemoved(isBlank(line) ? null : { line, at, label: lineLabel(line, at) });
+    setRemoved(isBlank(line) ? null : { line, at, label: lineLabel(line, at), after: next });
   };
   const undo = () => {
-    if (!removed) return;
-    onChange([...lines.slice(0, removed.at), removed.line, ...lines.slice(removed.at)]);
+    if (!undoable) return;
+    onChange([...lines.slice(0, undoable.at), undoable.line, ...lines.slice(undoable.at)]);
     setRemoved(null);
   };
   // Rows copied from a spreadsheet become cargo lines; anything else is a plain paste into the cell under the cursor.
@@ -72,9 +77,10 @@ export function CargoCard({ lines, unit, onUnitChange, onChange, onAdd, newId, o
     const read = pastedLines(e.clipboardData.getData("text/plain"), unit, newId);
     if (!read) return;
     e.preventDefault();
-    change([...lines.filter((line) => !isBlank(line)), ...read]);
+    const next = [...lines.filter((line) => !isBlank(line)), ...read];
+    change(next);
     const unfinished = read.filter((line) => missingFigures(line).length > 0).length;
-    setPasted(`${read.length === 1 ? "1 line" : `${read.length} lines`} pasted, sizes read in ${unit}${unfinished > 0 ? `; ${unfinished} still ${unfinished === 1 ? "lacks" : "lack"} a figure` : ""}.`);
+    setPasted({ text: `${read.length === 1 ? "1 line" : `${read.length} lines`} pasted, sizes read in ${unit}${unfinished > 0 ? `; ${unfinished} still ${unfinished === 1 ? "lacks" : "lack"} a figure` : ""}.`, after: next });
   };
 
   const sizeCell = (line: DraftLine, field: "lengthMm" | "widthMm" | "heightMm", label: string) => {
@@ -243,17 +249,17 @@ export function CargoCard({ lines, unit, onUnitChange, onChange, onAdd, newId, o
           </tbody>
         </table>
       </div>
-      {(removed || pasted) && (
+      {(undoable || pastedNote) && (
         <p className="m-0 flex flex-wrap items-center gap-x-3 border-t border-slate-100 px-4 py-2 text-[13px] text-slate-700" role="status">
-          {removed && (
+          {undoable && (
             <span>
-              {removed.label} removed.{" "}
+              {undoable.label} removed.{" "}
               <button type="button" className={`${LINK} cursor-pointer border-0 bg-transparent p-0 font-medium`} onClick={undo}>
                 Undo
               </button>
             </span>
           )}
-          {pasted && <span>{pasted}</span>}
+          {pastedNote && <span>{pastedNote}</span>}
         </p>
       )}
       <p className={`${HINT} m-0 px-4 py-2.5`}>

@@ -1,6 +1,7 @@
 import { and, desc, eq, isNull, ne, sql } from "drizzle-orm";
 import { TenantRepository } from "../../../lib/db/repository";
 import { plainSalesReferenceSql } from "../../../lib/db/salesReferenceSql";
+import { containsAllWords } from "../../../lib/db/textSearch";
 import { plainSalesReference } from "../../../lib/salesReference";
 import { db } from "../db/db";
 import type { PlanLinkKind, PlanResult } from "../interfaces/interfaces";
@@ -69,6 +70,24 @@ class LoadingPlanRepository extends TenantRepository<typeof t> {
       .orderBy(desc(t.updatedAt))
       .limit(limit + 1);
     return { rows: rows.slice(0, limit), capped: rows.length > limit };
+  }
+
+  /**
+   * The main search: the company's live plans whose name or linked job's reference holds every word
+   * of `q`, diacritics and case aside (lib/db/textSearch: "plzne" finds "Plzně"), the last saved
+   * first - at most `limit` of them, and how many match in all. The colli and weight are added up
+   * for the plans given only, not for every plan the words are looked for in.
+   */
+  async searchMain(companyId: string, q: string, limit: number): Promise<{ rows: LoadingPlanListRow[]; total: number }> {
+    const words = containsAllWords([t.name, t.linkRef], q);
+    if (!words) return { rows: [], total: 0 };
+    const found = and(eq(t.companyId, companyId), isNull(t.deletedAt), words);
+    const page = this.db.select({ id: t.id }).from(t).where(found).orderBy(desc(t.updatedAt)).limit(limit).as("page");
+    const [rows, [count]] = await Promise.all([
+      this.db.select(listColumns).from(t).innerJoin(page, eq(t.id, page.id)).where(eq(t.companyId, companyId)).orderBy(desc(t.updatedAt)),
+      this.db.select({ total: sql<number>`count(*)`.mapWith(Number) }).from(t).where(found),
+    ]);
+    return { rows, total: count?.total ?? 0 };
   }
 
   /**

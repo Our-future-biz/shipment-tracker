@@ -64,7 +64,25 @@ async function readSailing(key: string): Promise<PlanJob> {
   }
 }
 
-/** Reads a shipment or a quote for a loading plan: what to link to, and its cargo. */
+/**
+ * The job a saved plan is linked to, with its cargo as the plan's GET carries it (Council Outlay 14,
+ * P3): what the page judges "the job's cargo differs" by, read on the server with the plan - so
+ * opening a plan asks nothing more. Null when the GET has none: no link, the job is gone, or the
+ * service that owns it did not answer.
+ */
+export function linkedJobOf(plan: interfaces.LoadingPlanItem): PlanJob | null {
+  const cargo = plan.jobCargo;
+  if (!cargo || !plan.linkKind || !plan.linkId) return null;
+  const job = { kind: plan.linkKind, id: plan.linkId, ref: plan.linkRef };
+  if (plan.linkKind === "shipment" && cargo.shipment) return { ...job, lines: shipmentLines(cargo.shipment, newId) };
+  if (plan.linkKind === "quote" && cargo.quote) return { ...job, lines: linesFromQuote(cargo.quote.packages, newId) };
+  if (plan.linkKind === "sailing" && cargo.sailing) {
+    return { ...job, lines: linesFromSailing(cargo.sailing, newId), box: { containerType: cargo.sailing.containerType, containerCount: cargo.sailing.containerCount } };
+  }
+  return null;
+}
+
+/** Reads a shipment, a quote or a sailing for a loading plan (Link, Reload cargo, a plan opened from a job): what to link to, and its cargo. */
 export const useLoadingPlanJob = () => {
   const read = useMutation({ mutationFn: ({ kind, key }: JobKey) => (kind === "shipment" ? readShipment(key) : kind === "sailing" ? readSailing(key) : readQuote(key)) });
   return { readJob: read.mutateAsync, isReading: read.isPending };

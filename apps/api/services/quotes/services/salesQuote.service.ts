@@ -16,6 +16,7 @@ import type {
   CustomerOpenQuote,
   CustomerQuoteFacts,
   QuoteMarginApproval,
+  QuoteNextSailings,
   QuoteRoadInput,
   QuoteShipmentsItem,
   QuoteShipmentsResult,
@@ -76,6 +77,7 @@ import { holdsSending, shownDocument, STATES_UNAVAILABLE, toItem, type LinkedSta
 import { ownerBackfillService } from "./ownerBackfill.service";
 import { companyUsers } from "../../../lib/companyUsers";
 import { companyPeople, peopleOf, withCaller, type People } from "../lib/people";
+import { coLoadingServiceOf, nextSailingsAnswer, nextSailingsUnavailable } from "../lib/nextSailings";
 
 /** A change of status as the API takes it: the choice, and what the user's screen showed when it was made. */
 export interface TransitionRequest extends StatusChange {
@@ -421,6 +423,21 @@ async function linkedStatesOf(rows: readonly SalesQuoteRecord[], at: Date): Prom
   }
 }
 
+// The next sailings of the Co-Loading service a Sea LCL quote names (lib/nextSailings), asked of
+// Co-Loading Concept with the caller's login as the one quote is read - so a save that names another
+// service answers with that one's. Null for any other quote. When Co-Loading does not answer the quote
+// still opens, saying so: never as "no sailings" or "closed".
+async function nextSailingsOf(data: unknown): Promise<QuoteNextSailings | null> {
+  const serviceId = coLoadingServiceOf(data);
+  if (!serviceId) return null;
+  try {
+    return nextSailingsAnswer(serviceId, await shipments._internalCoLoadingNextSailings({ serviceId }));
+  } catch (err) {
+    log.warn("the next sailings of a quote's Co-Loading service could not be read", { serviceId, error: err instanceof Error ? err.message : String(err) });
+    return nextSailingsUnavailable(serviceId);
+  }
+}
+
 // The rules refuse in words meant for the user; the API adds what kind of refusal it is.
 function ruled<T>(run: () => T): T {
   try {
@@ -560,13 +577,14 @@ class SalesQuoteService {
     // of a variant or revision: the page then does not offer the delete the server refuses. Asked
     // of a Draft only - nothing else is deleted.
     const draft = stored.status === "draft";
-    const [margins, states, replaces, followUps] = await Promise.all([
+    const [margins, states, replaces, followUps, nextSailings] = await Promise.all([
       marginsFor(actor.companyID, [stored], at),
       linkedStatesOf([stored], at),
       draft ? salesQuoteRepository.liveReplacedBy(actor.companyID, stored.quoteNumber) : null,
       draft ? salesQuoteRepository.liveFollowUps(actor.companyID, [stored.quoteNumber]) : null,
+      nextSailingsOf(stored.data),
     ]);
-    return toItem(stored, people.emails, actor, at, margins, states, replaces, followUps?.get(stored.quoteNumber) ?? null);
+    return { ...toItem(stored, people.emails, actor, at, margins, states, replaces, followUps?.get(stored.quoteNumber) ?? null), nextSailings };
   }
 
   // The sales quotes of the company: one page of a filtered, sorted list, or - with afterId -
