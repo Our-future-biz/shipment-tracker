@@ -3,6 +3,7 @@ import { balanceOf } from "./balance";
 import { DEFAULT_RULES } from "./containers";
 import { findSpot, newFloor, occupy } from "./floor";
 import type { CargoLine } from "./gauge";
+import { pinPlaceWords } from "./dangerous";
 import { pinsNotKept, planLoad, type ContainerLoad } from "./plan";
 
 const line = (id: string, l: number, w: number, h: number, kg: number, colli: number, more: Partial<CargoLine> = {}): CargoLine => ({ id, name: id, lengthMm: l, widthMm: w, heightMm: h, weightKg: kg, colli, canTurn: true, stackable: false, ...more });
@@ -79,7 +80,7 @@ describe("pins (Council Outlay 14, P8)", () => {
     expect(plan.loads).toHaveLength(1);
     const loaded = colliOf(plan, "a")[0]!;
     expect(loaded).toBeLessThan(14);
-    expect(plan.notLoaded).toEqual([{ lineId: "a", name: "a", colli: 14 - loaded, reason: "Pinned to container no. 1, which has no room for it with the other cargo pinned there." }]);
+    expect(plan.notLoaded).toEqual([{ lineId: "a", name: "a", colli: 14 - loaded, reason: "Pinned to container no. 1 (#1 of the plan), which has no room for it with the other cargo pinned there." }]);
   });
 
   it("takes the equipment the neediest pinned piece needs for the whole pinned container", () => {
@@ -96,10 +97,41 @@ describe("pins (Council Outlay 14, P8)", () => {
     const lines = [pallets("front", 1, { pinEnd: "front" }), pallets("doors", 1, { pinEnd: "doors" }), pallets("other", 2), pallets("a", 1, { pinBox: 1 })];
     const load = (pieces: ReturnType<typeof piece>[]): ContainerLoad => ({ container, pieces, totalWeightKg: 0 });
     // Other cargo stands between the pinned piece and its end; cargo beside it does not count.
-    expect(pinsNotKept([load([piece("other", 0), piece("front", 1200)])], lines)).toEqual(["Container 1: front could not be kept at the front wall; other cargo stands before it."]);
+    // The plan's containers by their place ("#1"), a pinned number as "container no. 1".
+    expect(pinsNotKept([load([piece("other", 0), piece("front", 1200)])], lines)).toEqual(["Container #1: front could not be kept at the front wall; other cargo stands before it."]);
     expect(pinsNotKept([load([piece("other", 0, 800), piece("front", 1200)])], lines)).toEqual([]);
-    expect(pinsNotKept([load([piece("doors", 0), piece("other", 1200)])], lines)).toEqual(["Container 1: doors could not be kept at the doors; other cargo stands behind it."]);
-    expect(pinsNotKept([load([piece("a", 0)]), load([piece("a", 0)])], lines)).toEqual(["The cargo pinned to container no. 1 is in 2 containers."]);
+    expect(pinsNotKept([load([piece("doors", 0), piece("other", 1200)])], lines)).toEqual(["Container #1: doors could not be kept at the doors; other cargo stands behind it."]);
+    expect(pinsNotKept([load([piece("a", 0)]), load([piece("other", 0)]), load([piece("a", 0)])], lines)).toEqual(["The cargo pinned to container no. 1 is in 2 containers: #1, #3."]);
+  });
+
+  it("packs and centres the containers without an end-pinned line as if no end were pinned", () => {
+    // A machine pinned to the front wall of its own container: the pallets do not go in with it.
+    const machine = line("machine", 5700, 2200, 2000, 5000, 1, { pinEnd: "front", pinBox: 1, canTurn: false });
+    const pallets = [line("pallet", 1200, 1000, 1000, 300, 40)];
+    const alone = planLoad(pallets, ["20dc"], DEFAULT_RULES);
+    expect(alone.loads).toHaveLength(4);
+    const withMachine = planLoad([machine, ...pallets], ["20dc"], DEFAULT_RULES);
+    expect(colliOf(withMachine, "machine")).toEqual([1, 0, 0, 0, 0]);
+    expect(withMachine.loads.slice(1)).toEqual(alone.loads);
+    // A heavy and a light line, centred around the heavy one as ever, though the plan has an end pin elsewhere.
+    const rest = [line("light", 1200, 1000, 1000, 100, 6), line("heavy", 1200, 1000, 1000, 2000, 2)];
+    const plain = planLoad(rest, ["20dc"], DEFAULT_RULES);
+    const pinnedElsewhere = planLoad([machine, ...rest], ["20dc"], DEFAULT_RULES);
+    expect(pinnedElsewhere.loads.slice(1)).toEqual(plain.loads);
+    expect(balanceOf(pinnedElsewhere.loads[1]!.pieces, pinnedElsewhere.loads[1]!.container).ok).toBe(true);
+  });
+
+  it("says which of the plan's containers each pinned number is: a number is a name, not a place", () => {
+    const plan = planLoad([pallets("a", 3, { pinBox: 2 }), pallets("free", 20)], ["20dc"], DEFAULT_RULES);
+    expect(plan.loads.map((load) => load.pinBox)).toEqual([2, undefined, undefined]);
+    expect(colliOf(plan, "a")).toEqual([3, 0, 0]);
+    expect(pinPlaceWords(plan, 2)).toBe(" (#1 of the plan)");
+    expect(pinPlaceWords(plan, 3)).toBe(" (not loaded)");
+    expect(pinPlaceWords(plan, undefined)).toBe("");
+    // Two numbers: each its own container, by their order.
+    const two = planLoad([pallets("b", 3, { pinBox: 5 }), pallets("a", 3, { pinBox: 2 })], ["20dc"], DEFAULT_RULES);
+    expect(two.loads.map((load) => load.pinBox)).toEqual([2, 5]);
+    expect(pinPlaceWords(two, 5)).toBe(" (#2 of the plan)");
   });
 });
 

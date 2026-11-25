@@ -81,3 +81,14 @@ export const PIN_BOX_MAX = 9;
 export function pinWords(line: { pinEnd?: "front" | "doors"; pinBox?: number }): string {
   return [line.pinEnd === "front" ? "at the front wall" : line.pinEnd === "doors" ? "at the doors" : "", line.pinBox ? `container no. ${line.pinBox}` : ""].filter(Boolean).join(" · ");
 }
+
+/**
+ * " (#2 of the plan)" after a pinned container number: the plan's container that stands for it, as
+ * the plan's pages and cards are numbered (a number is the user's name for a container, not its
+ * place); " (not loaded)" when none does; "" for no number.
+ */
+export function pinPlaceWords(plan: { loads: readonly ContainerLoad[] }, box: number | undefined): string {
+  if (!box) return "";
+  const index = plan.loads.findIndex((load) => load.pinBox === box);
+  return index < 0 ? " (not loaded)" : ` (#${index + 1} of the plan)`;
+}

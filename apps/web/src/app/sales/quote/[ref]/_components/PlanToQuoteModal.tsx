@@ -7,7 +7,7 @@ import { useLoadingPlan } from "@/hooks/useLoadingPlans";
 import { usePlannerSettings } from "@/hooks/usePlannerSettings";
 import { apiErrorMessage, isNotFound } from "@/lib/api";
 import { planLoad } from "@/app/loading-planner/_lib/plan";
-import { boxesWords, droppedTypes, gaugeWords, planForQuote, putOnQuoteRefusal, type QuoteBox, type QuoteGauge } from "@/app/loading-planner/_lib/planOnQuote";
+import { boxesWords, canPutOnQuote, droppedTypes, gaugeWords, planForQuote, putOnQuoteRefusal, type QuoteBox, type QuoteGauge } from "@/app/loading-planner/_lib/planOnQuote";
 import { HINT, LABEL_TEXT } from "@/styles/ui";
 
 interface PlanToQuoteModalProps {
@@ -46,11 +46,13 @@ function Change({ what, now, next }: { what: string; now: string; next: string }
 // written into the quote on screen only on Confirm - and saved by the quote like any other edit.
 // The plan is worked out anew here from its saved cargo, with the company's rules of today.
 export default function PlanToQuoteModal({ planId, onClose, containers, oog, containerQuote, closed, onConfirm }: PlanToQuoteModalProps) {
-  const { plan, isLoading, error } = useLoadingPlan(planId);
-  const { rules } = usePlannerSettings();
+  const { plan, isLoading, isFetching, error } = useLoadingPlan(planId);
+  const { rules, isFetching: settingsFetching } = usePlannerSettings();
   const found = useMemo(() => (plan ? planForQuote(planLoad(plan.lines, plan.nominated ?? undefined, rules)) : null), [plan, rules]);
   const refusal = found ? putOnQuoteRefusal(found, { containerQuote, closed }) : null;
   const dropped = found ? droppedTypes(containers, found.containers) : [];
+  // A copy of the plan kept from before, or the starting figures until the settings are read, may be shown meanwhile: never confirmed.
+  const reading = isFetching || settingsFetching;
 
   let waiting: string | null = null;
   if (planId && !plan) waiting = isLoading || !error ? "Reading the plan…" : isNotFound(error) ? "This plan does not exist, or it was deleted." : apiErrorMessage(error);
@@ -67,7 +69,7 @@ export default function PlanToQuoteModal({ planId, onClose, containers, oog, con
           <Button onClick={onClose}>Cancel</Button>
           <Button
             type="primary"
-            disabled={!found || refusal !== null}
+            disabled={!canPutOnQuote(found, refusal, reading)}
             onClick={() => {
               if (!found) return;
               onConfirm(found.containers, found.oog);
@@ -90,6 +92,12 @@ export default function PlanToQuoteModal({ planId, onClose, containers, oog, con
             {/* The out-of-gauge block is written only for a plan with an open top or a flat rack; else it is left as it is. */}
             {found.oog ? (
               <Change what="Out of gauge" now={gaugeWords(oog)} next={gaugeWords(found.oog)} />
+            ) : found.gaugeTypes.length > 1 ? (
+              // One block is judged against every such type of the quote: it cannot describe the cargo of two.
+              <p className="m-0 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[13px] text-amber-800" role="status">
+                The plan has cargo on {found.gaugeTypes.join(" and ")}. A quote has one out-of-gauge block, which describes the cargo on one type: it is left as it is. Answer it on
+                the quote, or plan the cargo of each type on its own.
+              </p>
             ) : (
               <p className={`${HINT} m-0`}>The plan uses no open top or flat rack: the quote&apos;s out-of-gauge answers are left as they are.</p>
             )}
@@ -104,6 +112,11 @@ export default function PlanToQuoteModal({ planId, onClose, containers, oog, con
                 {dropped.join(" and ")} {dropped.length === 1 ? "leaves" : "leave"} the quote: charges priced per such container count 0 until the new equipment is priced in Pricing.
               </p>
             )}
+            {reading && (
+              <p className={`${HINT} m-0`} role="status">
+                Reading the plan and the planner&apos;s settings again: the figures above may still change.
+              </p>
+            )}
             {refusal ? (
               <p className="m-0 text-[13px] text-red-600" role="alert">
                 {refusal}
@@ -111,7 +124,8 @@ export default function PlanToQuoteModal({ planId, onClose, containers, oog, con
             ) : (
               <p className={`${HINT} m-0`}>
                 The quote&apos;s present container lines are replaced, with the cargo weight per container from the plan. Prices charged per container follow the new numbers, as when
-                you change the lines by hand. Out-of-gauge figures are the plan&apos;s cargo against the same table the quote uses.
+                you change the lines by hand. Out-of-gauge figures are the plan&apos;s cargo against the same table the quote uses; for an open top, loaded piece by piece, the
+                piece that decides how it is loaded.
               </p>
             )}
           </div>

@@ -5,7 +5,7 @@ import { CopyOutlined } from "@ant-design/icons";
 import { AppModal } from "@/components/AppModal";
 import { useMessages } from "@/lib/toast";
 import { HINT, LABEL_TEXT } from "@/styles/ui";
-import { oogRequestText, type OogRequest } from "../_lib/oogRequest";
+import { linerText, oogRequestText, type OogRequest } from "../_lib/oogRequest";
 
 const n = (value: number) => value.toLocaleString("en-US");
 
@@ -75,6 +75,12 @@ export function OogRequestModal({ request, planName, onClose }: { request: OogRe
             </Fact>
             <Fact label="Lost slots, indicative">{request.lostSlots > 0 ? `${n(request.lostSlots)} (20' slots)` : "none"}</Fact>
           </div>
+          {/* Past the in-gauge figure but within the liner's limit: out by 0 above, said here as in the text to copy. */}
+          {request.liner.length > 0 && (
+            <p className="m-0 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[13px] text-amber-800" role="status">
+              Within the liner&apos;s limit, to be confirmed by the liner: {linerText(request.liner)}.
+            </p>
+          )}
           <pre aria-label="The request as text" className="m-0 max-h-[280px] overflow-auto whitespace-pre-wrap rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-[12px] leading-relaxed text-slate-800">
             {text}
           </pre>

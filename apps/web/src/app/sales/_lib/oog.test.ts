@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { answerInGauge, checkOog, gaugeAdvice, hasGauge, hasOogEquipment, inGaugeMaximum, isOogType, oogMissing, oogSummary, oogTypes } from "./oog";
+import { answerInGauge, checkOog, gaugeAdvice, hasGauge, hasOogEquipment, inGaugeMaximum, isOogType, oogLengthAsked, oogMissing, oogSummary, oogTypes } from "./oog";
 
 describe("answerInGauge", () => {
   it("pre-fills the most the equipment takes in gauge when Yes is answered before any measure is typed", () => {
@@ -35,6 +35,15 @@ describe("out-of-gauge equipment", () => {
     expect(oogMissing({ ...fcl, oog: { inGauge: true, length: 1162, width: 244, height: 195 } })).toBeNull();
     expect(oogMissing({ ...fcl, oog: { inGauge: false, length: 1000 } })).toBe("Enter the cargo's overall length, width and height");
     expect(oogMissing({ ...fcl, oog: { inGauge: false, length: 1000, width: 300, height: 250 } })).toBeNull();
+  });
+});
+
+describe("oogLengthAsked", () => {
+  it("asks an open top's longest piece, which the table judges, and the overall length of the cargo otherwise", () => {
+    expect(oogLengthAsked(["40' OT", "20' HOT"])).toEqual({ label: "Length", hint: "The longest piece: an open top is loaded piece by piece" });
+    expect(oogLengthAsked(["40' FR"])).toEqual({ label: "Overall length", hint: "All colli combined" });
+    expect(oogLengthAsked(["40' OT", "40' FR"])).toEqual({ label: "Overall length", hint: "All colli combined" });
+    expect(oogLengthAsked([])).toEqual({ label: "Overall length", hint: "All colli combined" });
   });
 });
 

@@ -29,6 +29,21 @@ describe("the out-of-gauge request of a container (Council Outlay 14, P10)", () 
     expect(request.overLength).toEqual({ front: 0, back: 0 });
   });
 
+  it("counts a flat rack's measure within the liner's limit as the verdict does: out by nothing, to be confirmed", () => {
+    // 3 m wide on a 20' FR (out of gauge), 2,220 mm high: over the in-gauge 218 cm, within the liner's 223 cm.
+    const high = oogRequestOf(first(line("Frame", 5000, 3000, 2220, 6000), ["20fr"]), 1)!;
+    expect(high.overWidth).toEqual({ left: 28, right: 28 });
+    expect(high.overHeight).toBe(0);
+    expect(high.liner).toEqual([{ measure: "height", value: 222, inGauge: 218, limit: 223 }]);
+    expect(oogRequestText(high, "")).toContain("Within the liner's limit, to be confirmed by the liner: height 222 cm (in gauge up to 218 cm, liner's limit 223 cm)");
+    // 5,600 mm long: over the in-gauge 550 cm, within the liner's 563 cm.
+    const long = oogRequestOf(first(line("Frame", 5600, 3000, 1500, 6000), ["20fr"]), 1)!;
+    expect(long.overLength).toEqual({ front: 0, back: 0 });
+    expect(long.liner.map((l) => l.measure)).toEqual(["length"]);
+    // Past the liner's limit it stands out by what is past the in-gauge figure, as before.
+    expect(oogRequestOf(first(line("Frame", 5000, 3000, 2300, 6000), ["20fr"]), 1)!.overHeight).toBe(12);
+  });
+
   it("has nothing to request for cargo in gauge, a standard container or a hard-top", () => {
     expect(oogRequestOf(first(line("Frame", 6000, 2400, 1500, 9000), ["40fr"]), 1)).toBeNull();
     expect(oogRequestOf(first(line("Box", 1000, 1000, 1000, 500), ["40hc"]), 1)).toBeNull();

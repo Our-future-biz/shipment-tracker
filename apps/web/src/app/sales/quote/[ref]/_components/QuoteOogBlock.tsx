@@ -4,7 +4,7 @@ import type { ReactNode } from "react";
 import { Alert, InputNumber, Radio } from "antd";
 import { fmtQuantity } from "../_lib/fmtQuantity";
 import { moneyInputParser } from "@/lib/money";
-import { answerInGauge, checkOog, gaugeAdvice, hasGauge, inGaugeMaximum, type OogCheck } from "../../../_lib/oog";
+import { answerInGauge, checkOog, gaugeAdvice, hasGauge, inGaugeMaximum, oogLengthAsked, type OogCheck } from "../../../_lib/oog";
 import type { QuoteOog } from "../../../_lib/types";
 import { LINE_TD_CLASS, LINE_TH_CLASS, LINE_TH_RIGHT_CLASS, LineBlock, LineTable } from "./LineBlock";
 import { HINT, LABEL_TEXT } from "@/styles/ui";
@@ -76,6 +76,7 @@ export function QuoteOogBlock({ value, types, onChange, missing }: QuoteOogBlock
   const max = inGaugeMaximum(types);
   const measured = typeof o.inGauge === "boolean" && !!(o.length && o.width && o.height);
   const checks = measured ? types.map((t) => checkOog(t, { length: o.length!, width: o.width!, height: o.height! })).filter((c): c is OogCheck => !!c) : [];
+  const length = oogLengthAsked(types);
   return (
     <LineBlock title="Out-of-gauge requirements">
       <div className="p-4 space-y-3">
@@ -111,7 +112,7 @@ export function QuoteOogBlock({ value, types, onChange, missing }: QuoteOogBlock
               </div>
             )}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <Measure label="Overall length" hint="All colli combined" value={o.length} onChange={(v) => onChange({ length: v })} />
+              <Measure label={length.label} hint={length.hint} value={o.length} onChange={(v) => onChange({ length: v })} />
               <Measure label="Width" hint="The widest piece" value={o.width} onChange={(v) => onChange({ width: v })} />
               <Measure label="Height" hint="The highest piece" value={o.height} onChange={(v) => onChange({ height: v })} />
             </div>

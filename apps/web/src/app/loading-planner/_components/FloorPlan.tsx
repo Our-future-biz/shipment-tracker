@@ -1,6 +1,7 @@
 import { balanceOf } from "../_lib/balance";
 import { hasDoors } from "../_lib/loadStats";
 import type { ContainerLoad } from "../_lib/plan";
+import { placeLabel, placesOf, placeTitle } from "../_lib/stuffing";
 
 interface FloorPlanProps {
   load: ContainerLoad;
@@ -12,12 +13,13 @@ interface FloorPlanProps {
 
 // The floor of one container seen from above, to scale: the front wall on the left, the doors on
 // the right. Every piece standing on the floor carries the number of its cargo line (colour only
-// helps), and a stack says how many pieces high it is: "3 ×2". Cargo overhanging a flat rack is
-// drawn beyond the frame. The cross marks the middle of the floor, the dot the centre of gravity.
+// helps) and of what stands on it, bottom up, as the PDF has it (placeLabel): "3 ×2" for two of
+// line 3, "1/2" for a piece of line 2 on one of line 1. Cargo overhanging a flat rack is drawn
+// beyond the frame. The cross marks the middle of the floor, the dot the centre of gravity.
 export function FloorPlan({ load, fillOf, numberOf }: FloorPlanProps) {
   const { container, pieces } = load;
   const onFloor = pieces.filter((piece) => piece.y === 0);
-  const heightOfStack = (x: number, z: number) => pieces.filter((piece) => piece.x === x && piece.z === z).length;
+  const places = placesOf(load);
   const doors = hasDoors(container);
 
   // The drawing covers the floor and whatever hangs over it, with a margin (wider at the door end, for its label).
@@ -57,12 +59,12 @@ export function FloorPlan({ load, fillOf, numberOf }: FloorPlanProps) {
         </>
       )}
       {onFloor.map((piece, index) => {
-        const high = heightOfStack(piece.x, piece.z);
-        const label = `${numberOf(piece.lineId)}${high > 1 ? ` ×${high}` : ""}`;
+        const layers = places.get(`${piece.x}|${piece.z}`) ?? [];
+        const label = placeLabel(layers, numberOf);
         return (
           <g key={index}>
             <rect x={piece.z} y={piece.x} width={piece.length} height={piece.width} strokeWidth={line} className={`${fillOf(piece.lineId)} stroke-slate-700`}>
-              <title>{`${numberOf(piece.lineId)} · ${piece.name || "Cargo"}${high > 1 ? `, ${high} high` : ""}`}</title>
+              <title>{placeTitle(layers, numberOf)}</title>
             </rect>
             <text
               x={piece.z + piece.length / 2}

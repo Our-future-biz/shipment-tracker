@@ -1,6 +1,6 @@
 import { CONTAINER_TYPES } from "@/lib/cargo";
 import { isOogType } from "@/lib/oogGauge";
-import { cargoMeasures, gaugeCheckOf, isOog } from "./loadStats";
+import { gaugeJudgementOf, isOog, worstJudgement, type CargoMeasures, type GaugeJudgement } from "./loadStats";
 import type { LoadPlan } from "./plan";
 
 // "Put the plan on the quote" (Council Outlay 14, P7, D20): a plan's equipment as a Sea FCL quote's
@@ -24,8 +24,14 @@ export interface QuoteGauge {
 export interface PlanForQuote {
   /** One line per container type of the plan, in the plan's order; the cargo weight per container is the type's average. */
   containers: QuoteBox[];
-  /** The out-of-gauge block: the largest measures over the plan's open tops and flat racks; null when it has none. */
+  /** The out-of-gauge block of the plan's open tops or flat racks (see `gaugeBlock`); null when it has none, or more than one type of them. */
   oog: Required<QuoteGauge> | null;
+  /**
+   * The open-top and flat-rack types of the plan, in its order. A quote has one out-of-gauge block,
+   * judged against each such type it carries: it can describe the cargo of one type, so a plan with
+   * two or more writes none.
+   */
+  gaugeTypes: string[];
   /** Types of the plan a quote's container list does not hold (a 20' high cube, a hard-top). */
   unknown: string[];
   /** Colli the plan found no place for. */
@@ -39,26 +45,32 @@ export function planForQuote(plan: LoadPlan): PlanForQuote {
     byType.set(load.container.name, { qty: entry.qty + 1, weightKg: entry.weightKg + load.totalWeightKg });
   }
   const special = plan.loads.filter((load) => isOogType(load.container.name));
-  const measures = special.map(cargoMeasures);
-  const most = (pick: (m: { length: number; width: number; height: number }) => number) => Math.max(...measures.map(pick));
+  const gaugeTypes = [...new Set(special.map((load) => load.container.name))];
+  const judgements = special.flatMap((load) => gaugeJudgementOf(load) ?? []);
   return {
     containers: [...byType].map(([type, { qty, weightKg }]) => ({ qty, type, weight: Math.round(weightKg / qty) })),
-    oog:
-      special.length > 0
-        ? {
-            // In gauge unless the one table calls a container out of gauge; the liner's confirmation is not out of gauge.
-            inGauge: !special.some((load) => {
-              const check = gaugeCheckOf(load);
-              return check !== null && isOog(check);
-            }),
-            length: most((m) => m.length),
-            width: most((m) => m.width),
-            height: most((m) => m.height),
-          }
-        : null,
+    oog: gaugeTypes.length === 1 ? gaugeBlock(judgements, special[0]!.container.group === "flat-rack") : null,
+    gaugeTypes,
     unknown: [...byType.keys()].filter((type) => !CONTAINER_TYPES.includes(type)),
     notLoaded: plan.notLoaded.reduce((sum, entry) => sum + entry.colli, 0),
   };
+}
+
+/**
+ * The out-of-gauge block of the containers of one type, from the table's verdict on each, so that
+ * the quote's check of the block gives the verdict the plan gives. On flat racks the largest
+ * measures over them: a measure is out of gauge only past its limit, so the largest is out where any
+ * container's is. On open tops the measures of the piece that stands for the worst of them: an open
+ * top is loaded piece by piece, and measures of different pieces taken together would be cargo that
+ * goes on none. In gauge unless the table calls a container out of gauge; the liner's confirmation
+ * is not out of gauge.
+ */
+function gaugeBlock(judgements: readonly GaugeJudgement[], flatRack: boolean): Required<QuoteGauge> | null {
+  const worst = worstJudgement(judgements);
+  if (!worst) return null;
+  const most = (pick: (m: CargoMeasures) => number) => Math.max(...judgements.map((j) => pick(j.measures)));
+  const measures = flatRack ? { length: most((m) => m.length), width: most((m) => m.width), height: most((m) => m.height) } : worst.measures;
+  return { inGauge: !judgements.some((j) => isOog(j.check)), ...measures };
 }
 
 /** A quote's container lines in a few words: "2 × 40' HC (12,000 kg each) + 1 × 40' FR"; "None" for no line. */
@@ -80,6 +92,13 @@ export function putOnQuoteRefusal(found: PlanForQuote, quote: { containerQuote: 
   if (found.unknown.length > 0) return `A quote's container list has no ${found.unknown.join(" or ")}: nominate other equipment in the plan, or type the containers on the quote yourself.`;
   return null;
 }
+
+/**
+ * Whether "Put on the quote" may write the plan's lines: the plan is worked out, nothing refuses it,
+ * and neither the plan nor the planner's settings are being read - until they are, the lines would
+ * come from an older copy of the plan or from the starting figures.
+ */
+export const canPutOnQuote = (found: PlanForQuote | null, refusal: string | null, reading: boolean): boolean => found !== null && refusal === null && !reading;
 
 /** The container types a quote has now and would no longer have with the plan's lines, in the quote's order. */
 export const droppedTypes = (now: readonly QuoteBox[], next: readonly QuoteBox[]): string[] => [...new Set(now.map((l) => l.type.trim()).filter((type) => type && !next.some((n) => n.type === type)))];

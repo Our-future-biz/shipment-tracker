@@ -83,35 +83,67 @@ export function pieceGroups(load: ContainerLoad): PieceGroup[] {
   return [...groups.values()];
 }
 
+/** Cargo measures in whole cm, as the out-of-gauge table and a quote's block take them. */
+export interface CargoMeasures {
+  length: number;
+  width: number;
+  height: number;
+}
+
+/** A load's verdict by the one table, and the cargo it was given: what a quote's block must carry to get the same verdict. */
+export interface GaugeJudgement {
+  check: OogCheck;
+  measures: CargoMeasures;
+}
+
+/**
+ * Which of two verdicts costs more, the first or not: cargo that does not go at all, then the more
+ * lost slots, the more over-height, loading through the doors, and at last the longer and the higher
+ * cargo. Every key is compared, so the worst piece of a load does not depend on the order of its pieces.
+ */
+function costsMore(a: GaugeJudgement, b: GaugeJudgement): boolean {
+  const keys = (j: GaugeJudgement) => [j.check.doesNotFit ? 1 : 0, j.check.lost.total, j.check.overHeight, j.check.loading === "doors" ? 1 : 0, j.measures.length, j.measures.height];
+  const [ka, kb] = [keys(a), keys(b)];
+  const at = ka.findIndex((value, index) => value !== kb[index]);
+  return at >= 0 && ka[at]! > kb[at]!;
+}
+
+/** The verdict that costs the most of several (see costsMore); null for none. */
+export const worstJudgement = (judgements: readonly GaugeJudgement[]): GaugeJudgement | null =>
+  judgements.reduce<GaugeJudgement | null>((worst, j) => (!worst || costsMore(j, worst) ? j : worst), null);
+
 /**
  * A load on an open top or a flat rack against the app's one out-of-gauge table (@/lib/oogGauge,
- * Council Outlay 14, P12): the verdict a quote with the same cargo on the same box gets. Null for a
- * standard container, an empty one, and a type the table does not hold (the hard-tops).
+ * Council Outlay 14, P12), with the cargo the verdict is of. Null for a standard container, an empty
+ * one, and a type the table does not hold (the hard-tops).
  *
  * A flat rack is judged as the quote asks: the cargo's overall length on the deck, its widest and
  * its highest point. An open top is loaded piece by piece through its roof or its doors, so each
- * piece is judged by itself and the one that costs the most stands for the load.
+ * piece is judged by itself - at its top above the floor - and the one that costs the most stands
+ * for the load.
  */
-export function gaugeCheckOf(load: ContainerLoad): OogCheck | null {
+export function gaugeJudgementOf(load: ContainerLoad): GaugeJudgement | null {
   const { container, pieces } = load;
   if (container.group === "standard" || pieces.length === 0) return null;
-  if (container.group === "flat-rack") return checkOog(container.name, cargoMeasures(load));
-  let worst: OogCheck | null = null;
-  for (const p of pieces) {
-    const check = checkOog(container.name, { length: cm(p.length), width: cm(p.width), height: cm(p.y + p.height) });
-    if (!check) return null;
-    if (!worst || check.lost.total > worst.lost.total || (check.lost.total === worst.lost.total && check.overHeight > worst.overHeight) || (check.doesNotFit && !worst.doesNotFit)) worst = check;
-  }
-  return worst;
+  const judged = (measures: CargoMeasures): GaugeJudgement | null => {
+    const check = checkOog(container.name, measures);
+    return check && { check, measures };
+  };
+  if (container.group === "flat-rack") return judged(cargoMeasures(load));
+  const each = pieces.map((p) => judged({ length: cm(p.length), width: cm(p.width), height: cm(p.y + p.height) }));
+  return each.every((j) => j !== null) ? worstJudgement(each as GaugeJudgement[]) : null;
 }
+
+/** The table's verdict on a load, the same a quote with the same cargo on the same box gets (see gaugeJudgementOf). */
+export const gaugeCheckOf = (load: ContainerLoad): OogCheck | null => gaugeJudgementOf(load)?.check ?? null;
 
 const cm = (mm: number) => Math.ceil(mm / 10);
 
 /**
- * A load's cargo as a quote's out-of-gauge block asks for it, in whole cm: its overall length along
- * the container (all pieces together), its widest and its highest point above the floor.
+ * A load's cargo as a quote's out-of-gauge block asks it of a flat rack, in whole cm: its overall
+ * length along the container (all pieces together), its widest and its highest point above the floor.
  */
-export function cargoMeasures(load: ContainerLoad): { length: number; width: number; height: number } {
+export function cargoMeasures(load: ContainerLoad): CargoMeasures {
   const { pieces } = load;
   if (pieces.length === 0) return { length: 0, width: 0, height: 0 };
   return {

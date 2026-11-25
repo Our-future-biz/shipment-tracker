@@ -1,4 +1,4 @@
-import { gaugeMeasures } from "@/lib/oogGauge";
+import { gaugeMeasures, type OogCheck } from "@/lib/oogGauge";
 import { gaugeCheckOf, isOog } from "./loadStats";
 import type { ContainerLoad } from "./plan";
 
@@ -20,10 +20,16 @@ export interface OogRequest {
   overall: { length: number; width: number; height: number };
   /** What it is measured against, in cm. */
   inGauge: { length: number; width: number; height: number };
-  /** What stands out, in whole cm; 0 where nothing does. Left and right across the floor; front is the front wall (a flat rack's left end wall), back the door end. */
+  /**
+   * What stands out, in whole cm; 0 where nothing does. Left and right across the floor; front is
+   * the front wall (a flat rack's left end wall), back the door end. As in the table's verdict, a
+   * flat rack's measure within the liner's limit stands out by 0: it is listed under `liner`.
+   */
   overWidth: { left: number; right: number };
   overHeight: number;
   overLength: { front: number; back: number };
+  /** A flat rack's measures past the in-gauge figure but within the liner's limit: in gauge only once the liner confirms them. */
+  liner: OogCheck["liner"];
   weightKg: number;
   /** With the empty container's weight: an estimate. */
   grossKg: number;
@@ -55,8 +61,10 @@ export function oogRequestOf(load: ContainerLoad, number: number): OogRequest | 
   const midZ = container.internalL / 2;
   const weight = pieces.reduce((sum, p) => sum + p.weightKg, 0);
   const at = (pick: (p: (typeof pieces)[number]) => number) => (weight > 0 ? pieces.reduce((sum, p) => sum + p.weightKg * pick(p), 0) / weight : 0);
-  // An open top has walls: nothing stands out sideways or over an end, only above.
+  // An open top has walls: nothing stands out sideways or over an end, only above. A measure the
+  // verdict does not count as out (within the liner's limit) stands out by nothing here either.
   const sides = gauge.flatRack;
+  const out = { width: sides && check.overWidthPerSide > 0, height: check.overHeight > 0, length: sides && check.overLengthPerEnd > 0 };
   return {
     number,
     type: container.name,
@@ -65,9 +73,10 @@ export function oogRequestOf(load: ContainerLoad, number: number): OogRequest | 
     cargo: [...new Set(pieces.map((p) => p.name || "Cargo"))],
     overall: { length: Math.ceil((maxZ - minZ) / 10), width: Math.ceil((maxX - minX) / 10), height: Math.ceil(top / 10) },
     inGauge: { length: gauge.length, width: gauge.width, height: gauge.height },
-    overWidth: sides ? { left: over(midX - minX - gauge.width * 5), right: over(maxX - midX - gauge.width * 5) } : { left: 0, right: 0 },
-    overHeight: over(top - gauge.height * 10),
-    overLength: sides ? { front: over(midZ - minZ - gauge.length * 5), back: over(maxZ - midZ - gauge.length * 5) } : { front: 0, back: 0 },
+    overWidth: out.width ? { left: over(midX - minX - gauge.width * 5), right: over(maxX - midX - gauge.width * 5) } : { left: 0, right: 0 },
+    overHeight: out.height ? over(top - gauge.height * 10) : 0,
+    overLength: out.length ? { front: over(midZ - minZ - gauge.length * 5), back: over(maxZ - midZ - gauge.length * 5) } : { front: 0, back: 0 },
+    liner: check.liner,
     weightKg: Math.round(weight),
     grossKg: Math.round(weight + container.tareKg),
     gravity: { fromFront: cm(at((p) => p.z + p.length / 2)), fromLeft: cm(at((p) => p.x + p.width / 2)), height: cm(at((p) => p.y + p.height / 2)) },
@@ -76,6 +85,10 @@ export function oogRequestOf(load: ContainerLoad, number: number): OogRequest | 
 }
 
 const n = (value: number) => value.toLocaleString("en-US");
+
+/** "height 222 cm (in gauge up to 218 cm, liner's limit 223 cm)": the measures a flat rack takes only once the liner confirms them. */
+export const linerText = (liner: OogCheck["liner"]): string =>
+  liner.map((l) => `${l.measure} ${n(l.value)} cm (in gauge up to ${n(l.inGauge)} cm, liner's limit ${n(l.limit)} cm)`).join(", ");
 
 /** The request as text for a carrier's form or an e-mail: one fact a line, in cm and kg. */
 export function oogRequestText(request: OogRequest, planName: string): string {
@@ -91,6 +104,7 @@ export function oogRequestText(request: OogRequest, planName: string): string {
     `Over-width: left ${n(request.overWidth.left)} cm, right ${n(request.overWidth.right)} cm`,
     `Over-height: ${n(request.overHeight)} cm`,
     `Over-length: ${front} ${n(request.overLength.front)} cm, ${back} ${n(request.overLength.back)} cm`,
+    request.liner.length > 0 ? `Within the liner's limit, to be confirmed by the liner: ${linerText(request.liner)}` : "",
     `Cargo weight: ${n(request.weightKg)} kg (with the container, estimated: ${n(request.grossKg)} kg)`,
     `Centre of gravity: ${n(request.gravity.fromFront)} cm from the ${front}, ${n(request.gravity.fromLeft)} cm from the left side, about ${n(request.gravity.height)} cm above the floor`,
     request.lostSlots > 0 ? `Lost slots, indicative: ${n(request.lostSlots)} (counted as 20' slots)` : "",

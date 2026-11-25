@@ -101,6 +101,33 @@ describe("the PDF's words", () => {
     expect(textOf(buildPlanPdf(input(LINES, { unit: "m", rules: DEFAULT_RULES })))).not.toContain("NaN");
   });
 
+  it("names every cargo line of a mixed stack, on the drawing and in the loading order (P9)", () => {
+    const cargo = [
+      { ...line("crate", "Crate", 1400, 1150, 1000, 600, 8), topLoadKg: 300 },
+      line("carton", "Carton", 1000, 800, 800, 150, 8),
+    ];
+    const text = textOf(buildPlanPdf(input(cargo, { plan: planLoad(cargo, ["20dc"], DEFAULT_RULES) })));
+    // Steps 1-16: line 1 with line 2 on it, eight of each, eight places two high.
+    expect(text).toContain("1-16 1/2 Crate / Carton 8 + 8");
+    expect(text).toContain("8 places, 2 high (the lower piece first)");
+    expect(text).toContain('"1/2" a piece of line 2 on one of line 1');
+    // A stack of one line reads as ever.
+    // Twenty pallets of 1,200 x 1,000 do not all go on the floor of a 20' DC: some stand two high.
+    const pallets = [line("p", "Pallet", 1200, 1000, 1000, 300, 20, true)];
+    expect(textOf(buildPlanPdf(input(pallets, { plan: planLoad(pallets, ["20dc"], DEFAULT_RULES) })))).toContain("1 x2");
+  });
+
+  it("says which of the plan's containers each pinned number is (P8)", () => {
+    const cargo = [{ ...line("a", "Crate A", 1200, 800, 1500, 400, 3), pinBox: 2 }, line("free", "Pallet", 1200, 800, 1500, 400, 20)];
+    const plan = planLoad(cargo, ["20dc"], DEFAULT_RULES);
+    expect(plan.loads.map((load) => load.pinBox)).toEqual([2, undefined, undefined]);
+    const text = textOf(buildPlanPdf(input(cargo, { plan })));
+    expect(text).toContain("Pinned: 1 Crate A container no. 2 (#1 of the plan).");
+    expect(text).toContain("20' DC");
+    expect(text).toContain("pinned container no. 2");
+    expect(text.split("pinned container no.").length - 1).toBe(1);
+  });
+
   it("measures a flat rack from its left end wall, in the notes as in the note under them", () => {
     const text = textOf(buildPlanPdf(input([LINES[1]!])));
     expect(text).toContain("mm from the left end wall");

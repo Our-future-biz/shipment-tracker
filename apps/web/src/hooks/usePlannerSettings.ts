@@ -25,6 +25,8 @@ export const usePlannerSettings = () => {
     changed: query.data?.changed ?? false,
     canEdit: query.data?.canEdit ?? false,
     isLoading: query.isLoading,
+    /** The settings are being read, also while the starting figures or an older copy stand in. */
+    isFetching: query.isFetching,
     isError: query.isError,
     saveRules: save.mutateAsync,
     isSaving: save.isPending,

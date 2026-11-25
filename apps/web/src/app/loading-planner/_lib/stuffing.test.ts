@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { CONTAINERS } from "./containers";
+import { CONTAINERS, DEFAULT_RULES } from "./containers";
 import type { ContainerLoad, PlacedPiece } from "./plan";
 import { planLoad } from "./plan";
-import { floorStepNumbers, howText, loadingRuns, loadingSteps, stepsText, whereText } from "./stuffing";
+import { floorStepNumbers, howText, loadingRuns, loadingSteps, placeLabel, placesOf, placeTitle, runCargo, stepsText, whereText } from "./stuffing";
 
 const HC = CONTAINERS.find((c) => c.id === "40hc")!;
 const piece = (lineId: string, z: number, x: number, y = 0, more: Partial<PlacedPiece> = {}): PlacedPiece => ({ lineId, name: lineId, x, y, z, length: 1200, width: 800, height: 1000, weightKg: 500, crosswise: false, ...more });
@@ -59,6 +59,46 @@ describe("the loading order of a container (Council Outlay 14, P1)", () => {
       expect(runs.reduce((n, r) => n + r.count, 0)).toBe(l.pieces.length);
       expect(runs[runs.length - 1]!.toStep).toBe(l.pieces.length);
     }
+  });
+
+  it("names every cargo line of a mixed stack, bottom up, with each line's own colli (P9)", () => {
+    // Eight crates fill the floor of a 20' DC; each carries a carton.
+    const crate = { id: "crate", name: "Crate", lengthMm: 1400, widthMm: 1150, heightMm: 1000, weightKg: 600, colli: 8, canTurn: true, stackable: false, topLoadKg: 300 };
+    const carton = { id: "carton", name: "Carton", lengthMm: 1000, widthMm: 800, heightMm: 800, weightKg: 150, colli: 8, canTurn: true, stackable: false };
+    const [mixed] = planLoad([crate, carton], ["20dc"], DEFAULT_RULES).loads;
+    const runs = loadingRuns(mixed!);
+    const numberOf = (lineId: string) => (lineId === "crate" ? 1 : 2);
+    expect(runs.map((r) => [stepsText(r), r.places, r.high, r.layers.map((l) => [l.lineId, l.high])])).toEqual([["1-16", 8, 2, [["crate", 1], ["carton", 1]]]]);
+    expect(runCargo(runs[0]!, numberOf)).toEqual({ numbers: "1/2", names: "Crate / Carton", colli: "8 + 8" });
+    expect(howText(runs[0]!)).toBe("8 places, 2 high (the lower piece first)");
+    // The drawing says the same of each place.
+    expect(new Set([...placesOf(mixed!).values()].map((layers) => placeLabel(layers, numberOf)))).toEqual(new Set(["1/2"]));
+  });
+
+  it("starts a new row where what a place holds changes, though it is as high", () => {
+    const runs = loadingRuns(load([piece("a", 0, 0), piece("a", 0, 0, 1000), piece("a", 0, 800), piece("b", 0, 800, 1000, { length: 1000 }), piece("a", 1200, 0), piece("b", 1200, 0, 1000), piece("b", 1200, 0, 2000)]));
+    expect(runs.map((r) => [stepsText(r), r.count, r.places, r.high])).toEqual([
+      ["1-2", 2, 1, 2],
+      ["3-4", 2, 1, 2],
+      ["5-7", 3, 1, 3],
+    ]);
+    const numberOf = (lineId: string) => (lineId === "a" ? 1 : 2);
+    expect(runs.map((r) => runCargo(r, numberOf))).toEqual([
+      { numbers: "1", names: "a", colli: "2" },
+      { numbers: "1/2", names: "a / b", colli: "1 + 1" },
+      { numbers: "1/2", names: "a / b", colli: "1 + 2" },
+    ]);
+    expect([...placesOf(load([piece("a", 0, 0), piece("a", 0, 0, 1000), piece("a", 1200, 0), piece("b", 1200, 0, 1000), piece("b", 1200, 0, 2000), piece("a", 2400, 0)])).values()].map((l) => placeLabel(l, numberOf))).toEqual([
+      "1 ×2",
+      "1/2×2",
+      "1",
+    ]);
+  });
+
+  it("says what a place holds on the screen's drawing, bottom up, a stack of one line as ever", () => {
+    const numberOf = (lineId: string) => (lineId === "a" ? 1 : 2);
+    const titles = [...placesOf(load([piece("a", 0, 0), piece("a", 0, 0, 1000), piece("a", 1200, 0), piece("b", 1200, 0, 1000), piece("b", 1200, 0, 2000), piece("a", 2400, 0)])).values()];
+    expect(titles.map((l) => placeTitle(l, numberOf))).toEqual(["1 · a, 2 high", "1 · a, on it 2 · b (2 high)", "1 · a"]);
   });
 
   it("numbers the pieces on the floor for the drawing", () => {

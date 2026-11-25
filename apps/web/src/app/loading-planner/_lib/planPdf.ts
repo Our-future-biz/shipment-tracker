@@ -1,10 +1,10 @@
 import { jsPDF } from "jspdf";
 import { NO_CLEARANCE, type ContainerSpec, type PlanRules } from "./containers";
-import { dgWarning, dgWords, isDangerous, lashingNotes, pinWords } from "./dangerous";
+import { dgWarning, dgWords, isDangerous, lashingNotes, pinPlaceWords, pinWords } from "./dangerous";
 import { standardLabel, type CargoLine } from "./gauge";
 import { balanceLimitText, END_WALLS_NOTE, floorOverloadText, outOfBalanceText, ruleWarnings, hasDoors, lineColour, loadStats, planTotals, startText, type PieceGroup } from "./loadStats";
 import type { ContainerLoad, LoadPlan } from "./plan";
-import { floorStepNumbers, howText, loadingRuns, stepsText, whereText } from "./stuffing";
+import { floorStepNumbers, howText, loadingRuns, placeLabel, placesOf, runCargo, stepsText, whereText } from "./stuffing";
 import { formatDim, formatKg, formatSize, type DimUnit } from "./units";
 
 // The loading plan as a PDF to send to a customer, an agent or a warehouse: a summary page with the
@@ -263,14 +263,15 @@ function drawFloor(doc: jsPDF, load: ContainerLoad, colourOf: (lineId: string) =
   doc.setLineWidth(0.25);
   doc.circle(cog[0], cog[1], 1.3, "FD");
 
-  // The number of the cargo line on each piece, and how many high a stack is: the colours alone do
-  // not print in black and white. A number the cross or the dot would cover moves along its piece.
+  // The number of the cargo line on each piece, and what stands on it, bottom up (placeLabel): the
+  // colours alone do not print in black and white. A number the cross or the dot would cover moves
+  // along its piece.
   const marks = [[midX, midY, 2.5], [cog[0], cog[1], 1.3]] as const;
   const clear = (x: number, y: number, w: number, h: number) => marks.every(([mx, my, r]) => Math.abs(mx - x) > w / 2 + r || Math.abs(my - y) > h / 2 + r);
+  const places = placesOf(load);
   for (const piece of onFloor) {
     const [w, h] = [piece.length * scale, piece.width * scale];
-    const high = pieces.filter((p) => p.x === piece.x && p.z === piece.z).length;
-    const text = clean(`${numberOf(piece.lineId)}${high > 1 ? ` ×${high}` : ""}`);
+    const text = clean(placeLabel(places.get(`${piece.x}|${piece.z}`) ?? [], numberOf));
     const size = Math.min(11, h * 1.6, (w / text.length) * 3.6);
     if (size < 3) continue;
     setFont(doc, "bold", size, INK);
@@ -377,10 +378,11 @@ function summaryPage(doc: jsPDF, input: PlanPdfInput, colourOf: (lineId: string)
   }
   y += 2;
 
-  // Pins the plan could not keep, and the lines that are pinned: the gang loads by them (Council Outlay 14, P8).
+  // Pins the plan could not keep, and the lines that are pinned: the gang loads by them (Council
+  // Outlay 14, P8). A pinned number is the user's name for a container: the plan's #k beside it.
   for (const text of plan.pinNotes ?? []) y = paragraph(doc, `Pin not kept - ${text}`, y, "bold", AMBER, newPage);
   const pinned = input.lines.filter((line) => pinWords(line));
-  if (pinned.length > 0) y = paragraph(doc, `Pinned: ${pinned.map((line) => `${numberOf(line.id)} ${line.name || "Cargo"} ${pinWords(line)}`).join("; ")}.`, y, "normal", BODY, newPage) + 2;
+  if (pinned.length > 0) y = paragraph(doc, `Pinned: ${pinned.map((line) => `${numberOf(line.id)} ${line.name || "Cargo"} ${pinWords(line)}${pinPlaceWords(plan, line.pinBox)}`).join("; ")}.`, y, "normal", BODY, newPage) + 2;
 
   if (plan.notLoaded.length > 0) {
     setFont(doc, "bold", 9, RED);
@@ -442,7 +444,7 @@ function loadPage(doc: jsPDF, input: PlanPdfInput, load: ContainerLoad, number: 
   const { unit } = input;
   const { container } = load;
   const stats = loadStats(load);
-  const title = `#${number} of ${input.plan.loads.length} · ${container.name}`;
+  const title = `#${number} of ${input.plan.loads.length} · ${container.name}${load.pinBox ? ` · pinned container no. ${load.pinBox}` : ""}`;
   pageHead(doc, title, input);
 
   let y = MARGIN + 14;
@@ -524,14 +526,16 @@ function loadPage(doc: jsPDF, input: PlanPdfInput, load: ContainerLoad, number: 
   y = tableHead(doc, order, y + 6);
   for (const run of loadingRuns(load)) {
     if (y > BOTTOM) y = tableHead(doc, order, newPage());
+    // A place holding more than one cargo line names them all, bottom up, each with its own colli; the swatch is the line on the floor.
+    const cargo = runCargo(run, numberOf);
     tableRow(
       doc,
       order,
       [
         stepsText(run),
-        String(numberOf(run.lineId)),
-        { swatch: colourOf(run.lineId), text: run.name || "Cargo" },
-        String(run.count),
+        cargo.numbers,
+        { swatch: colourOf(run.lineId), text: cargo.names },
+        cargo.colli,
         // The unit stands once, after the second figure: "77 to 3,277 mm from the left end wall".
         whereText(run, farEnd, (mm) => `${formatDim(mm, unit)} ${unit}`).replace(` ${unit} to `, " to "),
         howText(run),
@@ -587,11 +591,12 @@ export function buildPlanPdf(input: PlanPdfInput, fonts?: PdfFonts): jsPDF {
     doc.setPage(page);
     setFont(doc, "normal", 7.5, MUTED);
     if (page > summaryPages) {
-      doc.text(
-        clean("Seen from above, to scale. A piece carries the number of its cargo line; “×2” means two high; “s3” is its loading step. The cross is the middle of the floor, the dot the centre of gravity."),
-        MARGIN,
-        PAGE_H - 8,
-      );
+      // Over two lines, the last level with the page number, which keeps its room at the right.
+      const key = doc.splitTextToSize(
+        clean("Seen from above, to scale. A piece carries the number of its cargo line and of what stands on it, bottom up: “×2” means two high, “1/2” a piece of line 2 on one of line 1; “s3” is its loading step. The cross is the middle of the floor, the dot the centre of gravity."),
+        WIDTH - 30,
+      ) as string[];
+      key.forEach((row, index) => doc.text(row, MARGIN, PAGE_H - 8 - (key.length - 1 - index) * 3.2));
     }
     doc.text(`Page ${page} of ${pages}`, MARGIN + WIDTH, PAGE_H - 8, { align: "right" });
   }

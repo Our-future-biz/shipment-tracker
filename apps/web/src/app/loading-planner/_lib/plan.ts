@@ -2,6 +2,7 @@ import { balanceOf, centreLoad } from "./balance";
 import { BEDDING_END_MM, containersWith, GROUP_LABEL, GROUP_ORDER, maxCargoKg, maxWeightWithBedding, usableLength, type ContainerGroup, type ContainerSpec, type PlanRules } from "./containers";
 import { findSpot, isFree, mirroredSlots, newFloor, occupy, PLACE_RULES, type Floor, type PlaceRule, type Slot } from "./floor";
 import { fitIn, type CargoLine, type Footprint } from "./gauge";
+import { hasGauge, openTopTakes } from "@/lib/oogGauge";
 
 /** One piece as loaded. x runs across the container, z along it, y up from the floor; all in mm. */
 export interface PlacedPiece {
@@ -21,6 +22,8 @@ export interface ContainerLoad {
   container: ContainerSpec;
   pieces: PlacedPiece[];
   totalWeightKg: number;
+  /** The container number its cargo is pinned to (Council Outlay 14, P8): this load is what that number stands for. Left out for a container of cargo with no number. */
+  pinBox?: number;
 }
 
 export interface NotLoaded {
@@ -117,22 +120,21 @@ interface Bin {
 }
 
 /**
- * How a plan with pins is being worked out (Council Outlay 14, P8); null while a plan without pins
- * is - and then nothing below differs from before pins existed. `ends`: a line is pinned to the
- * front wall or the doors, so the order along the container is kept: the floor is laid out from the
- * front wall only, the first piece is not set in the middle, and centring changes no places.
- * Set by planLoad for the time of one plan; the planner runs to its end in one go.
+ * End pins (Council Outlay 14, P8) keep the order along a container: a packing of cargo with a line
+ * pinned to the front wall or the doors lays its floors out from the front wall only and sets no
+ * first piece in the middle, and a container holding such a line is centred without changing
+ * places. Cargo with no end pin is packed and centred as it always was, in the same plan too.
  */
-let pins: { ends: boolean } | null = null;
-
-/** The layouts a floor is tried in: all of them, or from the front wall only while an end is pinned. */
 const FRONT_ONLY: readonly PlaceRule[] = ["front"];
-const layouts = (): readonly PlaceRule[] => (pins?.ends ? FRONT_ONLY : PLACE_RULES);
+const hasEndPin = (lines: readonly CargoLine[]): boolean => lines.some((line) => line.pinEnd);
+/** The layouts a floor is tried in: all of them, or from the front wall only for cargo with an end pinned. */
+const layouts = (lines: readonly CargoLine[]): readonly PlaceRule[] => (hasEndPin(lines) ? FRONT_ONLY : PLACE_RULES);
 
-/** Where a line's pieces go along the container: 0 at the front wall (first in), 2 at the doors (last in), 1 anywhere between. */
+/** Where a line's pieces go along the container: 0 at the front wall (first in), 2 at the doors (last in), 1 anywhere between - every line of cargo with no end pin. */
 const endRank = (line: CargoLine): number => (line.pinEnd === "front" ? 0 : line.pinEnd === "doors" ? 2 : 1);
 
-const newBin = (container: ContainerSpec, rule: PlaceRule): Bin => ({
+/** A container for a packing; `endPins` when the packing holds a line pinned to an end: its first piece then stays where the layout puts it, at the front wall. */
+const newBin = (container: ContainerSpec, rule: PlaceRule, endPins = false): Bin => ({
   container,
   maxKg: maxCargoKg(container),
   floor: newFloor(usableLength(container), container.internalW),
@@ -146,8 +148,7 @@ const newBin = (container: ContainerSpec, rule: PlaceRule): Bin => ({
   full: new Set(),
   centredFirst: false,
   triedFromEnd: new Set(),
-  // With an end pinned the first piece stays where the layout puts it, at the front wall.
-  fromEnd: pins?.ends ?? false,
+  fromEnd: endPins,
   slots: null,
 });
 
@@ -155,6 +156,18 @@ const sum = (values: number[]) => values.reduce((total, value) => total + value,
 
 /** A piece longer than the deck it lies on: only a flat rack takes one, with its end walls folded down. */
 const isOverLength = (piece: { length: number }, container: ContainerSpec) => piece.length > container.internalL;
+
+/**
+ * Whether a piece sitting the way `fp` says may stand with its top `topMm` above the floor: under
+ * the roof, or the top of the walls. A piece too big for an open top's roof opening goes in through
+ * the doors (fitIn), so on another piece it stands no higher than the doors let it in - by the one
+ * out-of-gauge table, whose verdict on the load (gaugeCheckOf) then says the same.
+ */
+function topFits(container: ContainerSpec, fp: Footprint, topMm: number): boolean {
+  if (topMm > container.internalH) return false;
+  if (container.group !== "open-top" || !hasGauge(container.name)) return true;
+  return openTopTakes(container.name, { length: fp.length / 10, width: fp.width / 10, height: topMm / 10 }) !== null;
+}
 
 // The ways each cargo line may sit in each container (fitIn), worked out once: a plan tries the
 // same lines in many containers of the same types.
@@ -203,7 +216,8 @@ function rest(bin: Bin, z: number, length: number, weightKg: number): void {
 
 /**
  * Stacks one piece on pieces of its own line. A piece carries no more than its own weight, the
- * stack stays under the roof (or the top of the walls), and the floor carries the whole stack on
+ * stack stays under the roof (or the top of the walls, and on an open top a piece that goes in
+ * through the doors no higher than they are: topFits), and the floor carries the whole stack on
  * the length it stands on, and the stretch of cargo it stands in.
  */
 function stack(bin: Bin, line: CargoLine): boolean {
@@ -213,7 +227,7 @@ function stack(bin: Bin, line: CargoLine): boolean {
     const on = open.items[open.at]!;
     const carried = on.carried + line.weightKg;
     // Pieces of a line are alike: a stack that cannot take this one cannot take the next either.
-    if (carried > on.base.weightKg || on.top + line.heightMm > bin.container.internalH) continue;
+    if (carried > on.base.weightKg || !topFits(bin.container, on.base, on.top + line.heightMm)) continue;
     if (on.base.weightKg + carried > maxWeightWithBedding(bin.container, on.base.length)) continue;
     if (!floorCarries(bin, on.base.z, on.base.length, line.weightKg)) continue;
     bin.lines.push(line);
@@ -230,17 +244,19 @@ function stack(bin: Bin, line: CargoLine): boolean {
 /**
  * Stands one piece on a piece that carries other cargo on top (Council Outlay 14, P9): the first
  * column it rests on whole, either way round it may sit, that still bears its weight - every piece
- * under it does - with the column under the roof and the floor carrying it. It stands on the
- * base's own corner, so the two are one stack to everything that moves or draws the load. With an
- * end pinned, only on cargo of its own pin: nothing pinned to the doors rides on the front wall's.
+ * under it does - with the column under the roof (topFits) and the floor carrying it. It stands on
+ * the base's own corner, so the two are one stack to everything that moves or draws the load. A
+ * piece with an end pin stands only on cargo of the same pin, and cargo with none only on cargo with
+ * none: nothing pinned to the doors rides on the front wall's.
  */
 function stackMixed(bin: Bin, line: CargoLine): boolean {
   if (bin.columns.length === 0) return false;
+  const top = (column: Column) => column.top + line.heightMm;
   for (const column of bin.columns) {
-    if (column.room < line.weightKg || column.top + line.heightMm > bin.container.internalH) continue;
-    if (pins?.ends && endRank(column.line) !== endRank(line)) continue;
+    if (column.room < line.weightKg || top(column) > bin.container.internalH) continue;
+    if (endRank(column.line) !== endRank(line)) continue;
     if (column.weightKg + line.weightKg > maxWeightWithBedding(bin.container, column.base.length)) continue;
-    const fp = waysOf(bin.container, line).find((way) => way.length <= column.length && way.width <= column.width);
+    const fp = waysOf(bin.container, line).find((way) => way.length <= column.length && way.width <= column.width && topFits(bin.container, way, top(column)));
     if (!fp || !floorCarries(bin, column.base.z, column.base.length, line.weightKg)) continue;
     bin.lines.push(line);
     bin.pieces.push({ lineId: line.id, name: line.name, x: column.base.x, y: column.top, z: column.base.z, length: fp.length, width: fp.width, height: line.heightMm, weightKg: line.weightKg, crosswise: fp.crosswise });
@@ -403,13 +419,14 @@ function packInto(container: ContainerSpec, lines: CargoLine[], rule: PlaceRule,
   const left: CargoLine[] = [];
   // A line that did not go into an empty container never will.
   const never = new Set<string>();
+  const endPins = hasEndPin(lines);
   for (const line of lines) {
     if (never.has(line.id)) {
       left.push(line);
       continue;
     }
     if (placeInOne(bins, line)) continue;
-    const fresh = newBin(container, rule);
+    const fresh = newBin(container, rule, endPins);
     if (place(fresh, line)) {
       if (bins.length === maxBins) return null;
       bins.push(fresh);
@@ -462,7 +479,7 @@ const cheaper = (a: number[], b: number[]) => {
  */
 function bestPacking(container: ContainerSpec, lines: CargoLine[], maxBins = Infinity): Packing | null {
   let best: Packing | null = null;
-  for (const rule of layouts()) {
+  for (const rule of layouts(lines)) {
     const limit = best && container.group !== "flat-rack" ? Math.min(maxBins, best.bins.length) : maxBins;
     const packed = packInto(container, lines, rule, limit);
     if (packed && (!best || cheaper(cost(packed.bins, packed.left.length), cost(best.bins, best.left.length)))) best = packed;
@@ -533,8 +550,8 @@ const offCentre = (bin: Bin): number => {
  * cargo beside it.
  */
 function balanced(bin: Bin): Bin {
-  // With an end pinned the load only slides as a whole: packing it again around its heaviest piece would move the pinned ones.
-  if (pins?.ends) {
+  // A container holding a line pinned to an end only slides as a whole: packing it again around its heaviest piece would move the pinned ones.
+  if (hasEndPin(bin.lines)) {
     centreLoad(bin.pieces, bin.container, true);
     return bin;
   }
@@ -582,9 +599,8 @@ function sortedPieces(lines: CargoLine[], allowed: ContainerSpec[]): { waiting: 
   const area = (line: CargoLine) => line.lengthMm * line.widthMm;
   const waiting: Waiting = { standard: [], "open-top": [], "flat-rack": [] };
   const refused: CargoLine[] = [];
-  // With an end pinned: the pieces for the front wall first, those for the doors last, each largest footprint first.
-  const byEnd = (a: CargoLine, b: CargoLine) => (pins?.ends ? endRank(a) - endRank(b) : 0);
-  for (const line of [...lines].sort((a, b) => byEnd(a, b) || area(b) - area(a) || b.weightKg - a.weightKg)) {
+  // The pieces pinned to the front wall first, those pinned to the doors last, each largest footprint first.
+  for (const line of [...lines].sort((a, b) => endRank(a) - endRank(b) || area(b) - area(a) || b.weightKg - a.weightKg)) {
     // A count that is not whole is rounded up: no part of the cargo is left out unseen.
     const colli = Math.max(0, Math.ceil(line.colli));
     const group = GROUP_ORDER.find((g) => allowed.some((c) => c.group === g && fitIn(c, line).length > 0));
@@ -652,12 +668,7 @@ export function planLoad(lines: CargoLine[], nominated?: string[], rules?: PlanR
   const allowed = nominated ? all.filter((c) => nominated.includes(c.id)) : all.filter((c) => !c.onRequest);
   // No pin anywhere: the plan as it always was.
   if (!lines.some((line) => line.pinEnd || line.pinBox)) return planSorted(sortedPieces(lines, allowed), allowed, all);
-  pins = { ends: lines.some((line) => line.pinEnd) };
-  try {
-    return planPinned(lines, allowed, all);
-  } finally {
-    pins = null;
-  }
+  return planPinned(lines, allowed, all);
 }
 
 /** The plan of pieces already sorted under the kind of equipment each needs: every mix of the allowed flat-rack and open-top types is tried, and the best plan kept. */
@@ -691,7 +702,8 @@ function planSorted(sorted: { waiting: Waiting; refused: CargoLine[] }, allowed:
   return best ?? { loads: [], notLoaded: [] };
 }
 
-const PINNED_FULL = (box: number) => `Pinned to container no. ${box}, which has no room for it with the other cargo pinned there.`;
+/** Why pinned cargo is not loaded; `place` is the plan's container that stands for its number, when it has one. */
+const PINNED_FULL = (box: number, place?: number) => `Pinned to container no. ${box}${place ? ` (#${place} of the plan)` : ""}, which has no room for it with the other cargo pinned there.`;
 
 /**
  * A plan with pins (Council Outlay 14, P8).
@@ -700,10 +712,13 @@ const PINNED_FULL = (box: number) => `Pinned to container no. ${box}, which has 
  * the type that takes the most of them, of the kind of equipment the neediest of them needs. What
  * does not go into that one container is not loaded, and says so - it is never sent to another
  * container on the quiet. The other cargo then fills those containers before any more is opened,
- * and the rest is planned as ever. The pinned containers come first in the plan, by their numbers.
+ * and the rest is planned as ever. The pinned containers come first in the plan, in the order of
+ * their numbers, each load carrying its number (`pinBox`): a number is the user's name for a
+ * container, not its place, so pins 2 and 5 are the plan's #1 and #2, and everything that names a
+ * pinned number says which of the plan's containers it is.
  *
  * A line pinned to the front wall is placed before all other cargo of its container and one pinned
- * to the doors after it, against the door end; `pins.ends` keeps that order through the centring.
+ * to the doors after it, against the door end; `balanced` keeps that order through the centring.
  */
 function planPinned(lines: CargoLine[], allowed: ContainerSpec[], all: ContainerSpec[]): LoadPlan {
   const notLoaded = new Map<string, NotLoaded>();
@@ -713,10 +728,10 @@ function planPinned(lines: CargoLine[], allowed: ContainerSpec[], all: Container
     notLoaded.set(line.id, entry);
   };
   const footprint = (line: CargoLine) => line.lengthMm * line.widthMm;
-  const inOrder = (pieces: CargoLine[]) => [...pieces].sort((a, b) => (pins?.ends ? endRank(a) - endRank(b) : 0) || footprint(b) - footprint(a) || b.weightKg - a.weightKg);
+  const inOrder = (pieces: CargoLine[]) => [...pieces].sort((a, b) => endRank(a) - endRank(b) || footprint(b) - footprint(a) || b.weightKg - a.weightKg);
 
   const boxes = [...new Set(lines.flatMap((line) => (line.pinBox ? [line.pinBox] : [])))].sort((a, b) => a - b);
-  const pinned: Bin[] = [];
+  const pinned: { box: number; bin: Bin }[] = [];
   for (const box of boxes) {
     const sorted = sortedPieces(lines.filter((line) => line.pinBox === box), allowed);
     for (const line of sorted.refused) note(line, refusal(line, allowed, all));
@@ -737,16 +752,17 @@ function planPinned(lines: CargoLine[], allowed: ContainerSpec[], all: Container
       for (const line of pieces) note(line, PINNED_FULL(box));
       continue;
     }
-    for (const line of best.out) note(line, PINNED_FULL(box));
-    pinned.push(best.bin);
+    for (const line of best.out) note(line, PINNED_FULL(box, pinned.length + 1));
+    pinned.push({ box, bin: best.bin });
   }
 
   // The cargo with no container number fills the pinned containers first, the neediest kind first, as a flat rack in use is filled.
   const free = sortedPieces(lines.filter((line) => !line.pinBox), allowed);
+  const bins = pinned.map((entry) => entry.bin);
   const waiting: Waiting = {
-    "flat-rack": fill(pinned, free.waiting["flat-rack"]),
-    "open-top": fill(pinned, free.waiting["open-top"]),
-    standard: fill(pinned, free.waiting.standard),
+    "flat-rack": fill(bins, free.waiting["flat-rack"]),
+    "open-top": fill(bins, free.waiting["open-top"]),
+    standard: fill(bins, free.waiting.standard),
   };
   const rest = planSorted({ waiting, refused: free.refused }, allowed, all);
   for (const entry of rest.notLoaded) {
@@ -754,7 +770,14 @@ function planPinned(lines: CargoLine[], allowed: ContainerSpec[], all: Container
     if (seen) seen.colli += entry.colli;
     else notLoaded.set(entry.lineId, entry);
   }
-  const loads = [...pinned.map(balanced).map((bin) => ({ container: bin.container, pieces: bin.pieces, totalWeightKg: bin.weightKg })), ...rest.loads];
+  const loads = [
+    ...pinned.map(({ box }, index) => {
+      // fill() may have packed a pinned container again from its end: the one in `bins` is the one loaded.
+      const loaded = balanced(bins[index]!);
+      return { container: loaded.container, pieces: loaded.pieces, totalWeightKg: loaded.weightKg, pinBox: box };
+    }),
+    ...rest.loads,
+  ];
   const pinNotes = pinsNotKept(loads, lines);
   return { loads, notLoaded: [...notLoaded.values()], ...(pinNotes.length > 0 ? { pinNotes } : {}) };
 }
@@ -764,6 +787,7 @@ function planPinned(lines: CargoLine[], allowed: ContainerSpec[], all: Container
  * must have no other cargo between it and the wall, one pinned to the doors none between it and the
  * doors - cargo of its own pin, and cargo standing beside it, do not count. Lines with one
  * container number must be in one container, lines with different numbers in different ones.
+ * The plan's containers are named by their place in it ("#2"), a pinned number as "container no. 2".
  */
 export function pinsNotKept(loads: readonly ContainerLoad[], lines: readonly CargoLine[]): string[] {
   const lineOf = new Map(lines.map((line) => [line.id, line]));
@@ -783,8 +807,8 @@ export function pinsNotKept(loads: readonly ContainerLoad[], lines: readonly Car
       if (inTheWay) blocked[end].add(piece.lineId);
     }
     const end = hasDoorsOf(load.container) ? { front: "the front wall", doors: "the doors" } : { front: "the left end", doors: "the right end" };
-    if (blocked.front.size > 0) notes.push(`Container ${index + 1}: ${named(blocked.front)} could not be kept at ${end.front}; other cargo stands before it.`);
-    if (blocked.doors.size > 0) notes.push(`Container ${index + 1}: ${named(blocked.doors)} could not be kept at ${end.doors}; other cargo stands behind it.`);
+    if (blocked.front.size > 0) notes.push(`Container #${index + 1}: ${named(blocked.front)} could not be kept at ${end.front}; other cargo stands before it.`);
+    if (blocked.doors.size > 0) notes.push(`Container #${index + 1}: ${named(blocked.doors)} could not be kept at ${end.doors}; other cargo stands behind it.`);
   });
   const whereOf = new Map<number, Set<number>>();
   loads.forEach((load, index) => {
@@ -793,7 +817,9 @@ export function pinsNotKept(loads: readonly ContainerLoad[], lines: readonly Car
       if (box) whereOf.set(box, (whereOf.get(box) ?? new Set()).add(index));
     }
   });
-  for (const [box, where] of whereOf) if (where.size > 1) notes.push(`The cargo pinned to container no. ${box} is in ${where.size} containers.`);
+  for (const [box, where] of whereOf) {
+    if (where.size > 1) notes.push(`The cargo pinned to container no. ${box} is in ${where.size} containers: ${[...where].map((index) => `#${index + 1}`).join(", ")}.`);
+  }
   return notes;
 }
 

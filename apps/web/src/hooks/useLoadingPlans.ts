@@ -78,5 +78,6 @@ export const useLoadingPlan = (id: string | null) => {
     refetchOnMount: "always",
     staleTime: 0,
   });
-  return { plan: query.data ?? null, isLoading: query.isLoading, error: query.error };
+  // isFetching: the plan is being read, also while an older copy is shown.
+  return { plan: query.data ?? null, isLoading: query.isLoading, isFetching: query.isFetching, error: query.error };
 };

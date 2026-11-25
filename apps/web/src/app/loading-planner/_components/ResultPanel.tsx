@@ -83,7 +83,8 @@ function LoadCard({ load, number, unit, colourOf, numberOf, onShow3D, planName, 
   const across = Math.abs(balance.cogX - container.internalW / 2);
   return (
     <SectionCard
-      title={`#${number} · ${container.name}`}
+      // A pinned number is the user's name for a container (Council Outlay 14, P8): the card of the plan's container it stands for says it.
+      title={`#${number} · ${container.name}${load.pinBox ? ` · pinned container no. ${load.pinBox}` : ""}`}
       bodyClassName="p-4 flex flex-col gap-3"
       extra={
         <>
@@ -289,8 +290,9 @@ export function ResultPanel({ plan, unit, colourOf, numberOf, unplanned, tooMuch
 
       {plan.loads.length > 0 && (
         <p className={`${HINT} m-0`}>
-          Each drawing shows a container from above, to scale, with the front wall on the left and the doors on the right. A piece carries the number of its cargo line; “×2” means
-          two high. The cross is the middle of the floor, the dot the centre of gravity. Floor used is the share of the floor under cargo.
+          Each drawing shows a container from above, to scale, with the front wall on the left and the doors on the right. A piece carries the number of its cargo line and of
+          what stands on it, bottom up: “×2” means two high, “1/2” a piece of line 2 on one of line 1. The cross is the middle of the floor, the dot the centre of gravity. Floor
+          used is the share of the floor under cargo.
         </p>
       )}
 

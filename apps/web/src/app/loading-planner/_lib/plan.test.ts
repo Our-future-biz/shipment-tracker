@@ -165,6 +165,34 @@ describe("planLoad", () => {
     expect(names(planLoad([line("beam", 5700, 1000, 2600, 3000)], ["20ot", "40ot"]))).toEqual(["40' OT"]);
   });
 
+  it("stacks a piece that goes into an open top through its doors no higher than the doors (P12)", () => {
+    // 5,500 mm long: too long for a 20' OT's roof opening, through its 225 cm high doors. Two of them stacked would stand 230 cm.
+    const beams = planLoad([line("beam", 5500, 2000, 1150, 500, { colli: 2, stackable: true, canTurn: false })], ["20ot"], DEFAULT_RULES);
+    expect(beams.notLoaded).toEqual([]);
+    expect(beams.loads.map((l) => l.pieces.map((p) => p.y))).toEqual([[0], [0]]);
+    for (const l of beams.loads) expect(gaugeCheckOf(l)).toMatchObject({ doesNotFit: null, loading: "doors" });
+    // Low enough, they stack as ever: 200 cm under the doors.
+    const low = planLoad([line("beam", 5500, 2000, 1000, 500, { colli: 2, stackable: true, canTurn: false })], ["20ot"], DEFAULT_RULES);
+    expect(low.loads.map((l) => l.pieces.map((p) => p.y).sort((a, b) => a - b))).toEqual([[0, 1000]]);
+    // A piece through the roof opening stacks up to the walls, the door height nothing to it.
+    const crates = planLoad([line("crate", 5000, 2000, 1180, 300, { colli: 2, stackable: true, canTurn: false })], ["20ot"], DEFAULT_RULES);
+    expect(crates.loads.map((l) => l.pieces.map((p) => p.y).sort((a, b) => a - b))).toEqual([[0, 1180]]);
+    // Mixed stacking keeps the same rule.
+    const mixed = planLoad([line("beam", 5500, 2000, 1150, 500, { colli: 2, topLoadKg: 1000, canTurn: false })], ["20ot"], DEFAULT_RULES);
+    expect(mixed.loads.flatMap((l) => l.pieces).every((p) => p.y === 0)).toBe(true);
+  });
+
+  it("lets cargo that goes on no open top stand for the load, whatever the order of its pieces (P12)", () => {
+    const ot = spec("20ot");
+    const at = (lineId: string, z: number, length: number, width: number, height: number) => ({ lineId, name: lineId, x: 0, y: 0, z, length, width, height, weightKg: 500, crosswise: false });
+    // Too long for the roof opening and too high for the doors, and a column standing out of the roof: a lost slot.
+    const [wide, column] = [at("beam", 0, 5500, 2000, 2300), at("column", 0, 1000, 1000, 3000)];
+    for (const pieces of [[wide, column], [column, wide]]) {
+      const check = gaugeCheckOf({ container: ot, pieces, totalWeightKg: 1000 });
+      expect(check?.doesNotFit).toContain("it needs a flat rack");
+    }
+  });
+
   it("sends over-height cargo to an open top, the one it sticks out of least", () => {
     // A hard-top would stick out less, but a plain open top comes first.
     const tall = planLoad([line("column", 1000, 1000, 3000, 2000)]);

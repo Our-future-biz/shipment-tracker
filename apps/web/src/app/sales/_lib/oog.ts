@@ -1,6 +1,6 @@
 import type { QuoteContainerLine, QuoteOog, SalesQuoteData } from "./types";
 import { isContainerQuote } from "./salesQuote";
-import { checkOog, inGaugeMaximum, isOogType } from "@/lib/oogGauge";
+import { checkOog, gaugeMeasures, inGaugeMaximum, isOogType } from "@/lib/oogGauge";
 
 // The table itself, and the check against it, are the app's one out-of-gauge table (@/lib/oogGauge):
 // the Loading Planner reads the same. What is here is the quote's own: its block and its answers.
@@ -25,6 +25,17 @@ export function answerInGauge(current: QuoteOog, inGauge: boolean, types: string
   const typed = !!(current.length || current.width || current.height);
   const max = inGauge && !typed ? inGaugeMaximum(types) : null;
   return max ? { inGauge, length: max.length, width: max.width, height: max.height } : { inGauge };
+}
+
+/**
+ * What the block's length asks for: the overall length of all colli, as a flat rack carries them -
+ * or, when every such box of the quote is an open top, the longest piece: an open top is loaded
+ * piece by piece through its roof or its doors, and the table judges a piece (as the Loading
+ * Planner does, and puts on a quote).
+ */
+export function oogLengthAsked(types: string[]): { label: string; hint: string } {
+  const openTopsOnly = types.length > 0 && types.every((type) => gaugeMeasures(type)?.flatRack === false);
+  return openTopsOnly ? { label: "Length", hint: "The longest piece: an open top is loaded piece by piece" } : { label: "Overall length", hint: "All colli combined" };
 }
 
 /** The distinct out-of-gauge types of a quote's container lines, in the order they are listed. */
