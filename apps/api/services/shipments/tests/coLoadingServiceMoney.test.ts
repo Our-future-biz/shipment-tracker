@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { EarningsRow, SailingEarnings } from "../interfaces/interfaces";
-import { cleanServiceMoney, earnedPerWmEur, moneyOfRow, serviceTrend, withFloor, type TrendInput } from "../lib/coLoadingServiceMoney";
+import { cleanServiceMoney, earnedPerWmEur, moneyOfRow, serviceTrend, trendSailings, withFloor, type TrendInput } from "../lib/coLoadingServiceMoney";
 
 const amount = (eur: number | null, czk = (eur ?? 0) * 25) => ({ czk, eur });
-const row = (more: Partial<EarningsRow> = {}): EarningsRow => ({ shipmentId: "s", counted: true, moneyKnown: true, freightTons: 4, beforeBox: amount(400), ...more }) as EarningsRow;
+const row = (more: Partial<EarningsRow> = {}): EarningsRow => ({ shipmentId: "s", counted: true, moneyKnown: true, noSelling: false, missingCurrencies: [], freightTons: 4, beforeBox: amount(400), ...more }) as EarningsRow;
 
 describe("a service's money settings (Council Outlay 14, B4)", () => {
   it("keeps the default box costs as a container's three costs, and stores none when no amount is given", () => {
@@ -43,6 +43,11 @@ describe("a service's money settings (Council Outlay 14, B4)", () => {
     const marked = withFloor(earnings, 80);
     expect(marked.rows.map((r) => [r.shipmentId, r.belowFloor ?? false])).toEqual([["low", true], ["fine", false], ["unknown", false]]);
     expect(marked).toMatchObject({ minEarningPerWm: 80, belowFloor: 1 });
+    // A row with money left out, or not priced yet, would read as earning too little: no mark either way.
+    const gaps = { rows: [row({ shipmentId: "rate", beforeBox: amount(200), missingCurrencies: ["USD"] }), row({ shipmentId: "unpriced", beforeBox: amount(-50), noSelling: true })] } as SailingEarnings;
+    expect(earnedPerWmEur(gaps.rows[0]!)).toBeNull();
+    expect(earnedPerWmEur(gaps.rows[1]!)).toBeNull();
+    expect(withFloor(gaps, 80)).toMatchObject({ belowFloor: 0 });
     // No minimum: nothing is marked.
     expect(withFloor(earnings, null)).toMatchObject({ minEarningPerWm: null, belowFloor: 0 });
     expect(withFloor(earnings, null).rows.some((r) => r.belowFloor)).toBe(false);
@@ -51,7 +56,8 @@ describe("a service's money settings (Council Outlay 14, B4)", () => {
 
 describe("a service's trend (Council Outlay 14, B5)", () => {
   const TODAY = "2026-11-24";
-  const sailing = (n: number, more: Partial<TrendInput> = {}, money: { profit?: number | null; reached?: boolean | null; known?: boolean } = {}): TrendInput => ({
+  type Money = { profit?: number | null; reached?: boolean | null; known?: boolean; complete?: boolean; notSet?: number[]; noSelling?: number; provisional?: boolean };
+  const sailing = (n: number, more: Partial<TrendInput> = {}, money: Money = {}): TrendInput => ({
     sailingId: `s${n}`,
     name: `WEEK ${n}`,
     departureDate: `2026-${String(Math.ceil(n / 4)).padStart(2, "0")}-${String(((n - 1) % 4) * 7 + 1).padStart(2, "0")}`,
@@ -60,9 +66,12 @@ describe("a service's trend (Council Outlay 14, B5)", () => {
     fullPct: 50 + n,
     earnings: {
       moneyKnown: money.known ?? true,
+      complete: money.complete ?? true,
       totals: { profit: money.profit === null ? null : amount(money.profit ?? n * 100), marginPct: 10 },
+      boxCosts: { set: money.profit !== null, notSet: money.notSet ?? [], ignoredContainers: [], rateProvisional: money.provisional ?? false, containers: [{ lines: [{ amount: 1000, currency: "USD" }] }] },
+      notes: { noSelling: money.noSelling ?? 0 },
       breakEven: money.reached === null ? null : { reached: money.reached ?? true },
-    } as SailingEarnings,
+    } as unknown as SailingEarnings,
     ...more,
   });
 
@@ -86,6 +95,34 @@ describe("a service's trend (Council Outlay 14, B5)", () => {
     expect(trend.averageProfitEur).toBe(100);
     expect(trend.averageFillPct).toBe(52);
     expect(trend).toMatchObject({ profitKnown: 2, belowBreakEven: 1, breakEvenKnown: 3 });
+  });
+
+  it("counts a profit the list of sailings flags as incomplete as not known, and does not judge a box with a container uncosted", () => {
+    const trend = serviceTrend(
+      [
+        sailing(1, {}, { profit: 900, complete: false }),
+        sailing(2, {}, { profit: 900, notSet: [2], reached: true }),
+        sailing(3, {}, { profit: -300, noSelling: 1, reached: false }),
+        sailing(4, {}, { profit: 500 }),
+      ],
+      TODAY,
+    );
+    expect(trend.sailings.map((s) => [s.name, s.profitEur, s.marginPct, s.belowBreakEven])).toEqual([
+      ["WEEK 1", null, null, false],
+      ["WEEK 2", null, null, null],
+      ["WEEK 3", null, null, true],
+      ["WEEK 4", 500, 10, false],
+    ]);
+    expect(trend).toMatchObject({ averageProfitEur: 500, profitKnown: 1, breakEvenKnown: 3 });
+  });
+
+  it("counts a profit valued at a rate that may still move: the list shows it, with its mark", () => {
+    expect(serviceTrend([sailing(1, {}, { profit: 700, provisional: true })], TODAY)).toMatchObject({ averageProfitEur: 700, profitKnown: 1 });
+  });
+
+  it("chooses the eight sailings before their money is worked out", () => {
+    const all = Array.from({ length: 12 }, (_, i) => ({ id: i + 1, departureDate: `2026-0${Math.ceil((i + 1) / 4)}-0${(i % 4) + 1}`, stage: "open", createdAt: new Date(2026, 0, i + 1) }));
+    expect(trendSailings([...all, { id: 99, departureDate: "2026-12-20", stage: "open", createdAt: new Date() }], TODAY).map((s) => s.id)).toEqual([5, 6, 7, 8, 9, 10, 11, 12]);
   });
 
   it("is empty for a service whose sailings are all still to come", () => {

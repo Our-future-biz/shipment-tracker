@@ -16,6 +16,7 @@ vi.mock("../services/coLoadingLog.service", () => ({ coLoadingLogService: { log:
 vi.mock("../services/coLoadingSailing.service", () => ({ coLoadingSailingService: service }));
 
 import * as controller from "../controllers/coLoadingSailing.controller";
+import { coLoadingLogService } from "../services/coLoadingLog.service";
 
 // Council Review 7, K18: Earnings is for managers and admins (Council Outlay 13, D14). The screen
 // hides it from everyone else; these tests hold the server to refusing them, whatever the screen does.
@@ -84,6 +85,14 @@ describe("a sailing's money, asked for over the API", () => {
     const shipmentIds = Array.from({ length: 250 }, (_, i) => `id-${i}`);
     await call("coLoadingSailingLinkShipments", { shipmentIds });
     expect(service.linkShipments).toHaveBeenCalledWith("s1", shipmentIds, expect.objectContaining({ companyID: COMPANY }), undefined);
+  });
+
+  it("hands the hand-over note on with the note the screen showed, and none when the request leaves it out", async () => {
+    who.role = "user";
+    await call("coLoadingSailingNote", { note: "Mine", expected: "Before" });
+    expect(coLoadingLogService.setNote).toHaveBeenCalledWith("s1", "Mine", "Before", expect.objectContaining({ userID: "u1", companyID: COMPANY }));
+    await call("coLoadingSailingNote", { note: "Mine" });
+    expect(coLoadingLogService.setNote).toHaveBeenLastCalledWith("s1", "Mine", null, expect.objectContaining({ companyID: COMPANY }));
   });
 
   it("hands \"Edit sailing\" on with the caller's role, which decides what they may change", async () => {

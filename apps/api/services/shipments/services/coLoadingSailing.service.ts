@@ -1,11 +1,12 @@
-import { APIError } from "encore.dev/api";
+import { APIError, ErrCode } from "encore.dev/api";
 import log from "encore.dev/log";
 import { fx, invoicing } from "~encore/clients";
 import { businessDay } from "../../../lib/businessDate";
 import { isUuid } from "../../../lib/uuid";
+import { serviceActor } from "../../../lib/outbox/serviceIdentity";
 import { hasEveryWord } from "../../../lib/mainSearch";
 import { capacityOf, containerCapacity } from "../../../lib/containerCapacity";
-import type { BoxCostChange, BoxUtilization, CoLoadingBoard, CoLoadingSailingItem, SailingEarnings, SailingProfit, SailingPlanCargo, SailingRemovedShipment, SearchCoLoadingItem, ServiceTrend, ShipmentSailing } from "../interfaces/interfaces";
+import type { BoxCostChange, BoxUtilization, CoLoadingBoard, CoLoadingSailingItem, CoLoadingServiceItem, CoLoadingSettings, SailingEarnings, SailingProfit, SailingPlanCargo, SailingRemovedShipment, SearchCoLoadingItem, ServiceTrend, ShipmentSailing } from "../interfaces/interfaces";
 import { boxCostsOf, checkBoxCosts, type BoxCostLineInput, type BoxCostStored, type BoxRates } from "../lib/coLoadingBoxCosts";
 import { canManageServices } from "../lib/coLoadingService";
 import { BoxCostsChangedMeanwhile, coLoadingBoxCostRepository as boxCostRepo } from "../repositories/coLoadingBoxCost.repository";
@@ -13,14 +14,14 @@ import { sailingEarnings, sailingProfit, type ShipmentMoney } from "../lib/coLoa
 import { boxFillOf, boxUtilization } from "../lib/boxUtilization";
 import { planCargoOf, sailingReference } from "../lib/coLoadingPlanCargo";
 import { boxOverNotice } from "../lib/coLoadingBoxOverNotice";
-import { moneyOfRow, serviceTrend, withFloor } from "../lib/coLoadingServiceMoney";
+import { moneyOfRow, serviceTrend, trendSailings, withFloor } from "../lib/coLoadingServiceMoney";
 import { boxIsOver, overStep } from "../lib/coLoadingCargoChange";
 import { CANCELLED_STATUS } from "../lib/fieldDefaults";
 import { checkSailingInput, isSailingStage, LINK_AT_ONCE_MAX, linkReasonRefusal, linkRefusal, moveRefusal, stageChange, oddInBox, sailingEdit, sailingRemovalRefusal, type SailingDetails, type SailingInput } from "../lib/coLoadingSailing";
 import { userNameOf } from "../lib/userName";
 import { companyUsers } from "../../../lib/companyUsers";
 import { shipmentCommentRepository } from "../repositories/shipmentComment.repository";
-import { coLoadingSailingRepository as repo, type LinkedCargo } from "../repositories/coLoadingSailing.repository";
+import { coLoadingSailingRepository as repo, type LinkedCargo, type MoveJudge } from "../repositories/coLoadingSailing.repository";
 import type { CoLoadingSailingRecord } from "../schemas/coLoadingSailing.schema";
 import { coLoadingServiceService } from "./coLoadingService.service";
 
@@ -49,6 +50,9 @@ const RATE_DAYS_AT_ONCE = 4;
 
 /** Today in Prague, YYYY-MM-DD: the day a departure date is judged against. */
 const today = () => businessDay(new Date());
+
+/** Who wrote a service's default box costs on a new sailing (Council Outlay 14, B4): nobody - the service gave them. */
+const SERVICE_DEFAULT = { id: null, name: "Service default" };
 
 /** The shipments a master job shares costs into. */
 const mastersOf = (linked: readonly LinkedCargo[]) => new Set(linked.filter((s) => s.masterJobId).map((s) => s.id));
@@ -187,26 +191,32 @@ class CoLoadingSailingService {
    * the rates service.
    */
   async profits(serviceId: string, companyId: string): Promise<SailingProfit[]> {
-    return (await this.earningsOfService(serviceId, companyId)).map(({ row, earnings }) => sailingProfit(row.id, earnings));
+    const service = await coLoadingServiceService.get(serviceId, companyId);
+    return (await this.earningsOf(await repo.listByService(serviceId, companyId), [service], companyId)).map(({ row, earnings }) => sailingProfit(row.id, earnings));
   }
 
   /**
    * The service's trend (Council Outlay 14, B5): its last sailings that have left, with how full
    * each was, what it made and whether it covered its box. Live figures, worked out as the list of
-   * sailings works out its profits. For managers: the controller lets only them ask.
+   * sailings works out its profits - for those sailings only, chosen first (lib/coLoadingServiceMoney
+   * trendSailings). For managers: the controller lets only them ask.
    */
   async trend(serviceId: string, companyId: string): Promise<ServiceTrend> {
-    const all = await this.earningsOfService(serviceId, companyId);
+    const service = await coLoadingServiceService.get(serviceId, companyId);
+    const day = today();
+    const chosen = await this.earningsOf(trendSailings(await repo.listByService(serviceId, companyId), day), [service], companyId);
     return serviceTrend(
-      all.map(({ row, fullPct, earnings }) => ({ sailingId: row.id, name: [row.vessel, row.voyage].filter(Boolean).join(" "), departureDate: row.departureDate, stage: row.stage, createdAt: row.createdAt, fullPct, earnings })),
-      today(),
+      chosen.map(({ row, fullPct, earnings }) => ({ sailingId: row.id, name: [row.vessel, row.voyage].filter(Boolean).join(" "), departureDate: row.departureDate, stage: row.stage, createdAt: row.createdAt, fullPct, earnings })),
+      day,
     );
   }
 
-  /** Every sailing of the service with its earnings, read together (see `profits`). */
-  private async earningsOfService(serviceId: string, companyId: string): Promise<{ row: Awaited<ReturnType<typeof repo.listByService>>[number]; fullPct: number | null; earnings: SailingEarnings }[]> {
-    const service = await coLoadingServiceService.get(serviceId, companyId);
-    const rows = await repo.listByService(serviceId, companyId);
+  /** These sailings with their earnings, read together (see `profits`); `services` holds the service of each. */
+  private async earningsOf(
+    rows: readonly CoLoadingSailingRecord[],
+    services: readonly { id: string; mode: string; inlandWeightKg: number | null }[],
+    companyId: string,
+  ): Promise<{ row: CoLoadingSailingRecord; fullPct: number | null; earnings: SailingEarnings }[]> {
     if (rows.length === 0) return [];
     const ids = rows.map((r) => r.id);
     const [cargo, planningPct, costs] = await Promise.all([repo.boxShipmentsOf(ids, companyId), coLoadingServiceService.planningVolumePct(companyId), boxCostRepo.listOf(ids, companyId)]);
@@ -215,11 +225,13 @@ class CoLoadingSailingService {
     const money = await moneyOf([...cargo.values()].flat());
     // One read of the rates per departure date among the sailings that have a cost set ("" = no date: the latest rates).
     const days = await ratesOfDays([...new Set(rows.filter((r) => costsOf.get(r.id)?.some((c) => c.amount !== null)).map((r) => r.departureDate ?? ""))]);
-    return rows.map((r) => {
+    return rows.flatMap((r) => {
+      const service = services.find((s) => s.id === r.serviceId);
+      if (!service) return [];
       const linked = cargo.get(r.id) ?? [];
       const box = fillOf(r, service, planningPct, linked);
       const boxCosts = boxCostsOf(r.containerCount, costsOf.get(r.id) ?? [], days.get(r.departureDate ?? "") ?? null, r.departureDate);
-      return { row: r, fullPct: box.fullPct, earnings: sailingEarnings(box.rows, money, mastersOf(linked), boxCosts, box.fullPct) };
+      return [{ row: r, fullPct: box.fullPct, earnings: sailingEarnings(box.rows, money, mastersOf(linked), boxCosts, box.fullPct) }];
     });
   }
 
@@ -242,7 +254,7 @@ class CoLoadingSailingService {
     }
   }
 
-  /** One sailing for its page: with the containers that have box costs, which decide who may edit it (K13). No money. */
+  /** One sailing for its page: with the containers that have box costs a person set, which decide who may edit it (K13). No money. */
   async page(id: string, companyId: string): Promise<CoLoadingSailingItem> {
     const sailing = await this.get(id, companyId);
     return { ...sailing, costedContainers: await boxCostRepo.costedContainers(sailing.id, companyId) };
@@ -283,7 +295,9 @@ class CoLoadingSailingService {
    * container type, the number of containers and the departure date move the box costs, so once a
    * box cost is set only managers and admins change them (Council Review 7, K13), and every change
    * goes into the record of changes, written with it. The change is judged on the sailing as
-   * it is under its lock (repository setDetailsRecorded), so no box cost is set in between.
+   * it is under its lock (repository setDetailsRecorded), so no box cost is set in between. A
+   * service's default costs, untouched since the sailing was made, lock nothing (B4). The box's
+   * "told that it is over" mark follows the new box, quietly (boxTouched).
    */
   async setDetails(id: string, details: SailingDetails, actor: { userID: string; companyID: string; role: string }): Promise<CoLoadingSailingItem> {
     const sailing = await this.get(id, actor.companyID);
@@ -298,6 +312,7 @@ class CoLoadingSailingService {
       return edit;
     });
     if (!row) throw APIError.notFound("Sailing not found");
+    await this.boxTouched(row.id, actor.companyID);
     return toItem(row);
   }
 
@@ -321,8 +336,9 @@ class CoLoadingSailingService {
 
   /**
    * Removes a sailing made by mistake (Council Outlay 14, D4): a manager or admin, while it holds no
-   * shipment and no box cost, and not while the service is closed. Judged under the sailing's lock,
-   * so nothing is linked or costed in between.
+   * shipment and no box cost a person set - the service's untouched defaults do not keep it (B4) -
+   * and not while the service is closed. Judged under the sailing's lock, which a link, a move and a
+   * save of its box costs wait for, so nothing is linked or costed in between.
    */
   async remove(id: string, actor: { companyID: string; role: string }): Promise<void> {
     const sailing = await this.get(id, actor.companyID);
@@ -368,6 +384,7 @@ class CoLoadingSailingService {
         ];
       }),
       services: services.map((s) => {
+        // The waiting shipments' Service Names come trimmed and lower-cased as the service's page reads them (shipment.repository serviceNameKey).
         const own = s.serviceName.trim().toLowerCase();
         // Of its Service Name, and of the kind its box is for: a full load or an air job waits for no LCL box.
         const mine = own ? waiting.filter((w) => w.serviceName === own && !oddInBox(s.mode, w)) : [];
@@ -378,15 +395,13 @@ class CoLoadingSailingService {
 
   /**
    * The profit of every sailing still to come, for the board (D8). For managers: the controller lets
-   * only them ask. Each service's sailings are worked out as its own list does (profits).
+   * only them ask. Worked out as each service's own list does (profits), for the coming sailings only
+   * and all of them together: the sailings that have left are not read.
    */
   async boardProfits(companyId: string): Promise<SailingProfit[]> {
     const services = await coLoadingServiceService.list(companyId, "user");
     const coming = await repo.comingOfServices(services.map((s) => s.id), companyId, today());
-    const ids = new Set(coming.map((c) => c.id));
-    const out: SailingProfit[] = [];
-    for (const serviceId of new Set(coming.map((c) => c.serviceId))) out.push(...(await this.profits(serviceId, companyId)).filter((p) => ids.has(p.sailingId)));
-    return out;
+    return (await this.earningsOf(coming, services, companyId)).map(({ row, earnings }) => sailingProfit(row.id, earnings));
   }
 
   /**
@@ -421,11 +436,18 @@ class CoLoadingSailingService {
     return planCargoOf(sailing, service.name, linked.map((s) => ({ ...s, cancelled: s.status === CANCELLED_STATUS })));
   }
 
-  /** What a loading plan linked to the sailing is to call it now; null when the company has no such live sailing. */
+  /**
+   * What a loading plan linked to the sailing is to call it now; null when the company has no such
+   * live sailing. A service not found leaves its name out of the reference; any other failure is
+   * thrown, and the Loading Planner says it could not check the link (loadingPlan.service).
+   */
   async referenceOf(id: string, companyId: string): Promise<string | null> {
     const row = isUuid(id) ? await repo.get(id, companyId) : null;
     if (!row) return null;
-    const service = await coLoadingServiceService.get(row.serviceId, companyId).catch(() => null);
+    const service = await coLoadingServiceService.get(row.serviceId, companyId).catch((err: unknown) => {
+      if (err instanceof APIError && err.code === ErrCode.NotFound) return null;
+      throw err;
+    });
     return sailingReference(row, service?.name ?? "");
   }
 
@@ -476,8 +498,9 @@ class CoLoadingSailingService {
   async moveShipment(sailingId: string, shipmentId: string, toSailingId: string, reason: string, actor: { userID: string; companyID: string }): Promise<void> {
     const from = await this.get(sailingId, actor.companyID);
     await coLoadingServiceService.requireOpen(from.serviceId, actor.companyID);
+    const day = today();
     const to = isUuid(toSailingId) ? await repo.get(toSailingId, actor.companyID) : null;
-    const refusal = moveRefusal(from, to, reason);
+    const refusal = moveRefusal(from, to, reason, day);
     if (refusal) throw APIError.invalidArgument(refusal);
     // A shipment the box is not for stays out of the next box too (K3): it is taken off, not moved on.
     const service = await coLoadingServiceService.get(from.serviceId, actor.companyID);
@@ -485,15 +508,75 @@ class CoLoadingSailingService {
     const odd = moved ? oddInBox(service.mode, moved) : null;
     if (moved && odd) throw APIError.failedPrecondition(`${moved.jobNumber} is ${odd}: it cannot go on another sailing of this service. Remove it from this one instead.`);
     const by = { id: actor.userID, name: await userNameOf(actor.userID) };
-    if (!isUuid(shipmentId) || !(await repo.move(from.id, toSailingId, shipmentId, actor.companyID, by, reason.trim(), to && to.stage !== "open" ? reason.trim() : ""))) throw APIError.notFound("The shipment is not on this sailing.");
+    const outcome = isUuid(shipmentId) ? await repo.move(from.id, toSailingId, shipmentId, actor.companyID, by, reason.trim(), this.moveJudged(reason, day)) : "not_on_it";
+    if (outcome === "gone") throw APIError.notFound("Sailing not found");
+    if (outcome === "not_on_it") throw APIError.notFound("The shipment is not on this sailing.");
     await Promise.all([this.boxTouched(toSailingId, actor.companyID, [shipmentId]), this.boxTouched(from.id, actor.companyID)]);
   }
 
   /**
-   * After the box's shipments changed by hand (linked, moved, taken off): remembers what each of
-   * `linked` counts now as its figures of the day of linking, and sets the sailing's "told that it
-   * is over" mark to how the box stands - quietly: whoever links over the limit was warned on the
-   * screen (Council Outlay 14, C4). Best effort: the link itself is made either way.
+   * A move judged again on both sailings as they are under their lock (repository moveMany): the
+   * target may have left or been removed since it was read. The new links keep the reason when the
+   * target is closed for cargo (Council Outlay 14, C3).
+   */
+  private moveJudged(reason: string, day: string): MoveJudge {
+    return (from, to) => {
+      const refusal = moveRefusal(from, to, reason, day);
+      if (refusal) throw APIError.invalidArgument(refusal);
+      return to && to.stage !== "open" ? reason.trim() : "";
+    };
+  }
+
+  /**
+   * A manager sets a lower cargo weight for the service's inland leg, or takes it off (null). Its
+   * sailings still to come are weighed against the new limit: their "told that it is over" marks
+   * follow (marksUpToDate).
+   */
+  async setInlandWeight(serviceId: string, inlandWeightKg: number | null, companyId: string): Promise<CoLoadingServiceItem> {
+    const service = await coLoadingServiceService.setInlandWeight(serviceId, inlandWeightKg, companyId);
+    await this.marksUpToDate(await repo.comingOfServices([service.id], companyId, today()), [service], companyId);
+    return service;
+  }
+
+  /**
+   * A manager sets the company's planning share (50 to 100 percent). Every box still to come of an
+   * open service is measured by it: their "told that it is over" marks follow (marksUpToDate).
+   */
+  async savePlanningPct(planningVolumePct: number, actor: { userID: string; companyID: string; role: string }): Promise<CoLoadingSettings> {
+    const settings = await coLoadingServiceService.saveSettings(planningVolumePct, actor);
+    const open = await coLoadingServiceService.list(actor.companyID, "user");
+    await this.marksUpToDate(await repo.comingOfServices(open.map((s) => s.id), actor.companyID, today()), open, actor.companyID);
+    return settings;
+  }
+
+  /**
+   * Sets each of these sailings' "told that it is over" mark to how its box stands now, quietly, as
+   * boxTouched does: a change of the boxes' limits tells nobody in a chat. A box it takes over is
+   * marked as told, so a later cargo change that did not take it over posts nothing; one it brings
+   * back within its limits is told about again once cargo takes it over. All the boxes in two reads.
+   * Best effort: what was saved stays saved.
+   */
+  private async marksUpToDate(sailings: readonly CoLoadingSailingRecord[], services: readonly { id: string; mode: string; inlandWeightKg: number | null }[], companyId: string): Promise<void> {
+    if (sailings.length === 0) return;
+    try {
+      const [cargo, planningPct] = await Promise.all([repo.boxShipmentsOf(sailings.map((s) => s.id), companyId), coLoadingServiceService.planningVolumePct(companyId)]);
+      for (const sailing of sailings) {
+        const service = services.find((s) => s.id === sailing.serviceId);
+        if (!service) continue;
+        const over = boxIsOver(fillOf(sailing, service, planningPct, cargo.get(sailing.id) ?? []));
+        if (over !== sailing.overNotified) await repo.setOverNotified(sailing.id, companyId, over);
+      }
+    } catch (err) {
+      log.warn(err, "Co-Loading: the boxes' over-the-limit marks could not be brought up to date", { sailings: sailings.length });
+    }
+  }
+
+  /**
+   * After the box changed by hand - its shipments linked, moved or taken off, a shipment of it
+   * deleted, the sailing edited: remembers what each of `linked` counts now as its figures of the day
+   * of linking, and sets the sailing's "told that it is over" mark to how the box stands - quietly:
+   * whoever links over the limit was warned on the screen, and the sailing's page marks a box over
+   * its limit under its header (Council Outlay 14, C4). Best effort: the change itself is made either way.
    */
   private async boxTouched(sailingId: string, companyId: string, linked: readonly string[] = []): Promise<void> {
     try {
@@ -513,7 +596,10 @@ class CoLoadingSailingService {
    * A shipment's cargo, or whether it counts (its status), was changed (Council Outlay 14, C4): when
    * that takes its sailing's box over the limit, a line goes into the shipment's chat tagging its
    * Person in Charge and Holiday Cover and whoever made the sailing (D11) - once, until the box is
-   * back within its limits. Best effort, after the shipment is saved: it never fails the save.
+   * back within its limits. The telling is claimed before the line is written, so of two saves at one
+   * moment one tells, and a line that cannot be written gives the claim back for the next change to
+   * tell. A change no person made (an internal call for the company, `authorId` "") is written as the
+   * company's service identity. Best effort, after the shipment is saved: it never fails the save.
    */
   async cargoChanged(shipmentId: string, companyId: string, authorId: string): Promise<void> {
     try {
@@ -524,14 +610,21 @@ class CoLoadingSailingService {
       const service = await coLoadingServiceService.get(sailing.serviceId, companyId);
       const box = fillOf(sailing, service, await coLoadingServiceService.planningVolumePct(companyId), await repo.boxShipments(sailing.id, companyId));
       const step = overStep(boxIsOver(box), sailing.overNotified);
-      if (step === "keep") return;
-      await repo.setOverNotified(sailing.id, companyId, step === "tell");
+      if (step === "clear") await repo.setOverNotified(sailing.id, companyId, false);
+      if (step !== "tell") return;
       const row = box.rows.find((r) => r.shipmentId === shipmentId);
-      if (step !== "tell" || !row) return;
-      const shipment = await repo.peopleOf(shipmentId, companyId);
-      if (!shipment) return;
-      const notice = boxOverNotice(shipment, { name: [sailing.vessel, sailing.voyage].filter(Boolean).join(" "), createdById: sailing.createdById }, await companyUsers(), box, { now: row, change: row.sinceLinked ?? null }, authorId);
-      await shipmentCommentRepository.createForCompany(companyId, { shipmentId, authorId, message: notice.message, mentionedUserIds: notice.tagged.map((u) => u.id) });
+      const shipment = row ? await repo.peopleOf(shipmentId, companyId) : null;
+      // Off the box, or deleted, meanwhile: nobody is told now, and the mark stays unset for the next change to tell.
+      if (!row || !shipment) return;
+      const author = isUuid(authorId) ? authorId : (await serviceActor(companyId)).userID;
+      const notice = boxOverNotice(shipment, { name: [sailing.vessel, sailing.voyage].filter(Boolean).join(" "), createdById: sailing.createdById }, await companyUsers(), box, { now: row, change: row.sinceLinked ?? null }, author);
+      if (!(await repo.claimOverNotice(sailing.id, companyId))) return;
+      try {
+        await shipmentCommentRepository.createForCompany(companyId, { shipmentId, authorId: author, message: notice.message, mentionedUserIds: notice.tagged.map((u) => u.id) });
+      } catch (err) {
+        await repo.setOverNotified(sailing.id, companyId, false);
+        throw err;
+      }
     } catch (err) {
       log.warn(err, "Co-Loading: a cargo change could not be checked against its box", { shipmentId });
     }
@@ -554,8 +647,9 @@ class CoLoadingSailingService {
     const ids = this.several(shipmentIds, "move");
     const from = await this.get(sailingId, actor.companyID);
     await coLoadingServiceService.requireOpen(from.serviceId, actor.companyID);
+    const day = today();
     const to = isUuid(toSailingId) ? await repo.get(toSailingId, actor.companyID) : null;
-    const refusal = moveRefusal(from, to, reason);
+    const refusal = moveRefusal(from, to, reason, day);
     if (refusal) throw APIError.invalidArgument(refusal);
     // A shipment the box is not for stays out of the next box too (K3): none is moved while one of them is such.
     const service = await coLoadingServiceService.get(from.serviceId, actor.companyID);
@@ -565,7 +659,9 @@ class CoLoadingSailingService {
     });
     if (odd.length > 0) throw APIError.failedPrecondition(`${odd.join(", ")}: ${odd.length === 1 ? "it" : "they"} cannot go on another sailing of this service. Remove ${odd.length === 1 ? "it" : "them"} from this one instead. Nothing was moved.`);
     const by = { id: actor.userID, name: await userNameOf(actor.userID) };
-    if (!(await repo.moveMany(from.id, toSailingId, ids, actor.companyID, by, reason.trim(), to && to.stage !== "open" ? reason.trim() : ""))) throw APIError.notFound("A shipment is no longer on this sailing: nothing was moved. Read the list again.");
+    const outcome = await repo.moveMany(from.id, toSailingId, ids, actor.companyID, by, reason.trim(), this.moveJudged(reason, day));
+    if (outcome === "gone") throw APIError.notFound("Sailing not found");
+    if (outcome === "not_on_it") throw APIError.notFound("A shipment is no longer on this sailing: nothing was moved. Read the list again.");
     await Promise.all([this.boxTouched(toSailingId, actor.companyID, ids), this.boxTouched(from.id, actor.companyID)]);
     return { moved: ids.length };
   }
@@ -584,7 +680,8 @@ class CoLoadingSailingService {
   /**
    * Links the shipments to the sailing (its box), all or none: each must be the service's own (its
    * Service Name) and on no sailing yet. Not while the service is closed. A sailing closed for cargo
-   * or at a later stage takes them only with a reason.
+   * or at a later stage takes them only with a reason - judged again on its stage under its lock,
+   * which a removal of the sailing waits for (repository link).
    */
   async linkShipments(sailingId: string, shipmentIds: string[], actor: { userID: string; companyID: string }, reason?: string): Promise<{ linked: number }> {
     const ids = [...new Set(shipmentIds)];
@@ -601,9 +698,14 @@ class CoLoadingSailingService {
     const onSailing = new Map((await repo.sailingsOf(ids, actor.companyID)).map((l) => [l.shipmentId, { id: l.sailingId, name: [l.vessel, l.voyage].filter(Boolean).join(" ") }]));
     const refusals = found.flatMap((s) => linkRefusal({ ...s, onSailing: onSailing.get(s.id) ?? null }, service.serviceName, sailingId, service.mode) ?? []);
     if (refusals.length > 0) throw APIError.failedPrecondition(refusals.join(" "));
-    const linked = await repo.link(sailingId, ids, actor.companyID, { id: actor.userID, name: await userNameOf(actor.userID) }, sailing.stage === "open" ? "" : (reason ?? "").trim());
+    const outcome = await repo.link(sailing.id, ids, actor.companyID, { id: actor.userID, name: await userNameOf(actor.userID) }, (now) => {
+      const refused = linkReasonRefusal(now.stage, reason);
+      if (refused) throw APIError.invalidArgument(refused);
+      return now.stage === "open" ? "" : (reason ?? "").trim();
+    });
+    if (outcome === "gone") throw APIError.notFound("Sailing not found");
     // Linked meanwhile by someone else: nothing is linked, and the list read again shows where.
-    if (!linked) throw APIError.alreadyExists("A shipment was linked to a sailing meanwhile: nothing was linked. Try again.");
+    if (outcome === "taken") throw APIError.alreadyExists("A shipment was linked to a sailing meanwhile: nothing was linked. Try again.");
     await this.boxTouched(sailingId, actor.companyID, ids);
     return { linked: ids.length };
   }
@@ -618,11 +720,13 @@ class CoLoadingSailingService {
   }
 
   /**
-   * A deleted shipment leaves the box it was in, and the sailing's history says so. Best effort:
-   * the shipment is gone either way, and a link left behind is not counted (its shipment is deleted).
+   * A deleted shipment leaves the box it was in, and the sailing's history says so; the box's "told
+   * that it is over" mark follows the lighter box, quietly (boxTouched). Best effort: the shipment is
+   * gone either way, and a link left behind is not counted (its shipment is deleted).
    */
   async shipmentDeleted(shipmentId: string, companyId: string, userId?: string): Promise<void> {
-    await repo.dropDeletedShipment(shipmentId, companyId, { id: userId ?? null, name: userId ? await userNameOf(userId) : "" });
+    const left = await repo.dropDeletedShipment(shipmentId, companyId, { id: userId ?? null, name: userId ? await userNameOf(userId) : "" });
+    if (left) await this.boxTouched(left, companyId);
   }
 
   async create(serviceId: string, input: SailingInput, actor: { userID: string; companyID: string }): Promise<CoLoadingSailingItem> {
@@ -639,16 +743,47 @@ class CoLoadingSailingService {
       createdByName: by.name,
     });
     // The service's default box costs, on each of the new sailing's containers (Council Outlay 14, B4):
-    // it has costs from day one, which a manager corrects. Best effort - the sailing is made either way.
+    // it has costs from day one, which a manager corrects. Set by nobody, so they lock neither Edit
+    // sailing nor a removal of a sailing made by mistake (coLoadingBoxCost.repository costedContainers).
+    // Best effort - the sailing is made either way.
     const defaults = moneyOfRow(service).defaultBoxCosts;
     if (defaults) {
       try {
-        for (let containerNo = 1; containerNo <= row.containerCount; containerNo++) await boxCostRepo.save(row.id, actor.companyID, containerNo, defaults.map((d) => ({ ...d, note: d.note || "Service default" })), null, by);
+        for (let containerNo = 1; containerNo <= row.containerCount; containerNo++) await boxCostRepo.save(row.id, actor.companyID, containerNo, defaults.map((d) => ({ ...d, note: d.note || "Service default" })), null, SERVICE_DEFAULT);
       } catch (err) {
         log.warn(err, "Co-Loading: a new sailing did not get its service's default box costs", { sailingId: row.id });
       }
     }
     return toItem(row);
+  }
+
+  /**
+   * A service's next sailings, for a Sea LCL quote that names it (Council Outlay 14, C7): its first
+   * `count` sailings still to come, each as the board shows it (board) - the box's fill and the room
+   * left. For everyone; no money. Only of an open service, as the board reads them: a closed one, or
+   * one the company does not have, gives none and says it is not open.
+   */
+  async nextOfService(serviceId: string, companyId: string, count: number): Promise<{ open: boolean; name: string; sailings: CoLoadingBoard["sailings"] }> {
+    const service = (await coLoadingServiceService.list(companyId, "user")).find((s) => s.id === serviceId);
+    if (!service) return { open: false, name: "", sailings: [] };
+    const [coming, planningPct] = await Promise.all([repo.comingOfServices([service.id], companyId, today()), coLoadingServiceService.planningVolumePct(companyId)]);
+    const next = coming.slice(0, count);
+    const cargo = await repo.boxShipmentsOf(next.map((c) => c.id), companyId);
+    return {
+      open: true,
+      name: service.name,
+      sailings: next.map((c) => {
+        const box = fillOf(c, service, planningPct, cargo.get(c.id) ?? []);
+        return {
+          ...toItem(c),
+          serviceLabel: service.name,
+          fill: boxFillOf(box),
+          free: { cbm: box.volume?.free ?? null, kg: box.weight?.free ?? null },
+          cancelled: box.notCounted,
+          dangerous: box.rows.filter((r) => r.counted && r.dangerous).length,
+        };
+      }),
+    };
   }
 }
 

@@ -8,12 +8,12 @@ import { userNameOf } from "../lib/userName";
 import { coLoadingLogRepository as logRepo } from "../repositories/coLoadingLog.repository";
 import { coLoadingSailingRepository as sailingRepo } from "../repositories/coLoadingSailing.repository";
 import { shipmentCustomerNoticeRepository as noticeRepo } from "../repositories/shipmentCustomerNotice.repository";
-import { customerNoticeService } from "./customerNotice.service";
 
 // A Co-Loading sailing's customer notices (Council Outlay 14, C6): which customers were told that
 // their cargo sailed, or that it was rolled to a later sailing, and the recording of that for
-// several shipments together. Each is the shipment's own customer notice (customerNotice.service),
-// so it stands on the shipment's Tracking tab too. For everyone; the app sends nothing.
+// several shipments together. Each is the shipment's own customer notice (the record
+// customerNotice.service keeps), so it stands on the shipment's Tracking tab too. For everyone; the
+// app sends nothing.
 class CoLoadingNoticesService {
   private async sailing(id: string, companyId: string) {
     const row = await sailingRepo.get(id, companyId);
@@ -43,8 +43,10 @@ class CoLoadingNoticesService {
   }
 
   /**
-   * Records that the customers of these shipments were told, one notice on each shipment. All are
-   * checked first; a shipment already told is told again without harm - the latest word stands.
+   * Records that the customers of these shipments were told, one notice on each shipment, all
+   * together or none. All are checked first; a shipment already told is told again without harm - the
+   * latest word stands. Sailed and rolled are no kinds the Communication log takes, nor a checklist
+   * tick's (lib/customerNotice): the notices are all there is to write.
    */
   async record(id: string, input: { kind: string; shipmentIds: string[]; channel: string; note?: string }, actor: { userID: string; companyID: string }): Promise<SailingCustomerNotices> {
     if (!isSailingNoticeKind(input.kind)) throw APIError.invalidArgument("Say whether the customers were told the cargo sailed, or that it was rolled.");
@@ -59,10 +61,13 @@ class CoLoadingNoticesService {
     const refusal = recordRefusal(ids, rows, input.kind);
     if (refusal) throw APIError.invalidArgument(refusal);
     const name = [sailing.vessel, sailing.voyage].filter(Boolean).join(" ");
-    for (const shipmentId of ids) {
+    const kind = input.kind;
+    const channel = input.channel;
+    const notices = ids.map((shipmentId) => {
       const row = rows.find((r) => r.shipmentId === shipmentId)!;
-      await customerNoticeService.record(shipmentId, actor.companyID, actor.userID, { kind: input.kind, channel: input.channel, toldTo: row.customer, subject: noticeSubject(input.kind, name, row), note });
-    }
+      return { shipmentId, kind, channel, toldTo: row.customer.trim(), subject: noticeSubject(kind, name, row).trim(), note, toldById: actor.userID };
+    });
+    if (!(await noticeRepo.createForShipments(actor.companyID, notices))) throw APIError.notFound("A ticked shipment was not found: nothing was recorded. Read the list again.");
     return this.list(sailing.id, actor.companyID);
   }
 }

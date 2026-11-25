@@ -1,4 +1,5 @@
-import { APIError } from "encore.dev/api";
+import { APIError, ErrCode } from "encore.dev/api";
+import { constraintOf, isUniqueViolation } from "../../../lib/db/errors";
 import type { SailingMasterJob } from "../interfaces/interfaces";
 import { factsForMasterJob, masterJobRows, putOnRefusal } from "../lib/coLoadingMasterJob";
 import { CANCELLED_STATUS } from "../lib/fieldDefaults";
@@ -10,6 +11,11 @@ import { masterJobService } from "./masterJob.service";
 import { shipmentService } from "./shipment.service";
 
 type Actor = { userID: string; companyID: string; role: string };
+
+/** The database's one live sailing per Master Job (schemas/coLoadingSailing.schema). */
+const ONE_SAILING_PER_MASTER_JOB = "co_loading_sailing_one_master_job";
+
+const HAS_ONE = "This sailing has a Master Job already: unlink it first.";
 
 // A Co-Loading sailing's Master Job (Council Outlay 14, C2): one per sailing, made from the sailing
 // with its shipments or linked by its MCZ number. Everything a Master Job does to its shipments -
@@ -33,8 +39,13 @@ class CoLoadingMasterJobService {
   async get(id: string, companyId: string): Promise<SailingMasterJob> {
     const sailing = await this.sailing(id, companyId);
     const shipments = await this.shipmentsOf(sailing.id, companyId);
-    // A Master Job deleted since leaves the sailing with none.
-    const detail = sailing.masterJobId ? await masterJobService.get(sailing.masterJobId, companyId).catch(() => null) : null;
+    // A Master Job deleted since leaves the sailing with none; any other failure is the request's.
+    const detail = sailing.masterJobId
+      ? await masterJobService.get(sailing.masterJobId, companyId).catch((err: unknown) => {
+          if (err instanceof APIError && err.code === ErrCode.NotFound) return null;
+          throw err;
+        })
+      : null;
     return {
       masterJob: detail && {
         id: detail.masterJob.id,
@@ -55,6 +66,11 @@ class CoLoadingMasterJobService {
     return sailing;
   }
 
+  /** Refuses a sailing whose Master Job is still there; one deleted since leaves it with none. */
+  private async hasNone(sailing: { masterJobId: string | null }, companyId: string): Promise<void> {
+    if (sailing.masterJobId && (await masterJobRepository.getByIdForCompany(sailing.masterJobId, companyId))) throw APIError.failedPrecondition(HAS_ONE);
+  }
+
   private async checkedIds(sailingId: string, shipmentIds: string[], masterJobId: string | null, actor: Actor): Promise<string[]> {
     const ids = [...new Set(shipmentIds)];
     const refusal = putOnRefusal(ids, masterJobRows(await this.shipmentsOf(sailingId, actor.companyID), masterJobId));
@@ -68,30 +84,43 @@ class CoLoadingMasterJobService {
    * "Create master job" from the sailing: a new Master Job that starts with what the ticked
    * shipments agree on (as the Master Jobs page makes one) and with the sailing's vessel, voyage,
    * departure and cut-off where it has none; the shipments are then linked to it by the Master
-   * Job's own rules. It becomes the sailing's Master Job before the linking, so a refused link
-   * leaves it findable, not orphaned.
+   * Job's own rules. It is made and becomes the sailing's Master Job under the sailing's lock
+   * (repository setMasterJobJudged): of two creates at one moment the second finds the first one's
+   * and makes none, so no Master Job is left orphaned - nor by a refused link, which comes after.
    */
   async create(id: string, shipmentIds: string[], actor: Actor): Promise<SailingMasterJob> {
     const sailing = await this.open(id, actor);
-    if (sailing.masterJobId && (await masterJobRepository.getByIdForCompany(sailing.masterJobId, actor.companyID))) throw APIError.failedPrecondition("This sailing has a Master Job already: unlink it first.");
+    await this.hasNone(sailing, actor.companyID);
     const ids = await this.checkedIds(sailing.id, shipmentIds, null, actor);
-    const made = await masterJobService.create(actor.companyID, actor.userID, ids);
+    const by = { id: actor.userID, name: await userNameOf(actor.userID) };
+    const made = await repo.setMasterJobJudged(sailing.id, actor.companyID, by, (now) => this.hasNone(now, actor.companyID), () => masterJobService.create(actor.companyID, actor.userID, ids));
+    if (!made) throw APIError.notFound("Sailing not found");
     const facts = factsForMasterJob(sailing, made);
     if (Object.keys(facts).length > 0) await masterJobService.update(made.id, actor.companyID, facts, actor.userID);
-    await repo.setMasterJob(sailing.id, actor.companyID, made.id, { old: "", next: made.mczNumber }, { id: actor.userID, name: await userNameOf(actor.userID) });
     await masterJobService.linkShipments(made.id, actor.companyID, ids, actor.userID);
     return this.get(sailing.id, actor.companyID);
   }
 
-  /** Links an existing Master Job to the sailing by its MCZ number. Its shipments are not touched: the sailing's are put on it by hand. */
+  /**
+   * Links an existing Master Job to the sailing by its MCZ number. Its shipments are not touched: the
+   * sailing's are put on it by hand. Under the sailing's lock; a Master Job another sailing took at
+   * the same moment is refused by the database's one sailing per Master Job.
+   */
   async link(id: string, mczNumber: string, actor: Actor): Promise<SailingMasterJob> {
     const sailing = await this.open(id, actor);
-    if (sailing.masterJobId && (await masterJobRepository.getByIdForCompany(sailing.masterJobId, actor.companyID))) throw APIError.failedPrecondition("This sailing has a Master Job already: unlink it first.");
+    await this.hasNone(sailing, actor.companyID);
     const found = await masterJobRepository.findByMczNumber(mczNumber.trim().toUpperCase(), actor.companyID);
     if (!found) throw APIError.notFound(`No Master Job with the number "${mczNumber.trim()}" was found.`);
     const taken = await repo.sailingOfMasterJob(found.id, actor.companyID);
     if (taken && taken.id !== sailing.id) throw APIError.failedPrecondition(`${found.mczNumber} is the Master Job of sailing ${[taken.vessel, taken.voyage].filter(Boolean).join(" ")} already.`);
-    await repo.setMasterJob(sailing.id, actor.companyID, found.id, { old: "", next: found.mczNumber }, { id: actor.userID, name: await userNameOf(actor.userID) });
+    const by = { id: actor.userID, name: await userNameOf(actor.userID) };
+    try {
+      const set = await repo.setMasterJobJudged(sailing.id, actor.companyID, by, (now) => this.hasNone(now, actor.companyID), async () => found);
+      if (!set) throw APIError.notFound("Sailing not found");
+    } catch (err) {
+      if (isUniqueViolation(err) && constraintOf(err) === ONE_SAILING_PER_MASTER_JOB) throw APIError.failedPrecondition(`${found.mczNumber} was made the Master Job of another sailing meanwhile: nothing was linked.`);
+      throw err;
+    }
     return this.get(sailing.id, actor.companyID);
   }
 
@@ -100,7 +129,7 @@ class CoLoadingMasterJobService {
     const sailing = await this.open(id, actor);
     if (!sailing.masterJobId) return this.get(sailing.id, actor.companyID);
     const was = (await masterJobRepository.mczNumbersByIds([sailing.masterJobId], actor.companyID)).get(sailing.masterJobId) ?? "";
-    await repo.setMasterJob(sailing.id, actor.companyID, null, { old: was, next: "" }, { id: actor.userID, name: await userNameOf(actor.userID) });
+    await repo.clearMasterJob(sailing.id, actor.companyID, was, { id: actor.userID, name: await userNameOf(actor.userID) });
     return this.get(sailing.id, actor.companyID);
   }
 

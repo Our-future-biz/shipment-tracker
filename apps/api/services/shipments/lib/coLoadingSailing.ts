@@ -256,12 +256,23 @@ export function sailingRemovalRefusal(sailing: { linkedShipments: number; costed
 
 /**
  * Why a shipment cannot be moved to this sailing, or null when it can: only to another sailing of
- * the same service, with the reason it is left behind typed.
+ * the same service still to come (Council Outlay 14, A1) - not one set to Departed or a later stage,
+ * nor one whose departure date is before `today` (YYYY-MM-DD; the day itself still counts, as the
+ * sailings to come are read) - with the reason it is left behind typed.
  */
-export function moveRefusal(from: { id: string; serviceId: string }, to: { id: string; serviceId: string } | null, reason: string): string | null {
+export function moveRefusal(
+  from: { id: string; serviceId: string },
+  to: { id: string; serviceId: string; stage: string; departureDate: string | null } | null,
+  reason: string,
+  today: string,
+): string | null {
   if (!to) return "The sailing to move it to was not found.";
   if (to.id === from.id) return "Pick another sailing to move it to.";
   if (to.serviceId !== from.serviceId) return "A shipment moves only to another sailing of the same service.";
+  if (stageHasLeft(to.stage))
+    return `The sailing to move it to is set to ${isSailingStage(to.stage) ? SAILING_STAGE_LABEL[to.stage] : to.stage}: a shipment moves only to a sailing still to come.`;
+  if (to.departureDate !== null && to.departureDate < today)
+    return `The sailing to move it to left on ${to.departureDate.slice(8, 10)}.${to.departureDate.slice(5, 7)}.${to.departureDate.slice(0, 4)}: a shipment moves only to a sailing still to come.`;
   if (!reason.trim()) return "Say why the shipment is moved.";
   if (reason.trim().length > MOVE_REASON_MAX) return `The reason can be at most ${MOVE_REASON_MAX} characters.`;
   return null;

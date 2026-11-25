@@ -771,6 +771,13 @@
       "when": 1795537863947,
       "tag": "0109_co_loading_service_money",
       "breakpoints": true
+    },
+    {
+      "idx": 110,
+      "version": "7",
+      "when": 1795640686473,
+      "tag": "0110_co_loading_sailing_one_master_job",
+      "breakpoints": true
     }
   ]
 }

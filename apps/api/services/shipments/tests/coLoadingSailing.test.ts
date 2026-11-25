@@ -237,17 +237,28 @@ describe("removing a sailing made by mistake", () => {
 
 describe("moving a shipment to another sailing", () => {
   const from = { id: "a", serviceId: "s1" };
+  const TODAY = "2026-11-25";
+  const to = (more = {}) => ({ id: "b", serviceId: "s1", stage: "open", departureDate: null as string | null, ...more });
 
   it("goes to another sailing of the same service, with a reason", () => {
-    expect(moveRefusal(from, { id: "b", serviceId: "s1" }, "Box full, rolled to next week")).toBeNull();
+    expect(moveRefusal(from, to(), "Box full, rolled to next week", TODAY)).toBeNull();
   });
 
   it("is refused without a target, to the same sailing, to another service, or without a reason", () => {
-    expect(moveRefusal(from, null, "x")).toBe("The sailing to move it to was not found.");
-    expect(moveRefusal(from, { id: "a", serviceId: "s1" }, "x")).toBe("Pick another sailing to move it to.");
-    expect(moveRefusal(from, { id: "b", serviceId: "s2" }, "x")).toBe("A shipment moves only to another sailing of the same service.");
-    expect(moveRefusal(from, { id: "b", serviceId: "s1" }, "   ")).toBe("Say why the shipment is moved.");
-    expect(moveRefusal(from, { id: "b", serviceId: "s1" }, "x".repeat(301))).toContain("at most 300");
+    expect(moveRefusal(from, null, "x", TODAY)).toBe("The sailing to move it to was not found.");
+    expect(moveRefusal(from, to({ id: "a" }), "x", TODAY)).toBe("Pick another sailing to move it to.");
+    expect(moveRefusal(from, to({ serviceId: "s2" }), "x", TODAY)).toBe("A shipment moves only to another sailing of the same service.");
+    expect(moveRefusal(from, to(), "   ", TODAY)).toBe("Say why the shipment is moved.");
+    expect(moveRefusal(from, to(), "x".repeat(301), TODAY)).toContain("at most 300");
+  });
+
+  it("goes only to a sailing still to come: not one that has left by its stage or by its date (Council Outlay 14, A1)", () => {
+    expect(moveRefusal(from, to({ stage: "departed" }), "x", TODAY)).toBe("The sailing to move it to is set to Departed: a shipment moves only to a sailing still to come.");
+    expect(moveRefusal(from, to({ stage: "devanned", departureDate: "2026-12-20" }), "x", TODAY)).toContain("is set to Devanned");
+    expect(moveRefusal(from, to({ departureDate: "2026-11-24" }), "x", TODAY)).toBe("The sailing to move it to left on 24.11.2026: a shipment moves only to a sailing still to come.");
+    // Its day of departure, and a sailing closed for cargo, still count as to come.
+    expect(moveRefusal(from, to({ departureDate: TODAY }), "x", TODAY)).toBeNull();
+    expect(moveRefusal(from, to({ stage: "closed" }), "x", TODAY)).toBeNull();
   });
 });
 

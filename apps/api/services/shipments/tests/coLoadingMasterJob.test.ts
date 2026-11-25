@@ -33,10 +33,17 @@ describe("a sailing's Master Job (Council Outlay 14, C2)", () => {
     const sailing = { vessel: "MSC Anna", voyage: "445W", departureDate: "2026-12-05", cutoffDate: "2026-12-01" };
     expect(factsForMasterJob(sailing, empty)).toEqual({ vessel: "MSC Anna", voyage: "445W", estimatedDeparture: "2026-12-05", closingDate: "2026-12-01" });
     // What its shipments already agreed on stays.
-    expect(factsForMasterJob(sailing, { vessel: "MSC Other", voyage: "", estimatedDeparture: "2026-12-04", closingDate: null })).toEqual({ voyage: "445W", closingDate: "2026-12-01" });
+    expect(factsForMasterJob(sailing, { vessel: "MSC Other", voyage: "77E", estimatedDeparture: "2026-12-04", closingDate: null })).toEqual({ closingDate: "2026-12-01" });
     // A week names no vessel.
     expect(factsForMasterJob({ ...sailing, vessel: "WEEK 51", voyage: "" }, empty)).toEqual({ estimatedDeparture: "2026-12-05", closingDate: "2026-12-01" });
     expect(factsForMasterJob({ vessel: "WEEK 51", voyage: "", departureDate: null, cutoffDate: null }, empty)).toEqual({});
+  });
+
+  it("takes the vessel and the voyage as a pair: never the sailing's voyage beside the shipments' vessel", () => {
+    const sailing = { vessel: "MSC Anna", voyage: "445W", departureDate: null, cutoffDate: null };
+    expect(factsForMasterJob(sailing, { vessel: "MSC Other", voyage: "", estimatedDeparture: null, closingDate: null })).toEqual({});
+    expect(factsForMasterJob(sailing, { vessel: "", voyage: "77E", estimatedDeparture: null, closingDate: null })).toEqual({});
+    expect(factsForMasterJob(sailing, { vessel: " ", voyage: "", estimatedDeparture: null, closingDate: null })).toEqual({ vessel: "MSC Anna", voyage: "445W" });
   });
 
   it("stands in the sailing's history", () => {

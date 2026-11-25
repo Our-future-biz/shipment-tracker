@@ -384,8 +384,16 @@ export function directionMatch(direction: string | undefined): SQL | undefined {
 export function serviceNameMatch(serviceName: string | undefined): SQL | undefined {
   const asked = (serviceName ?? "").trim().toLowerCase();
   if (!asked) return undefined;
-  return sql`lower(btrim(${shipmentTable.serviceName}, ${TRIMMED_WHITESPACE})) = ${asked}`;
+  return sql`${serviceNameKey()} = ${asked}`;
 }
+
+/**
+ * A shipment's Service Name as a Co-Loading service is matched to it: trimmed of what typed or
+ * pasted text carries and in lower case, beside the service's own name trimmed and lower-cased in
+ * JavaScript. One rule for the service's page (serviceNameMatch) and the board's waiting shipments
+ * (coLoadingSailing.repository waitingByKind).
+ */
+export const serviceNameKey = (): SQL => sql`lower(btrim(${shipmentTable.serviceName}, ${TRIMMED_WHITESPACE}))`;
 
 /**
  * The list's Co-Loading Concept sailing filter: the jobs linked to this sailing (its id), or with

@@ -200,13 +200,14 @@ export interface CreatedShipment {
 // Any other failure is in the log and not in the answer - a database error carries its whole
 // statement and the values that went into it.
 const reasonOf = (err: unknown): string => (err instanceof APIError ? err.message : "an unexpected error occurred");
+
+/** The fields of an update that change what a shipment counts in its Co-Loading box: its cargo figures, and its status (a cancelled one is not counted). */
+const BOX_FIGURE_FIELDS = ["pcs", "totalWeightTons", "totalVolumeCbm", "cargoDimensions", "status"] as const;
+
 /**
  * What an update may write: any of the shipment's own fields, plus its detail rows. Whether the
  * reference is final is not one of them: only Invoicing marks it (finalizeReference).
  */
-/** The fields of an update that change what a shipment counts in its Co-Loading box: its cargo figures, and its status (a cancelled one is not counted). */
-const BOX_FIGURE_FIELDS = ["pcs", "totalWeightTons", "totalVolumeCbm", "cargoDimensions", "status"] as const;
-
 export type ShipmentUpdateData = Partial<Omit<NewShipmentRecord, "customsPriority" | "jobNumberFinal">> & BlankablePriority & DetailRows;
 
 /**

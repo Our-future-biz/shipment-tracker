@@ -2636,7 +2636,8 @@ export namespace loadingPlanner {
         }
 
         /**
-         * One plan, with what its linked shipment or quote is called now - or that the job is gone.
+         * One plan, with what its linked shipment, quote or sailing is called now - or that the job is gone - and
+         * the job's cargo as it is now, for the "cargo differs" mark (asked of the service that owns the job).
          */
         public async loadingPlanGet(id: string): Promise<controllers.LoadingPlanGetResponse> {
             // Now make the actual call to the API
@@ -3999,9 +4000,6 @@ export namespace shipments {
         }
 
         /**
-         * A manager sets the planning share (50 to 100 percent).
-         */
-        /**
          * A service's money settings: the box costs a new sailing starts with, and the minimum earning per W/M. Managers only.
          */
         public async coLoadingServiceMoney(id: string): Promise<interfaces.ServiceMoney> {
@@ -4095,13 +4093,17 @@ export namespace shipments {
         }
 
         /**
-         * Writes the sailing's hand-over note; "" clears it.
+         * Writes the sailing's hand-over note; "" clears it. With `expected` - the note as the screen showed it - a save over a
+         * note a colleague changed since then is refused (aborted, naming who changed it) and nothing is written.
          */
-        public async coLoadingSailingNote(id: string, params: { note: string }): Promise<interfaces.SailingLog> {
+        public async coLoadingSailingNote(id: string, params: { note: string; expected?: string }): Promise<interfaces.SailingLog> {
             const resp = await this.baseClient.callTypedAPI("PUT", `/co-loading/sailings/${encodeURIComponent(id)}/note`, JSON.stringify(params))
             return await resp.json() as interfaces.SailingLog
         }
 
+        /**
+         * A manager sets the planning share (50 to 100 percent); the boxes still to come are measured by it.
+         */
         public async coLoadingSettingsSet(params: { planningVolumePct: number }): Promise<interfaces.CoLoadingSettings> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("PUT", `/co-loading/settings`, JSON.stringify(params))
@@ -11119,7 +11121,8 @@ export namespace controllers {
         result?: interfaces.PlanResult | null
 
         /**
-         * A free note for the stuffing gang, printed on the plan; left out, the stored one stays.
+         * A free note for the stuffing gang, printed on the plan. Left out: a new plan has none, and a
+         * saved plan (LoadingPlanUpdateRequest) keeps the one it has.
          */
         note?: string
     }
@@ -11138,7 +11141,7 @@ export namespace controllers {
 
     export interface LoadingPlanListRequest {
         /**
-         * "shipment" or "quote"; with linkId: only the plans linked to that job.
+         * "shipment", "quote" or "sailing"; with linkId: only the plans linked to that job.
          */
         linkKind?: string
         linkId?: string
@@ -16900,7 +16903,9 @@ export namespace interfaces {
         stage: "open" | "closed" | "departed" | "arrived" | "devanned"
 
         /**
-         * On the sailing's own page only: the containers that have box costs. Once there is one, only managers and admins change the number of containers and the departure date.
+         * On the sailing's own page only: the containers that have box costs a person set. Once there is one, only managers and admins change the
+         * container type, the number of containers and the departure date, and the sailing cannot be removed. A service's default costs, written
+         * when the sailing was made and untouched since, are not counted here: they lock nothing.
          */
         costedContainers?: number[]
 
@@ -16959,9 +16964,6 @@ export namespace interfaces {
     }
 
     /**
-     * The company's Co-Loading Concept settings.
-     */
-    /**
      * A service's money settings, for managers.
      */
     export interface ServiceMoney {
@@ -16977,8 +16979,19 @@ export namespace interfaces {
         name: string
         departureDate: string | null
         fullPct: number | null
+        /**
+         * Its profit after the box costs, in EUR; null while not known (no box costs, money not read, no EUR rate) or while the list of
+         * sailings shows it incomplete (an amount left out, a shipment's money not known, a container without box costs, a loaded shipment
+         * not priced yet). A profit at a rate that may still move is known.
+         */
         profitEur: number | null
+        /**
+         * Null whenever its profit is.
+         */
         marginPct: number | null
+        /**
+         * True when it did not cover its box costs; null while that cannot be said (a loaded shipment not priced, a box cost not valued, a container without box costs).
+         */
         belowBreakEven: boolean | null
     }
 
@@ -16994,6 +17007,9 @@ export namespace interfaces {
         breakEvenKnown: number
     }
 
+    /**
+     * The company's Co-Loading Concept settings.
+     */
     export interface CoLoadingSettings {
         /**
          * The share of a box's inside volume planned with, in whole percent.
@@ -21611,7 +21627,7 @@ export namespace interfaces {
         name: string
         linkKind: PlanLinkKind | null
         /**
-         * Id of the linked shipment or quote; null without a link.
+         * Id of the linked shipment, quote or sailing; null without a link.
          */
         linkId: string | null
         /**
@@ -21649,6 +21665,34 @@ export namespace interfaces {
          * plan is opened or saved; the plan stays linked until the user unlinks it.
          */
         linkGone: boolean
+
+        /**
+         * When one plan is opened (its GET): the linked job's cargo as the job holds it now, for the
+         * "cargo differs" mark. Null when the plan has no link, its job is gone, or the service that owns
+         * the job did not answer - the plan then opens without the mark. Left out of a save's answer.
+         */
+        jobCargo?: PlanJobCargo | null
+    }
+
+    /**
+     * The cargo of the job a plan is linked to, in the job's own shape, as the service that owns the
+     * job answers it (Council Outlay 14, P3). One of the three, by the kind of the link.
+     */
+    export interface PlanJobCargo {
+        /**
+         * A shipment's Dimensions rows (Cargo Details), and the dimensions booked with its quote.
+         */
+        shipment?: { cargoDimensions: CargoDimensionLine[]; bookedDimensions: CargoDimensionLine[] }
+
+        /**
+         * A quote's package lines.
+         */
+        quote?: { packages: QuotePackageLine[] }
+
+        /**
+         * A sailing's box: its counted shipments' cargo lines by job number, and its containers.
+         */
+        sailing?: SailingPlanCargo
     }
 
     /**
@@ -26645,6 +26689,56 @@ export namespace interfaces {
              */
             canApproveMargin: boolean
         }
+
+        /**
+         * On the reads of one quote - opening it, a save's and an action's answer: the next sailings of
+         * the Co-Loading service a Sea LCL quote names (data.coLoadingServiceId), asked of Co-Loading
+         * Concept as the quote is read; null for any other quote. Left out of lists.
+         */
+        nextSailings?: QuoteNextSailings | null
+    }
+
+    /**
+     * A Sea LCL quote's Co-Loading Concept service and its next sailings (Council Outlay 14, C7), as
+     * Co-Loading has them when the quote is read: what the "Next sailings" card in Routing shows. No money.
+     */
+    export interface QuoteNextSailings {
+        /**
+         * The service the quote names: the sailings are this one's.
+         */
+        serviceId: string
+
+        /**
+         * open: the service is open, its sailings below; gone: it is closed, or the company has no such
+         * service; unavailable: Co-Loading Concept could not be read just now, so nothing is known.
+         */
+        state: "open" | "gone" | "unavailable"
+
+        /**
+         * The service's name; "" unless open.
+         */
+        serviceName: string
+
+        /**
+         * Its sailings still to come, the soonest first, at most three, as the board of sailings shows them; none unless open.
+         */
+        sailings: CoLoadingBoardSailing[]
+    }
+
+    /**
+     * One package line of a quote, as the quote's document holds it (data.packages): sizes in cm, the weight per piece in kg.
+     */
+    export interface QuotePackageLine {
+        qty?: number
+        /**
+         * The package type: "Pallets", "Cartons".
+         */
+        type?: string
+        length?: number
+        width?: number
+        height?: number
+        weight?: number
+        stackable?: boolean
     }
 
     /**

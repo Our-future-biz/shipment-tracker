@@ -11,6 +11,7 @@ import { db } from "../../db/db";
 import { shipmentTable } from "../../schemas/shipment.schema";
 import { shipmentAuditTable } from "../../schemas/shipmentAudit.schema";
 import { shipmentAttachmentRepository } from "../../repositories/shipmentAttachment.repository";
+import { shipmentCustomerNoticeRepository } from "../../repositories/shipmentCustomerNotice.repository";
 import { trackingBellRepository } from "../../repositories/trackingBell.repository";
 import { customerNoticeService } from "../../services/customerNotice.service";
 import { trackingBellService } from "../../services/trackingBell.service";
@@ -119,5 +120,50 @@ describe("a file handed over by another module", () => {
     const row = { companyId: s.companyId, shipmentId: s.id, fileName: "a.pdf", fileSize: 1, fileType: "", storageKey: "x", documentType: "", uploadedById: USER };
     await shipmentAttachmentRepository.addOnce(row);
     expect(await shipmentAttachmentRepository.addOnce(row)).toBe(true);
+  });
+});
+
+describe("a sailing's customers told together (Council Outlay 14, C6)", () => {
+  const sailed = (shipmentId: string, subject = "Sailed on MSC Anna 445W") => ({ shipmentId, kind: "sailed", channel: "email", toldTo: "Alfa", subject, note: "", toldById: USER });
+
+  it("writes one notice on each shipment, each with the dates its shipment holds", async () => {
+    const a = await newShipment({ estimatedArrival: "2026-12-09", etaWarehouse: "2026-12-12" });
+    const b = await newShipment({ companyId: a.companyId, jobNumber: "CZ00000002", estimatedArrival: "2026-12-20" });
+    expect(await shipmentCustomerNoticeRepository.createForShipments(a.companyId, [sailed(a.id), sailed(b.id, "Sailed on WEEK 51")])).toBe(true);
+    const told = await shipmentCustomerNoticeRepository.ofKind([a.id, b.id], "sailed", a.companyId);
+    expect(told.map((n) => [n.shipmentId, n.subject, n.etaPod, n.etaWarehouse, n.toldById]).sort()).toEqual(
+      [
+        [a.id, "Sailed on MSC Anna 445W", "2026-12-09", "2026-12-12", USER],
+        [b.id, "Sailed on WEEK 51", "2026-12-20", null, USER],
+      ].sort(),
+    );
+  });
+
+  it("writes none when one of the shipments is deleted or another company's", async () => {
+    const a = await newShipment();
+    const deleted = await newShipment({ companyId: a.companyId, jobNumber: "CZ00000002", deletedAt: new Date() });
+    const foreign = await newShipment();
+    expect(await shipmentCustomerNoticeRepository.createForShipments(a.companyId, [sailed(a.id), sailed(deleted.id)])).toBe(false);
+    expect(await shipmentCustomerNoticeRepository.createForShipments(a.companyId, [sailed(a.id), sailed(foreign.id)])).toBe(false);
+    expect(await shipmentCustomerNoticeRepository.ofKind([a.id, deleted.id, foreign.id], "sailed", a.companyId)).toEqual([]);
+    expect(await shipmentCustomerNoticeRepository.ofKind([foreign.id], "sailed", foreign.companyId)).toEqual([]);
+  });
+
+  it("writes none when the database refuses one of them", async () => {
+    const a = await newShipment();
+    const b = await newShipment({ companyId: a.companyId, jobNumber: "CZ00000002" });
+    await expect(shipmentCustomerNoticeRepository.createForShipments(a.companyId, [sailed(a.id), { ...sailed(b.id), channel: "pigeon" }])).rejects.toThrow();
+    expect(await shipmentCustomerNoticeRepository.ofKind([a.id, b.id], "sailed", a.companyId)).toEqual([]);
+  });
+
+  it("reads the notices of one kind, of these shipments, in the company, the latest first", async () => {
+    const a = await newShipment();
+    await customerNoticeService.record(a.id, a.companyId, USER, { kind: "status", channel: "email" });
+    await shipmentCustomerNoticeRepository.createForShipments(a.companyId, [sailed(a.id, "first")]);
+    await shipmentCustomerNoticeRepository.createForShipments(a.companyId, [sailed(a.id, "second")]);
+    expect((await shipmentCustomerNoticeRepository.ofKind([a.id], "sailed", a.companyId)).map((n) => n.subject)).toEqual(["second", "first"]);
+    expect(await shipmentCustomerNoticeRepository.ofKind([a.id], "rolled", a.companyId)).toEqual([]);
+    expect(await shipmentCustomerNoticeRepository.ofKind([a.id], "sailed", randomUUID())).toEqual([]);
+    expect(await shipmentCustomerNoticeRepository.ofKind([], "sailed", a.companyId)).toEqual([]);
   });
 });

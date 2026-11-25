@@ -52,15 +52,19 @@ export interface MasterJobFacts {
 /**
  * What a Master Job made from a sailing takes from it: the vessel and voyage (not a week, which
  * names no vessel), the departure date as its ETD and the cut-off as its Closing Date - the four
- * facts "Copy to shipments" writes - and only where the Master Job has none of its own. The ports
- * and the HUB are not taken: a Master Job writes them onto every shipment, and a shipment's own may
- * rightly differ.
+ * facts "Copy to shipments" writes - and only where the Master Job has none of its own. The vessel
+ * and the voyage go as a pair, only to a Master Job that has neither: the shipments' vessel with
+ * the sailing's voyage would name a voyage of another ship, and the Master Job writes the pair onto
+ * every house. The ports and the HUB are not taken: a Master Job writes them onto every shipment,
+ * and a shipment's own may rightly differ.
  */
 export function factsForMasterJob(sailing: { vessel: string; voyage: string; departureDate: string | null; cutoffDate: string | null }, has: MasterJobFacts): Partial<MasterJobFacts> {
   const named = sailingWeek(sailing.vessel) === null;
   const out: Partial<MasterJobFacts> = {};
-  if (named && sailing.vessel && !has.vessel.trim()) out.vessel = sailing.vessel;
-  if (named && sailing.voyage && !has.voyage.trim()) out.voyage = sailing.voyage;
+  if (named && sailing.vessel && !has.vessel.trim() && !has.voyage.trim()) {
+    out.vessel = sailing.vessel;
+    if (sailing.voyage) out.voyage = sailing.voyage;
+  }
   if (sailing.departureDate && !has.estimatedDeparture) out.estimatedDeparture = sailing.departureDate;
   if (sailing.cutoffDate && !has.closingDate) out.closingDate = sailing.cutoffDate;
   return out;

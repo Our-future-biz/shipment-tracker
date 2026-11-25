@@ -1,15 +1,17 @@
 import { and, asc, count, desc, eq, gte, inArray, isNotNull, isNull, ne, or, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
-import { db } from "../db/db";
+import { db, type Tx } from "../db/db";
 import {
   coLoadingSailingTable as sailings,
   type CoLoadingSailingRecord,
   type NewCoLoadingSailingRecord,
 } from "../schemas/coLoadingSailing.schema";
 import { coLoadingSailingShipmentTable as links } from "../schemas/coLoadingSailingShipment.schema";
-import { coLoadingBoxCostChangeTable as costChanges, coLoadingBoxCostTable as costs } from "../schemas/coLoadingBoxCost.schema";
+import { coLoadingBoxCostChangeTable as costChanges } from "../schemas/coLoadingBoxCost.schema";
 import { cargoDimensionTable as dimensions } from "../schemas/cargoDimension.schema";
 import { shipmentTable } from "../schemas/shipment.schema";
+import { coLoadingBoxCostRepository } from "./coLoadingBoxCost.repository";
+import { serviceNameKey } from "./shipment.repository";
 import type { BoxShipment } from "../lib/boxUtilization";
 import type { SailingDetails, SailingFacts } from "../lib/coLoadingSailing";
 
@@ -36,6 +38,29 @@ export type LinkedCargo = Omit<BoxShipment, "cancelled" | "odd"> & {
 
 // One of the shipments to link got a live link meanwhile (or, for a move or a removal of several, one was no longer on the sailing): the writes of this call are undone.
 class LinkedMeanwhile extends Error {}
+
+/** How a link went: made; refused because a shipment was linked meanwhile (to any sailing); or the sailing is gone. */
+export type LinkOutcome = "linked" | "taken" | "gone";
+
+/** How a move went: made; refused because a shipment is no longer on the first sailing; or that sailing is gone. */
+export type MoveOutcome = "moved" | "not_on_it" | "gone";
+
+/** A move judged under both sailings' lock: the note the new links keep, or a throw to refuse. */
+export type MoveJudge = (from: CoLoadingSailingRecord, to: CoLoadingSailingRecord | null) => string;
+
+/**
+ * The live sailings of these ids, held with a lock that a removal of one (removeJudged), an Edit
+ * sailing and a save of its box costs wait for - and that waits for them: what is judged under it
+ * stays true until the transaction ends. Links and moves take it, so no shipment goes on a sailing
+ * removed meanwhile; they do not wait for each other. In the order of the ids, always the same.
+ */
+const heldLive = (tx: Tx, ids: string[], companyId: string): Promise<CoLoadingSailingRecord[]> =>
+  tx
+    .select()
+    .from(sailings)
+    .where(and(inArray(sailings.id, ids), eq(sailings.companyId, companyId), isNull(sailings.deletedAt)))
+    .orderBy(asc(sailings.id))
+    .for("share");
 
 // A Co-Loading Concept service's sailings (lib/coLoadingSailing), always read within one company.
 class CoLoadingSailingRepository {
@@ -66,23 +91,29 @@ class CoLoadingSailingRepository {
       .where(and(eq(shipmentTable.companyId, companyId), inArray(shipmentTable.id, shipmentIds), isNull(shipmentTable.deletedAt)));
   }
 
-  /** The sailings these shipments are on now (their live links), with each sailing's vessel and voyage. */
+  /** The live sailings these shipments are on now (their live links), with each sailing's vessel and voyage. */
   async sailingsOf(shipmentIds: string[], companyId: string): Promise<{ shipmentId: string; sailingId: string; serviceId: string; vessel: string; voyage: string }[]> {
     if (shipmentIds.length === 0) return [];
     return db
       .select({ shipmentId: links.shipmentId, sailingId: links.sailingId, serviceId: sailings.serviceId, vessel: sailings.vessel, voyage: sailings.voyage })
       .from(links)
       .innerJoin(sailings, eq(sailings.id, links.sailingId))
-      .where(and(eq(links.companyId, companyId), inArray(links.shipmentId, shipmentIds), isNull(links.deletedAt)));
+      .where(and(eq(links.companyId, companyId), inArray(links.shipmentId, shipmentIds), isNull(links.deletedAt), eq(sailings.companyId, companyId), isNull(sailings.deletedAt)));
   }
 
   /**
-   * Links the shipments to the sailing, all or none: false when one of them was linked meanwhile (to
-   * any sailing), which the one live link per shipment refuses.
+   * Links the shipments to the sailing, all or none, under the sailing's lock (heldLive). `judge`
+   * sees the sailing as it is then and returns the note the links keep - why they still go on a
+   * sailing closed for cargo (Council Outlay 14, C3), "" on an open one - or throws to refuse:
+   * nothing is linked then. "taken" when one of them was linked meanwhile (to any sailing), which
+   * the one live link per shipment refuses; "gone" when the sailing is not found.
    */
-  async link(sailingId: string, shipmentIds: string[], companyId: string, by: { id: string; name: string }, note = ""): Promise<boolean> {
+  async link(sailingId: string, shipmentIds: string[], companyId: string, by: { id: string; name: string }, judge: (now: CoLoadingSailingRecord) => string): Promise<LinkOutcome> {
     try {
-      await db.transaction(async (tx) => {
+      return await db.transaction(async (tx) => {
+        const [now] = await heldLive(tx, [sailingId], companyId);
+        if (!now) return "gone";
+        const note = judge(now);
         const rows = await tx
           .insert(links)
           .values(shipmentIds.map((shipmentId) => ({ companyId, sailingId, shipmentId, createdById: by.id, createdByName: by.name, linkedNote: note })))
@@ -90,10 +121,10 @@ class CoLoadingSailingRepository {
           .returning({ id: links.id });
         // Thrown to undo the transaction: that is the "none" of all or none.
         if (rows.length !== shipmentIds.length) throw new LinkedMeanwhile();
+        return "linked";
       });
-      return true;
     } catch (err) {
-      if (err instanceof LinkedMeanwhile) return false;
+      if (err instanceof LinkedMeanwhile) return "taken";
       throw err;
     }
   }
@@ -145,17 +176,59 @@ class CoLoadingSailingRepository {
     return row ?? null;
   }
 
-  /** Sets or clears the sailing's Master Job and records it in the sailing's changes, together. */
-  async setMasterJob(sailingId: string, companyId: string, masterJobId: string | null, words: { old: string; next: string }, by: { id: string; name: string }): Promise<void> {
+  /** Clears the sailing's Master Job and records it in the sailing's changes, together. */
+  async clearMasterJob(sailingId: string, companyId: string, was: string, by: { id: string; name: string }): Promise<void> {
     await db.transaction(async (tx) => {
-      await tx.update(sailings).set({ masterJobId, updatedAt: new Date() }).where(and(eq(sailings.id, sailingId), eq(sailings.companyId, companyId)));
-      await tx.insert(costChanges).values({ companyId, sailingId, containerNo: 0, kind: "master_job", oldNote: words.old, newNote: words.next, changedById: by.id, changedByName: by.name });
+      await tx.update(sailings).set({ masterJobId: null, updatedAt: new Date() }).where(and(eq(sailings.id, sailingId), eq(sailings.companyId, companyId)));
+      await tx.insert(costChanges).values({ companyId, sailingId, containerNo: 0, kind: "master_job", oldNote: was, newNote: "", changedById: by.id, changedByName: by.name });
+    });
+  }
+
+  /**
+   * Gives the sailing its Master Job and records it, together, under the sailing's lock (Council
+   * Outlay 14, C2). `judge` sees the sailing as it is then and throws to refuse: nothing is made or
+   * written then. `masterJob` gives the Master Job to set - for "Create master job" it is made there
+   * and then, so of two creates at one moment the second waits, finds the first one's and makes
+   * none. The one live sailing per Master Job is the database's (co_loading_sailing_one_master_job):
+   * a Master Job another sailing took meanwhile throws its unique violation, and nothing is written.
+   * The Master Job set; null when the sailing is not found.
+   */
+  async setMasterJobJudged<T extends { id: string; mczNumber: string }>(
+    sailingId: string,
+    companyId: string,
+    by: { id: string; name: string },
+    judge: (now: CoLoadingSailingRecord) => Promise<void>,
+    masterJob: () => Promise<T>,
+  ): Promise<T | null> {
+    return db.transaction(async (tx) => {
+      const live = and(eq(sailings.id, sailingId), eq(sailings.companyId, companyId), isNull(sailings.deletedAt));
+      const [now] = await tx.select().from(sailings).where(live).for("update");
+      if (!now) return null;
+      await judge(now);
+      const set = await masterJob();
+      await tx.update(sailings).set({ masterJobId: set.id, updatedAt: new Date() }).where(live);
+      await tx.insert(costChanges).values({ companyId, sailingId, containerNo: 0, kind: "master_job", oldNote: "", newNote: set.mczNumber, changedById: by.id, changedByName: by.name });
+      return set;
     });
   }
 
   /** Marks whether the people who must act were told that the sailing's box is over its limit. */
   async setOverNotified(sailingId: string, companyId: string, told: boolean): Promise<void> {
     await db.update(sailings).set({ overNotified: told }).where(and(eq(sailings.id, sailingId), eq(sailings.companyId, companyId)));
+  }
+
+  /**
+   * Claims the telling that the sailing's box is over its limit (Council Outlay 14, C4): sets the
+   * mark only where it is not set yet, so of two saves at one moment one tells. False when it was
+   * set already - somebody tells, or told - or the sailing is gone.
+   */
+  async claimOverNotice(sailingId: string, companyId: string): Promise<boolean> {
+    const rows = await db
+      .update(sailings)
+      .set({ overNotified: true })
+      .where(and(eq(sailings.id, sailingId), eq(sailings.companyId, companyId), isNull(sailings.deletedAt), eq(sailings.overNotified, false)))
+      .returning({ id: sailings.id });
+    return rows.length > 0;
   }
 
   /** Takes the shipment off the sailing, recording who did; false when it was not on it. */
@@ -170,25 +243,26 @@ class CoLoadingSailingRepository {
 
   /**
    * A deleted shipment leaves its box: its live link, if it has one, is taken off and says why.
-   * Returns how many links went (0 or 1).
+   * The sailing it left; null when it was on none.
    */
-  async dropDeletedShipment(shipmentId: string, companyId: string, by: { id: string | null; name: string }): Promise<number> {
-    const rows = await db
+  async dropDeletedShipment(shipmentId: string, companyId: string, by: { id: string | null; name: string }): Promise<string | null> {
+    const [row] = await db
       .update(links)
       .set({ deletedAt: new Date(), updatedAt: new Date(), removedById: by.id, removedByName: by.name, removedReason: "shipment_deleted" })
       .where(and(eq(links.companyId, companyId), eq(links.shipmentId, shipmentId), isNull(links.deletedAt)))
-      .returning({ id: links.id });
-    return rows.length;
+      .returning({ sailingId: links.sailingId });
+    return row?.sailingId ?? null;
   }
 
   /**
    * "Edit sailing" in one turn (Council Review 7, K13; Council Outlay 14, A2): sets the sailing's
    * facts (vessel, voyage, ports, HUB, container type), its number of containers, its cut-off and -
-   * when given - its departure date, and records every change, together or not at all. The sailing's row is locked first, the lock a save of its box costs takes
-   * (coLoadingBoxCost.repository save), so no cost is set between the judging and the writing.
-   * `judge` sees the sailing as it is then, with the containers that have a cost, and returns the
-   * changes to record or throws to refuse: nothing is written then. The sailing as it is now; null
-   * when it is not found.
+   * when given - its departure date, and records every change, together or not at all. The sailing's
+   * row is locked first, the lock a save of its box costs takes (coLoadingBoxCost.repository save),
+   * so no cost is set between the judging and the writing. `judge` sees the sailing as it is then,
+   * with the containers that have a cost a person set (coLoadingBoxCost.repository costedContainers),
+   * and returns the changes to record or throws to refuse: nothing is written then. The sailing as
+   * it is now; null when it is not found.
    */
   async setDetailsRecorded(
     id: string,
@@ -201,12 +275,7 @@ class CoLoadingSailingRepository {
       const live = and(eq(sailings.id, id), eq(sailings.companyId, companyId), isNull(sailings.deletedAt));
       const [now] = await tx.select().from(sailings).where(live).for("update");
       if (!now) return null;
-      const costed = await tx
-        .selectDistinct({ containerNo: costs.containerNo })
-        .from(costs)
-        .where(and(eq(costs.companyId, companyId), eq(costs.sailingId, id), isNotNull(costs.amount)))
-        .orderBy(asc(costs.containerNo));
-      const { changes, facts } = judge(now, costed.map((c) => c.containerNo));
+      const { changes, facts } = judge(now, await coLoadingBoxCostRepository.costedContainers(id, companyId, tx));
       const [row] = await tx
         .update(sailings)
         .set({
@@ -240,9 +309,10 @@ class CoLoadingSailingRepository {
   }
 
   /**
-   * Removes a sailing made by mistake, under the lock a save of its box costs takes. `judge` sees
-   * how many live shipments it holds and which containers have a cost, and throws to refuse: nothing
-   * is removed then. False when the sailing is not found.
+   * Removes a sailing made by mistake, under the lock a save of its box costs takes, and that a link
+   * or a move waits for (heldLive): nothing goes on it between the judging and the removal. `judge`
+   * sees how many live shipments it holds and which containers have a cost a person set, and throws
+   * to refuse: nothing is removed then. False when the sailing is not found.
    */
   async removeJudged(id: string, companyId: string, judge: (linkedShipments: number, costedContainers: number[]) => void): Promise<boolean> {
     return db.transaction(async (tx) => {
@@ -254,12 +324,7 @@ class CoLoadingSailingRepository {
         .from(links)
         .innerJoin(shipmentTable, eq(shipmentTable.id, links.shipmentId))
         .where(and(eq(links.companyId, companyId), eq(links.sailingId, id), isNull(links.deletedAt), isNull(shipmentTable.deletedAt)));
-      const costed = await tx
-        .selectDistinct({ containerNo: costs.containerNo })
-        .from(costs)
-        .where(and(eq(costs.companyId, companyId), eq(costs.sailingId, id), isNotNull(costs.amount)))
-        .orderBy(asc(costs.containerNo));
-      judge(linked?.n ?? 0, costed.map((c) => c.containerNo));
+      judge(linked?.n ?? 0, await coLoadingBoxCostRepository.costedContainers(id, companyId, tx));
       const at = new Date();
       await tx.update(sailings).set({ deletedAt: at, updatedAt: at }).where(live);
       return true;
@@ -303,12 +368,13 @@ class CoLoadingSailingRepository {
   }
 
   /**
-   * The company's live shipments on no sailing, counted by Service Name (trimmed, lower case), mode
-   * and load type: what each service's waiting shipments are worked out from. A cancelled shipment
-   * waits for no box; one with no Service Name belongs to no service.
+   * The company's live shipments on no sailing, counted by Service Name - read as a service's page
+   * reads it (shipment.repository serviceNameKey) - mode and load type: what each service's waiting
+   * shipments are worked out from. A cancelled shipment waits for no box; one with no Service Name
+   * belongs to no service.
    */
   async waitingByKind(companyId: string, cancelledStatus: string): Promise<{ serviceName: string; freightMode: string; loadType: string; shipments: number }[]> {
-    const name = sql<string>`lower(trim(${shipmentTable.serviceName}))`;
+    const name = sql<string>`${serviceNameKey()}`;
     return db
       .select({ serviceName: name, freightMode: shipmentTable.freightMode, loadType: shipmentTable.loadType, shipments: count() })
       .from(shipmentTable)
@@ -317,39 +383,35 @@ class CoLoadingSailingRepository {
           eq(shipmentTable.companyId, companyId),
           isNull(shipmentTable.deletedAt),
           ne(shipmentTable.status, cancelledStatus),
-          sql`trim(${shipmentTable.serviceName}) <> ''`,
+          sql`${name} <> ''`,
           sql`NOT EXISTS (SELECT 1 FROM ${links} WHERE ${links.shipmentId} = ${shipmentTable.id} AND ${links.companyId} = ${shipmentTable.companyId} AND ${links.deletedAt} IS NULL)`,
         ),
       )
-      .groupBy(name, shipmentTable.freightMode, shipmentTable.loadType);
+      // Grouped by the first column's position: the key's characters to trim go as a parameter, so
+      // the same expression written again in GROUP BY would carry another one, and Postgres refuses it.
+      .groupBy(sql`1`, shipmentTable.freightMode, shipmentTable.loadType);
   }
 
-  /**
-   * Moves the shipment from one sailing to another in one turn: its link here is taken off, saying
-   * where it went and why, and it is linked there. False when it was not on the first sailing.
-   */
-  async move(fromSailingId: string, toSailingId: string, shipmentId: string, companyId: string, by: { id: string; name: string }, note: string, linkedNote = ""): Promise<boolean> {
-    return db.transaction(async (tx) => {
-      const now = new Date();
-      const off = await tx
-        .update(links)
-        .set({ deletedAt: now, updatedAt: now, removedById: by.id, removedByName: by.name, removedReason: "moved", movedToSailingId: toSailingId, removedNote: note })
-        .where(and(eq(links.companyId, companyId), eq(links.sailingId, fromSailingId), eq(links.shipmentId, shipmentId), isNull(links.deletedAt)))
-        .returning({ id: links.id });
-      if (off.length === 0) return false;
-      await tx.insert(links).values({ companyId, sailingId: toSailingId, shipmentId, createdById: by.id, createdByName: by.name, linkedNote });
-      return true;
-    });
+  /** Moves the shipment from one sailing to another in one turn: moveMany of one. */
+  async move(fromSailingId: string, toSailingId: string, shipmentId: string, companyId: string, by: { id: string; name: string }, note: string, judge: MoveJudge): Promise<MoveOutcome> {
+    return this.moveMany(fromSailingId, toSailingId, [shipmentId], companyId, by, note, judge);
   }
 
   /**
    * Moves several shipments from one sailing to another in one turn, all or none (Council Outlay 14,
-   * A9): each link here is taken off, saying where it went and why, and each is linked there. False,
-   * with nothing written, when one of them was not on the first sailing.
+   * A9): each link here is taken off, saying where it went and why, and each is linked there. Both
+   * sailings are held first (heldLive): `judge` sees them as they are then - the target null when it
+   * is gone - and returns the note the new links keep (why they still go on a sailing closed for
+   * cargo) or throws to refuse: nothing is written then. "not_on_it", with nothing written, when one
+   * of them is not on the first sailing; "gone" when the first sailing is not found.
    */
-  async moveMany(fromSailingId: string, toSailingId: string, shipmentIds: string[], companyId: string, by: { id: string; name: string }, note: string, linkedNote = ""): Promise<boolean> {
+  async moveMany(fromSailingId: string, toSailingId: string, shipmentIds: string[], companyId: string, by: { id: string; name: string }, note: string, judge: MoveJudge): Promise<MoveOutcome> {
     try {
-      await db.transaction(async (tx) => {
+      return await db.transaction(async (tx) => {
+        const held = await heldLive(tx, [fromSailingId, toSailingId], companyId);
+        const from = held.find((r) => r.id === fromSailingId);
+        if (!from) return "gone";
+        const linkedNote = judge(from, held.find((r) => r.id === toSailingId) ?? null);
         const now = new Date();
         const off = await tx
           .update(links)
@@ -359,10 +421,10 @@ class CoLoadingSailingRepository {
         // Thrown to undo the transaction: that is the "none" of all or none.
         if (off.length !== shipmentIds.length) throw new LinkedMeanwhile();
         await tx.insert(links).values(shipmentIds.map((shipmentId) => ({ companyId, sailingId: toSailingId, shipmentId, createdById: by.id, createdByName: by.name, linkedNote })));
+        return "moved";
       });
-      return true;
     } catch (err) {
-      if (err instanceof LinkedMeanwhile) return false;
+      if (err instanceof LinkedMeanwhile) return "not_on_it";
       throw err;
     }
   }

@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const repo = vi.hoisted(() => ({ list: vi.fn(), get: vi.fn(), byName: vi.fn(), setClosed: vi.fn(), setInlandWeight: vi.fn(), create: vi.fn() }));
+const repo = vi.hoisted(() => ({ list: vi.fn(), get: vi.fn(), byName: vi.fn(), setClosed: vi.fn(), setInlandWeight: vi.fn(), setMoney: vi.fn(), create: vi.fn() }));
 const settings = vi.hoisted(() => ({ get: vi.fn(), savePlanningPct: vi.fn(), saveChecklist: vi.fn() }));
 vi.mock("encore.dev/api", () => import("../../../../lib/tests/encoreApi.stub"));
 vi.mock("../../lib/userName", () => ({ userNameOf: async () => "Jana Nová" }));
@@ -128,5 +128,45 @@ describe("the company's planning share", () => {
     // A row made for the checklist alone still plans with the starting figure.
     expect(saved).toMatchObject({ changed: false, checklistImport: ["Booking confirmed", "Devanned"] });
     expect(saved.checklistExport).toHaveLength(6);
+  });
+});
+
+describe("a service's money settings (Council Outlay 14, B4)", () => {
+  const defaults = [{ kind: "ocean", amount: 2100, currency: "usd", note: " tariff " }];
+
+  it("reads them from the service of the caller's company, and none where it has none", async () => {
+    repo.get.mockResolvedValue(row({ defaultBoxCosts: null, minEarningPerWm: "85.50" }));
+    expect(await service.money(SERVICE, COMPANY)).toEqual({ defaultBoxCosts: null, minEarningPerWm: 85.5 });
+    expect(repo.get).toHaveBeenCalledWith(SERVICE, COMPANY);
+  });
+
+  it("saves them tidied, as the three costs of one container", async () => {
+    repo.setMoney.mockImplementation(async (_id: string, _company: string, money: { defaultBoxCosts: unknown; minEarningPerWm: number | null }) => row({ defaultBoxCosts: money.defaultBoxCosts, minEarningPerWm: String(money.minEarningPerWm) }));
+    const saved = await service.saveMoney(SERVICE, { defaultBoxCosts: defaults, minEarningPerWm: 80 }, COMPANY);
+    expect(repo.setMoney).toHaveBeenCalledWith(SERVICE, COMPANY, {
+      defaultBoxCosts: [
+        { kind: "origin", amount: null, currency: "EUR", note: "" },
+        { kind: "ocean", amount: 2100, currency: "USD", note: "tariff" },
+        { kind: "destination", amount: null, currency: "EUR", note: "" },
+      ],
+      minEarningPerWm: 80,
+    });
+    expect(saved.minEarningPerWm).toBe(80);
+  });
+
+  it("refuses a cost or a minimum that is none: nothing is written", async () => {
+    await expect(service.saveMoney(SERVICE, { defaultBoxCosts: [{ kind: "ocean", amount: -5, currency: "EUR", note: "" }], minEarningPerWm: null }, COMPANY)).rejects.toMatchObject({ code: "invalid_argument" });
+    await expect(service.saveMoney(SERVICE, { defaultBoxCosts: null, minEarningPerWm: 0 }, COMPANY)).rejects.toMatchObject({ code: "invalid_argument" });
+    expect(repo.setMoney).not.toHaveBeenCalled();
+  });
+
+  it("does not find the service of another company, nor one gone by the time it is written", async () => {
+    repo.get.mockResolvedValue(null);
+    await expect(service.money(SERVICE, COMPANY)).rejects.toMatchObject({ code: "not_found" });
+    await expect(service.saveMoney(SERVICE, { defaultBoxCosts: null, minEarningPerWm: 50 }, COMPANY)).rejects.toMatchObject({ code: "not_found" });
+    expect(repo.setMoney).not.toHaveBeenCalled();
+    repo.get.mockResolvedValue(row());
+    repo.setMoney.mockResolvedValue(null);
+    await expect(service.saveMoney(SERVICE, { defaultBoxCosts: null, minEarningPerWm: 50 }, COMPANY)).rejects.toMatchObject({ code: "not_found" });
   });
 });

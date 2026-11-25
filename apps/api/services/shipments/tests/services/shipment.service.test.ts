@@ -293,6 +293,23 @@ describe("changes passed on to Trucking and the gate", () => {
   });
 });
 
+describe("a Co-Loading box hears of a change of what its shipment counts (Council Outlay 14, C4)", () => {
+  beforeEach(() => stored.set(SHIPMENT, row({ personInCharge: "", holidayCover: "", pcs: "1", totalWeightTons: "1", totalVolumeCbm: "2" })));
+
+  it("is told of a change of the cargo figures, after the save, with who saved", async () => {
+    await shipmentService.update(SHIPMENT, COMPANY, { totalVolumeCbm: "9.5" } as never, USER, "manager");
+    expect(coLoadingSailingService.cargoChanged).toHaveBeenCalledWith(SHIPMENT, COMPANY, USER);
+    vi.mocked(coLoadingSailingService.cargoChanged).mockClear();
+    await shipmentService.update(SHIPMENT, COMPANY, { pcs: "3", totalWeightTons: "2.4" } as never, USER, "manager");
+    expect(coLoadingSailingService.cargoChanged).toHaveBeenCalledTimes(1);
+  });
+
+  it("is not asked about a change that leaves the box as it is", async () => {
+    await shipmentService.update(SHIPMENT, COMPANY, { plannedDeliveryDate: "2026-11-21", vessel: "MSC Anna" } as never, USER, "manager");
+    expect(coLoadingSailingService.cargoChanged).not.toHaveBeenCalled();
+  });
+});
+
 describe("create for a House B/L of a reading", () => {
   const forHouse = (houseBol: string, over: Record<string, unknown> = {}) => shipmentService.create(COMPANY, { fromHouseBol: houseBol, ...over } as never);
   const key = (v: unknown) => String(v ?? "").toUpperCase().replace(/[^A-Z0-9]/g, "");

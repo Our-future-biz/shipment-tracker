@@ -2309,10 +2309,16 @@ export interface TrendSailing {
   departureDate: string | null;
   /** How full its box is, in whole %; null where the box has no capacity. */
   fullPct: number | null;
-  /** Its profit after the box costs, in EUR; null while not known (no box costs, money not read, no EUR rate). */
+  /**
+   * Its profit after the box costs, in EUR; null while not known - no box costs, money not read, no
+   * EUR rate - or while the list of sailings shows it incomplete: an amount left out, a shipment's
+   * money not known, a container without box costs, a loaded shipment not priced yet. A profit at a
+   * rate that may still move is known.
+   */
   profitEur: number | null;
+  /** Null whenever its profit is. */
   marginPct: number | null;
-  /** True when it did not cover its box costs; null while that cannot be said. */
+  /** True when it did not cover its box costs; null while that cannot be said (a loaded shipment not priced, a box cost not valued, a container without box costs). */
   belowBreakEven: boolean | null;
 }
 
@@ -2432,8 +2438,11 @@ export interface CoLoadingSailingItem {
   /** Where it stands, set by hand: "open", "closed" (for cargo), "departed", "arrived" or "devanned". From "closed" on, linking asks for a reason. */
   stage: "open" | "closed" | "departed" | "arrived" | "devanned";
   /**
-   * On the sailing's own page only: the containers that have box costs. Once there is one, only
-   * managers and admins change the number of containers and the departure date. No money.
+   * On the sailing's own page only: the containers that have box costs a person set. Once there is
+   * one, only managers and admins change the container type, the number of containers and the
+   * departure date, and the sailing cannot be removed. A service's default costs, written when the
+   * sailing was made and untouched since, are not counted here: they lock nothing (Council Outlay
+   * 14, B4). No money.
    */
   costedContainers?: number[];
   createdByName: string;

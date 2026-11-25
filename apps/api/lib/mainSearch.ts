@@ -2,6 +2,8 @@
 // GET /search/<kind> with the same request and the same shape of answer. This file holds what
 // they share: how the typed text and the number of rows asked for are read.
 
+import { foldDiacritics } from "./db/textSearch";
+
 /** Fewer characters than this (after trimming) are not searched: the answer is empty. */
 export const MAIN_SEARCH_MIN_LENGTH = 2;
 /** Rows per kind when the caller does not say. */
@@ -35,11 +37,12 @@ export function mainSearchInput(q: string | undefined, limit: number | undefined
 }
 
 /**
- * Whether every word typed is somewhere in these texts, whatever the case: the main search's rule
- * for a kind small enough to be matched in memory (Co-Loading services and sailings, loading plans).
+ * Whether every word typed is somewhere in these texts, whatever the case and the diacritics -
+ * "plzen" finds "Plzeň", as the lists' search does (lib/db/textSearch foldDiacritics): the main
+ * search's rule for a kind small enough to be matched in memory (Co-Loading services and sailings).
  */
 export function hasEveryWord(texts: readonly (string | null | undefined)[], q: string): boolean {
-  const hay = texts.filter(Boolean).join(" \u0000 ").toLowerCase();
-  const words = q.toLowerCase().split(/\s+/).filter(Boolean);
+  const hay = foldDiacritics(texts.filter(Boolean).join(" \u0000 "));
+  const words = foldDiacritics(q).split(/\s+/).filter(Boolean);
   return words.length > 0 && words.every((w) => hay.includes(w));
 }

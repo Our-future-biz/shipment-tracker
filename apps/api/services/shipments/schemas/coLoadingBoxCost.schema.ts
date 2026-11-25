@@ -20,6 +20,9 @@ export const coLoadingBoxCostTable = pgTable(
     amount: numeric("amount", { precision: 14, scale: 2 }),
     currency: text("currency").notNull().default("EUR"),
     note: text("note").notNull().default(""),
+    // Who set it last. Null on a service's default cost written when the sailing was made (Council
+    // Outlay 14, B4): set by nobody, it counts as money but locks neither Edit sailing nor a removal,
+    // until a person's save of the row makes it theirs (coLoadingBoxCost.repository costedContainers).
     updatedById: uuid("updated_by_id"),
     updatedByName: text("updated_by_name").notNull().default(""),
   },

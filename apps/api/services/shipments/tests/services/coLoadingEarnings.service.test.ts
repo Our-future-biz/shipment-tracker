@@ -22,6 +22,8 @@ const repo = vi.hoisted(() => ({
   comingOfServices: vi.fn(),
   rememberLinked: vi.fn(),
   setOverNotified: vi.fn(),
+  claimOverNotice: vi.fn(),
+  dropDeletedShipment: vi.fn(),
   peopleOf: vi.fn(),
 }));
 const boxCosts = vi.hoisted(() => {
@@ -33,7 +35,7 @@ const boxCosts = vi.hoisted(() => {
   return { BoxCostsChangedMeanwhile, repo: { list: vi.fn(), listOf: vi.fn(), save: vi.fn(), changes: vi.fn(), costedContainers: vi.fn() } };
 });
 const chat = vi.hoisted(() => ({ users: vi.fn(async () => [] as { id: string; email: string; displayName: string }[]), post: vi.fn() }));
-const services = vi.hoisted(() => ({ get: vi.fn(), list: vi.fn(), requireOpen: vi.fn(), planningVolumePct: vi.fn(), money: vi.fn() }));
+const services = vi.hoisted(() => ({ get: vi.fn(), list: vi.fn(), requireOpen: vi.fn(), planningVolumePct: vi.fn(), money: vi.fn(), setInlandWeight: vi.fn(), saveSettings: vi.fn() }));
 const fx = vi.hoisted(() => ({ fxRatesOn: vi.fn() }));
 const invoicing = vi.hoisted(() => ({ _internalCoLoadingMoney: vi.fn() }));
 const names = vi.hoisted(() => ({ userNameOf: vi.fn() }));
@@ -47,7 +49,10 @@ vi.mock("../../../../lib/companyUsers", () => ({ companyUsers: chat.users }));
 vi.mock("../../repositories/shipmentComment.repository", () => ({ shipmentCommentRepository: { createForCompany: chat.post } }));
 vi.mock("../../repositories/coLoadingBoxCost.repository", () => ({ coLoadingBoxCostRepository: boxCosts.repo, BoxCostsChangedMeanwhile: boxCosts.BoxCostsChangedMeanwhile }));
 vi.mock("../../services/coLoadingService.service", () => ({ coLoadingServiceService: services }));
+// A change no person made is written in a chat as the company's service identity.
+vi.mock("../../../../lib/outbox/serviceIdentity", () => ({ serviceActor: async (companyID: string) => ({ userID: "u-system", companyID, role: "user" }) }));
 
+import { APIError } from "../../../../lib/tests/encoreApi.stub";
 import { coLoadingSailingService as service } from "../../services/coLoadingSailing.service";
 
 // The promises of a sailing's Earnings (Council Review 7, K18), against stand-ins for the database
@@ -428,23 +433,47 @@ describe("only what the box is for goes on a sailing", () => {
 describe("linking shipments to a sailing", () => {
   const ids = ["00000000-0000-4000-8000-0000000000a1", "00000000-0000-4000-8000-0000000000a2"];
   const own = (id: string, more = {}) => ({ id, jobNumber: `CZLCL${id.slice(-8)}`, serviceName: "ISHA", freightMode: "Sea Freight", loadType: "Consolidation", ...more });
+  // The repository holds the sailing's lock and hands the judge the sailing as it is then; the note the links keep is what the judge gives.
+  let locked = sailing();
+  const kept: string[] = [];
   beforeEach(() => {
+    locked = sailing();
+    kept.length = 0;
     repo.shipmentsToLink.mockImplementation(async (asked: string[]) => asked.map((id) => own(id)));
     repo.sailingsOf.mockResolvedValue([]);
-    repo.link.mockResolvedValue(true);
+    repo.link.mockImplementation(async (_id: string, _ids: string[], _company: string, _by: unknown, judge: (now: unknown) => string) => {
+      kept.push(judge(locked));
+      return "linked";
+    });
   });
 
   it("links them all, each once, as the one who links", async () => {
     expect(await service.linkShipments(SAILING, [...ids, ids[0]!], USER)).toEqual({ linked: 2 });
-    expect(repo.link).toHaveBeenCalledWith(SAILING, ids, COMPANY, { id: "u-user", name: "Jana Nová" }, "");
+    expect(repo.link).toHaveBeenCalledWith(SAILING, ids, COMPANY, { id: "u-user", name: "Jana Nová" }, expect.any(Function));
+    expect(kept).toEqual([""]);
   });
 
   it("links to a sailing closed for cargo only with a reason, kept on the link (C3)", async () => {
     repo.get.mockResolvedValue(sailing({ stage: "closed" }));
+    locked = sailing({ stage: "closed" });
     await expect(service.linkShipments(SAILING, ids, USER)).rejects.toThrow(/closed for cargo: say why/);
     expect(repo.link).not.toHaveBeenCalled();
     expect(await service.linkShipments(SAILING, ids, USER, "  Carrier took it late ")).toEqual({ linked: 2 });
-    expect(repo.link).toHaveBeenCalledWith(SAILING, ids, COMPANY, { id: "u-user", name: "Jana Nová" }, "Carrier took it late");
+    expect(kept).toEqual(["Carrier took it late"]);
+  });
+
+  it("judges the stage again under the sailing's lock: one closed for cargo meanwhile asks for the reason, and keeps it", async () => {
+    locked = sailing({ stage: "closed" });
+    await expect(service.linkShipments(SAILING, ids, USER)).rejects.toMatchObject({ code: "invalid_argument", message: "This sailing is closed for cargo: say why the shipment still goes on it." });
+    expect(kept).toEqual([]);
+    await service.linkShipments(SAILING, ids, USER, "Late booking");
+    expect(kept).toEqual(["Late booking"]);
+  });
+
+  it("is not found when the sailing was removed by the time it is locked: nothing is linked", async () => {
+    repo.link.mockResolvedValue("gone");
+    await expect(service.linkShipments(SAILING, ids, USER)).rejects.toMatchObject({ code: "not_found", message: "Sailing not found" });
+    expect(repo.rememberLinked).not.toHaveBeenCalled();
   });
 
   it("sets the stage and records the change, and refuses a stage that is none (C3)", async () => {
@@ -477,7 +506,7 @@ describe("linking shipments to a sailing", () => {
   });
 
   it("says so when one was linked meanwhile: the database undid the others", async () => {
-    repo.link.mockResolvedValue(false);
+    repo.link.mockResolvedValue("taken");
     await expect(service.linkShipments(SAILING, ids, USER)).rejects.toMatchObject({
       code: "already_exists",
       message: "A shipment was linked to a sailing meanwhile: nothing was linked. Try again.",
@@ -515,15 +544,51 @@ describe("moving a shipment on to another sailing", () => {
     repo.shipmentsToLink.mockResolvedValue([moved]);
   });
 
-  it("moves it in one turn, with the reason trimmed and who moved it", async () => {
-    repo.move.mockResolvedValue(true);
-    await service.moveShipment(SAILING, moved.id, OTHER, "  Box full, rolled to next week ", MANAGER);
-    expect(repo.move).toHaveBeenCalledWith(SAILING, OTHER, moved.id, COMPANY, { id: "u-manager", name: "Jana Nová" }, "Box full, rolled to next week", "");
+  // The repository holds both sailings' lock and hands the judge them as they are then.
+  const judgedAs = (from: object, to: object | null) =>
+    repo.move.mockImplementation(async (_from: string, _to: string, _id: string, _c: string, _by: unknown, _note: string, judge: (a: unknown, b: unknown) => string) => {
+      kept.push(judge(from, to));
+      return "moved";
+    });
+  const kept: string[] = [];
+  beforeEach(() => {
+    kept.length = 0;
   });
 
-  it("does not find a shipment that is not on the sailing", async () => {
-    repo.move.mockResolvedValue(false);
-    await expect(service.moveShipment(SAILING, moved.id, OTHER, "Box full", MANAGER)).rejects.toMatchObject({ code: "not_found" });
+  it("moves it in one turn, with the reason trimmed and who moved it", async () => {
+    judgedAs(sailing(), sailing({ id: OTHER }));
+    await service.moveShipment(SAILING, moved.id, OTHER, "  Box full, rolled to next week ", MANAGER);
+    expect(repo.move).toHaveBeenCalledWith(SAILING, OTHER, moved.id, COMPANY, { id: "u-manager", name: "Jana Nová" }, "Box full, rolled to next week", expect.any(Function));
+    // An open sailing keeps no reason on the new link.
+    expect(kept).toEqual([""]);
+  });
+
+  it("keeps the reason on the new link when the sailing it goes to is closed for cargo (C3)", async () => {
+    judgedAs(sailing(), sailing({ id: OTHER, stage: "closed" }));
+    await service.moveShipment(SAILING, moved.id, OTHER, "  Box full ", MANAGER);
+    expect(kept).toEqual(["Box full"]);
+  });
+
+  it("goes only to a sailing still to come, read and judged again under the lock (Council Outlay 14, A1)", async () => {
+    repo.get.mockImplementation(async (id: string) => sailing(id === OTHER ? { id, stage: "departed" } : { id }));
+    await expect(service.moveShipment(SAILING, moved.id, OTHER, "Box full", MANAGER)).rejects.toMatchObject({ code: "invalid_argument", message: "The sailing to move it to is set to Departed: a shipment moves only to a sailing still to come." });
+    repo.get.mockImplementation(async (id: string) => sailing(id === OTHER ? { id, departureDate: "2020-01-07" } : { id }));
+    await expect(service.moveShipment(SAILING, moved.id, OTHER, "Box full", MANAGER)).rejects.toMatchObject({ code: "invalid_argument", message: "The sailing to move it to left on 07.01.2020: a shipment moves only to a sailing still to come." });
+    expect(repo.move).not.toHaveBeenCalled();
+    // Read as still to come, set to Departed or removed by the time both are locked: nothing moves.
+    repo.get.mockImplementation(async (id: string) => sailing({ id }));
+    judgedAs(sailing(), sailing({ id: OTHER, stage: "departed" }));
+    await expect(service.moveShipment(SAILING, moved.id, OTHER, "Box full", MANAGER)).rejects.toMatchObject({ code: "invalid_argument" });
+    judgedAs(sailing(), null);
+    await expect(service.moveShipment(SAILING, moved.id, OTHER, "Box full", MANAGER)).rejects.toMatchObject({ code: "invalid_argument", message: "The sailing to move it to was not found." });
+    expect(kept).toEqual([]);
+  });
+
+  it("does not find a shipment that is not on the sailing, nor a sailing removed by the time it is locked", async () => {
+    repo.move.mockResolvedValue("not_on_it");
+    await expect(service.moveShipment(SAILING, moved.id, OTHER, "Box full", MANAGER)).rejects.toMatchObject({ code: "not_found", message: "The shipment is not on this sailing." });
+    repo.move.mockResolvedValue("gone");
+    await expect(service.moveShipment(SAILING, moved.id, OTHER, "Box full", MANAGER)).rejects.toMatchObject({ code: "not_found", message: "Sailing not found" });
   });
 
   it("is refused to a sailing of another service", async () => {
@@ -668,13 +733,23 @@ describe("moving or removing several shipments at once (Council Outlay 14, A9)",
   beforeEach(() => {
     repo.get.mockImplementation(async (id: string) => sailing({ id }));
     repo.shipmentsToLink.mockImplementation(async (asked: string[]) => asked.map((id) => own(id)));
-    repo.moveMany.mockResolvedValue(true);
+    repo.moveMany.mockResolvedValue("moved");
     repo.unlinkMany.mockResolvedValue(true);
   });
 
   it("moves them all with the one reason, each once, as the one who moves", async () => {
     await expect(service.moveShipments(SAILING, [A, B, A], OTHER, "  Box full  ", USER)).resolves.toEqual({ moved: 2 });
-    expect(repo.moveMany).toHaveBeenCalledWith(SAILING, OTHER, [A, B], COMPANY, { id: "u-user", name: "Jana Nová" }, "Box full", "");
+    expect(repo.moveMany).toHaveBeenCalledWith(SAILING, OTHER, [A, B], COMPANY, { id: "u-user", name: "Jana Nová" }, "Box full", expect.any(Function));
+  });
+
+  it("keeps the reason on the new links when the sailing they go to is closed for cargo, as it is under the lock (C3)", async () => {
+    const kept: string[] = [];
+    repo.moveMany.mockImplementation(async (_f: string, _t: string, _ids: string[], _c: string, _by: unknown, _note: string, judge: (a: unknown, b: unknown) => string) => {
+      kept.push(judge(sailing(), sailing({ id: OTHER, stage: "closed" })));
+      return "moved";
+    });
+    await service.moveShipments(SAILING, [A, B], OTHER, " Box full ", USER);
+    expect(kept).toEqual(["Box full"]);
   });
 
   it("holds each to the rules of a single move: a reason, another sailing of the service, the box's own kind", async () => {
@@ -686,7 +761,7 @@ describe("moving or removing several shipments at once (Council Outlay 14, A9)",
   });
 
   it("moves none when one is no longer on the sailing, and says so", async () => {
-    repo.moveMany.mockResolvedValue(false);
+    repo.moveMany.mockResolvedValue("not_on_it");
     await expect(service.moveShipments(SAILING, [A, B], OTHER, "why", USER)).rejects.toMatchObject({ code: "not_found", message: "A shipment is no longer on this sailing: nothing was moved. Read the list again." });
   });
 
@@ -768,7 +843,7 @@ describe("cargo changed since linked (Council Outlay 14, C4)", () => {
   it("remembers what a linked shipment counts on the day it is linked", async () => {
     repo.shipmentsToLink.mockImplementation(async (asked: string[]) => asked.map((id) => ({ id, jobNumber: "CZLCL1", serviceName: "ISHA", freightMode: "Sea Freight", loadType: "Consolidation" })));
     repo.sailingsOf.mockResolvedValue([]);
-    repo.link.mockResolvedValue(true);
+    repo.link.mockResolvedValue("linked");
     repo.boxShipments.mockResolvedValue([shipment({ id: A, totalWeightTons: "1", totalVolumeCbm: "2" })]);
     await service.linkShipments(SAILING, [A], USER);
     expect(repo.rememberLinked).toHaveBeenCalledWith(SAILING, COMPANY, [expect.objectContaining({ shipmentId: A, weightKg: 1000, volumeCbm: 2 })]);
@@ -776,11 +851,15 @@ describe("cargo changed since linked (Council Outlay 14, C4)", () => {
     expect(repo.setOverNotified).not.toHaveBeenCalled();
   });
 
+  const OTHER_USER = "0d5f0a43-52a1-4d0e-9a39-0c6f3b1f6a02";
+
   it("tells the Person in Charge and the sailing's maker when a change takes the box over, once", async () => {
     repo.boxShipments.mockResolvedValue([big()]);
-    await service.cargoChanged(A, COMPANY, "u-other");
-    expect(repo.setOverNotified).toHaveBeenCalledWith(SAILING, COMPANY, true);
-    expect(chat.post).toHaveBeenCalledWith(COMPANY, expect.objectContaining({ shipmentId: A, authorId: "u-other", mentionedUserIds: ["u-pic", "u-maker"] }));
+    repo.claimOverNotice.mockResolvedValue(true);
+    await service.cargoChanged(A, COMPANY, OTHER_USER);
+    expect(repo.claimOverNotice).toHaveBeenCalledWith(SAILING, COMPANY);
+    expect(repo.setOverNotified).not.toHaveBeenCalled();
+    expect(chat.post).toHaveBeenCalledWith(COMPANY, expect.objectContaining({ shipmentId: A, authorId: OTHER_USER, mentionedUserIds: ["u-pic", "u-maker"] }));
     expect(chat.post.mock.calls[0]![1].message).toContain("Co-Loading sailing WEEK 51 is now over its limit: volume 70 of");
     expect(chat.post.mock.calls[0]![1].message).toContain("+10 cbm since linked");
     // Already told: a later change of the still-over box says nothing more.
@@ -788,26 +867,59 @@ describe("cargo changed since linked (Council Outlay 14, C4)", () => {
     repo.get.mockResolvedValue(sailing({ overNotified: true }));
     repo.boxShipments.mockResolvedValue([big()]);
     repo.sailingsOf.mockResolvedValue([{ shipmentId: A, sailingId: SAILING, serviceId: SERVICE, vessel: "WEEK 51", voyage: "" }]);
-    await service.cargoChanged(A, COMPANY, "u-other");
+    await service.cargoChanged(A, COMPANY, OTHER_USER);
+    expect(chat.post).not.toHaveBeenCalled();
+    expect(repo.claimOverNotice).not.toHaveBeenCalled();
+    expect(repo.setOverNotified).not.toHaveBeenCalled();
+  });
+
+  it("tells once of two saves at one moment: the one that does not claim the telling posts nothing", async () => {
+    repo.boxShipments.mockResolvedValue([big()]);
+    repo.claimOverNotice.mockResolvedValue(false);
+    await service.cargoChanged(A, COMPANY, OTHER_USER);
     expect(chat.post).not.toHaveBeenCalled();
     expect(repo.setOverNotified).not.toHaveBeenCalled();
+  });
+
+  it("gives the claim back when the line cannot be written, so the next change tells", async () => {
+    repo.boxShipments.mockResolvedValue([big()]);
+    repo.claimOverNotice.mockResolvedValue(true);
+    chat.post.mockRejectedValueOnce(new Error("insert failed"));
+    await expect(service.cargoChanged(A, COMPANY, OTHER_USER)).resolves.toBeUndefined();
+    expect(repo.setOverNotified).toHaveBeenCalledWith(SAILING, COMPANY, false);
+  });
+
+  it("claims nothing when the people to tell cannot be read: nobody was told, so the mark stays unset", async () => {
+    repo.boxShipments.mockResolvedValue([big()]);
+    repo.claimOverNotice.mockResolvedValue(true);
+    chat.users.mockRejectedValueOnce(new Error("auth down"));
+    await service.cargoChanged(A, COMPANY, OTHER_USER);
+    expect(repo.claimOverNotice).not.toHaveBeenCalled();
+    expect(chat.post).not.toHaveBeenCalled();
+  });
+
+  it("writes a change no person made as the company's service identity, tagging everyone it concerns", async () => {
+    repo.boxShipments.mockResolvedValue([big()]);
+    repo.claimOverNotice.mockResolvedValue(true);
+    await service.cargoChanged(A, COMPANY, "");
+    expect(chat.post).toHaveBeenCalledWith(COMPANY, expect.objectContaining({ authorId: "u-system", mentionedUserIds: ["u-pic", "u-maker"] }));
   });
 
   it("clears the mark once the box is back within its limits, and says nothing for a shipment on no sailing", async () => {
     repo.get.mockResolvedValue(sailing({ overNotified: true }));
     repo.boxShipments.mockResolvedValue([shipment({ id: A, totalVolumeCbm: "10" })]);
-    await service.cargoChanged(A, COMPANY, "u-other");
+    await service.cargoChanged(A, COMPANY, OTHER_USER);
     expect(repo.setOverNotified).toHaveBeenCalledWith(SAILING, COMPANY, false);
     expect(chat.post).not.toHaveBeenCalled();
     vi.clearAllMocks();
     repo.sailingsOf.mockResolvedValue([]);
-    await service.cargoChanged(A, COMPANY, "u-other");
+    await service.cargoChanged(A, COMPANY, OTHER_USER);
     expect(repo.get).not.toHaveBeenCalled();
   });
 
   it("never fails the shipment's save when the box cannot be read", async () => {
     repo.boxShipments.mockRejectedValue(new Error("db down"));
-    await expect(service.cargoChanged(A, COMPANY, "u-other")).resolves.toBeUndefined();
+    await expect(service.cargoChanged(A, COMPANY, OTHER_USER)).resolves.toBeUndefined();
   });
 });
 
@@ -825,7 +937,8 @@ describe("a service's money settings on its sailings (Council Outlay 14, B4)", (
     repo.create.mockResolvedValue(sailing({ containerCount: 2 }));
     await service.create(SERVICE, { vessel: "WEEK 2", voyage: "", pol: "Shanghai (CNSHA)", pod: "Hamburg (DEHAM)", hub: "Praha (CZPRG)", containerType: "40' HC", containerCount: 2 }, USER);
     expect(boxCosts.repo.save).toHaveBeenCalledTimes(2);
-    expect(boxCosts.repo.save).toHaveBeenCalledWith(SAILING, COMPANY, 1, expect.arrayContaining([expect.objectContaining({ kind: "ocean", amount: 2100, currency: "USD", note: "Service default" }), expect.objectContaining({ kind: "destination", note: "terminal" })]), null, { id: "u-user", name: "Jana Nová" });
+    // Set by nobody: the service gave them, so they lock neither Edit sailing nor a removal (coLoadingBoxCost.repository costedContainers).
+    expect(boxCosts.repo.save).toHaveBeenCalledWith(SAILING, COMPANY, 1, expect.arrayContaining([expect.objectContaining({ kind: "ocean", amount: 2100, currency: "USD", note: "Service default" }), expect.objectContaining({ kind: "destination", note: "terminal" })]), null, { id: null, name: "Service default" });
     expect(boxCosts.repo.save).toHaveBeenCalledWith(SAILING, COMPANY, 2, expect.anything(), null, expect.anything());
   });
 
@@ -841,10 +954,143 @@ describe("a service's money settings on its sailings (Council Outlay 14, B4)", (
     expect((await service.create(SERVICE, input, USER)).id).toBe(SAILING);
   });
 
-  it("marks the rows below the service's minimum on the sailing's earnings", async () => {
-    services.money.mockResolvedValue({ defaultBoxCosts: null, minEarningPerWm: 1_000_000 });
+  it("marks the rows below the service's minimum on the sailing's earnings, and none it cannot judge", async () => {
+    const [rich, poor, unpriced, unrated] = [shipment(), shipment(), shipment(), shipment()];
+    repo.boxShipments.mockResolvedValue([rich, poor, unpriced, unrated]);
+    // 2 W/M each (2 cbm): 50,000 CZK at 25 is 1,000 EUR per W/M; 5,000 CZK is 100.
+    invoicing._internalCoLoadingMoney.mockResolvedValue({
+      items: [
+        money(rich.id, 50000),
+        money(poor.id, 5000),
+        { ...money(unpriced.id, 0), sellingLines: 0 },
+        { ...money(unrated.id, 5000), missingCurrencies: ["USD"] },
+      ],
+    });
+    services.money.mockResolvedValue({ defaultBoxCosts: null, minEarningPerWm: 500 });
     const earnings = await service.earnings(SAILING, COMPANY);
-    expect(earnings.minEarningPerWm).toBe(1_000_000);
-    expect(earnings.belowFloor).toBe(earnings.rows.filter((r) => r.belowFloor).length);
+    expect(earnings).toMatchObject({ minEarningPerWm: 500, belowFloor: 1 });
+    expect(earnings.rows.filter((r) => r.belowFloor).map((r) => r.shipmentId)).toEqual([poor.id]);
+  });
+});
+
+describe("the box's \"told that it is over\" mark follows every change of the box (Council Outlay 14, C4)", () => {
+  const A = "00000000-0000-4000-8000-0000000000d1";
+  // A 40' HC is planned to about 65 cbm: 70 cbm is over in one container, within in two.
+  const big = () => shipment({ id: A, totalVolumeCbm: "70" });
+  const svc = { id: SERVICE, name: "Import from Shanghai", serviceName: "ISHA", frequency: "weekly", mode: "sea_lcl", inlandWeightKg: null, closedAt: null };
+  beforeEach(() => {
+    repo.boxShipments.mockResolvedValue([big()]);
+    repo.boxShipmentsOf.mockResolvedValue(new Map([[SAILING, [big()]]]));
+  });
+
+  it("is cleared, quietly, when Edit sailing gives the box room enough, and set when it takes the box over", async () => {
+    const edited = sailing({ containerCount: 2, overNotified: true });
+    repo.setDetailsRecorded.mockResolvedValue(edited);
+    repo.get.mockResolvedValue(edited);
+    await service.setDetails(SAILING, { containerCount: 2, cutoffDate: null }, MANAGER);
+    expect(repo.setOverNotified).toHaveBeenCalledWith(SAILING, COMPANY, false);
+    const smaller = sailing({ containerCount: 1, overNotified: false });
+    repo.setDetailsRecorded.mockResolvedValue(smaller);
+    repo.get.mockResolvedValue(smaller);
+    await service.setDetails(SAILING, { containerCount: 1, cutoffDate: null }, MANAGER);
+    expect(repo.setOverNotified).toHaveBeenLastCalledWith(SAILING, COMPANY, true);
+    expect(chat.post).not.toHaveBeenCalled();
+  });
+
+  it("is cleared when a shipment taken off, or deleted, brings the box back within its limits", async () => {
+    repo.get.mockResolvedValue(sailing({ overNotified: true }));
+    repo.boxShipments.mockResolvedValue([shipment({ totalVolumeCbm: "10" })]);
+    repo.unlink.mockResolvedValue(true);
+    await service.unlinkShipment(SAILING, A, USER);
+    expect(repo.setOverNotified).toHaveBeenCalledWith(SAILING, COMPANY, false);
+    vi.clearAllMocks();
+    repo.dropDeletedShipment.mockResolvedValue(SAILING);
+    await service.shipmentDeleted(A, COMPANY, "u-user");
+    expect(repo.dropDeletedShipment).toHaveBeenCalledWith(A, COMPANY, { id: "u-user", name: "Jana Nová" });
+    expect(repo.setOverNotified).toHaveBeenCalledWith(SAILING, COMPANY, false);
+    // A shipment on no sailing leaves no box.
+    vi.clearAllMocks();
+    repo.dropDeletedShipment.mockResolvedValue(null);
+    await service.shipmentDeleted(A, COMPANY);
+    expect(repo.get).not.toHaveBeenCalled();
+  });
+
+  it("follows a service's new inland weight on its sailings still to come", async () => {
+    services.setInlandWeight.mockResolvedValue({ ...svc, inlandWeightKg: 1000 });
+    repo.comingOfServices.mockResolvedValue([sailing()]);
+    repo.boxShipmentsOf.mockResolvedValue(new Map([[SAILING, [shipment({ totalWeightTons: "1.5" })]]]));
+    expect(await service.setInlandWeight(SERVICE, 1000, COMPANY)).toMatchObject({ inlandWeightKg: 1000 });
+    expect(services.setInlandWeight).toHaveBeenCalledWith(SERVICE, 1000, COMPANY);
+    expect(repo.comingOfServices).toHaveBeenCalledWith([SERVICE], COMPANY, expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/));
+    expect(repo.setOverNotified).toHaveBeenCalledWith(SAILING, COMPANY, true);
+    expect(chat.post).not.toHaveBeenCalled();
+  });
+
+  it("follows the company's new planning share on the open services' sailings still to come", async () => {
+    services.saveSettings.mockResolvedValue({ planningVolumePct: 100 });
+    services.list.mockResolvedValue([svc]);
+    services.planningVolumePct.mockResolvedValue(100);
+    repo.comingOfServices.mockResolvedValue([sailing({ overNotified: true })]);
+    expect(await service.savePlanningPct(100, MANAGER)).toMatchObject({ planningVolumePct: 100 });
+    expect(services.saveSettings).toHaveBeenCalledWith(100, MANAGER);
+    expect(services.list).toHaveBeenCalledWith(COMPANY, "user");
+    // At 100% a 40' HC takes about 76 cbm: 70 is within.
+    expect(repo.setOverNotified).toHaveBeenCalledWith(SAILING, COMPANY, false);
+  });
+
+  it("never fails the save when the boxes cannot be read", async () => {
+    services.setInlandWeight.mockResolvedValue(svc);
+    repo.comingOfServices.mockResolvedValue([sailing()]);
+    repo.boxShipmentsOf.mockRejectedValue(new Error("db down"));
+    await expect(service.setInlandWeight(SERVICE, null, COMPANY)).resolves.toMatchObject({ id: SERVICE });
+  });
+});
+
+describe("the trend, the board's profits, the box for the planner and a plan's reference: what is read", () => {
+  const svc = { id: SERVICE, name: "Import from Shanghai", serviceName: "ISHA", frequency: "weekly", mode: "sea_lcl", inlandWeightKg: null, closedAt: null, origin: "", destination: "", note: "" };
+  beforeEach(() => {
+    repo.boxShipmentsOf.mockResolvedValue(new Map());
+    boxCosts.repo.listOf.mockResolvedValue([]);
+  });
+
+  it("works out the trend from the last eight sailings that left only, the oldest first (B5)", async () => {
+    const left = Array.from({ length: 10 }, (_, i) => sailing({ id: `44444444-4444-4444-8444-${String(i).padStart(12, "0")}`, vessel: `WEEK ${i + 1}`, departureDate: `2025-0${Math.floor(i / 3) + 1}-1${i % 3}` }));
+    repo.listByService.mockResolvedValue([sailing({ id: OTHER, vessel: "WEEK 60", departureDate: "2099-01-01" }), ...left]);
+    const trend = await service.trend(SERVICE, COMPANY);
+    expect(trend.sailings.map((s) => s.name)).toEqual(["WEEK 3", "WEEK 4", "WEEK 5", "WEEK 6", "WEEK 7", "WEEK 8", "WEEK 9", "WEEK 10"]);
+    const read = repo.boxShipmentsOf.mock.calls[0]![0] as string[];
+    expect(read).toHaveLength(8);
+    expect(read).not.toContain(OTHER);
+    expect(boxCosts.repo.listOf).toHaveBeenCalledWith(read, COMPANY);
+  });
+
+  it("works out the board's profits for the sailings still to come only, together", async () => {
+    services.list.mockResolvedValue([svc]);
+    repo.comingOfServices.mockResolvedValue([sailing()]);
+    const profits = await service.boardProfits(COMPANY);
+    expect(profits.map((p) => p.sailingId)).toEqual([SAILING]);
+    expect(repo.listByService).not.toHaveBeenCalled();
+    expect(repo.boxShipmentsOf).toHaveBeenCalledWith([SAILING], COMPANY);
+    expect(boxCosts.repo.listOf).toHaveBeenCalledWith([SAILING], COMPANY);
+  });
+
+  it("gives the planner the box's counted shipments under their job numbers, the cancelled left out (C1)", async () => {
+    services.get.mockResolvedValue(svc);
+    repo.boxShipments.mockResolvedValue([shipment({ jobNumber: "CZLCL2", pcs: "4", totalWeightTons: "2" }), shipment({ jobNumber: "CZLCL1", status: "Cancelled Shipment" })]);
+    const cargo = await service.planCargo(SAILING, COMPANY);
+    expect(repo.boxShipments).toHaveBeenCalledWith(SAILING, COMPANY);
+    expect(cargo).toMatchObject({ sailingId: SAILING, serviceId: SERVICE, reference: "WEEK 51 · Import from Shanghai", containerType: "40' HC", containerCount: 1 });
+    expect(cargo.shipments).toMatchObject([{ jobNumber: "CZLCL2", totalsOnly: true, lines: [{ pieces: 4, weightPerPcKg: 500 }] }]);
+    repo.get.mockResolvedValue(null);
+    await expect(service.planCargo(SAILING, COMPANY)).rejects.toMatchObject({ code: "not_found" });
+  });
+
+  it("names a plan's sailing without its service when the service is not found, and fails when the service cannot be read", async () => {
+    services.get.mockRejectedValue(APIError.notFound("Service not found"));
+    expect(await service.referenceOf(SAILING, COMPANY)).toBe("WEEK 51");
+    services.get.mockRejectedValue(new Error("db down"));
+    await expect(service.referenceOf(SAILING, COMPANY)).rejects.toThrow("db down");
+    repo.get.mockResolvedValue(null);
+    expect(await service.referenceOf(SAILING, COMPANY)).toBeNull();
   });
 });

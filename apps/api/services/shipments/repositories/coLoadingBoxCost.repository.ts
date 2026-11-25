@@ -1,5 +1,5 @@
 import { and, asc, desc, eq, inArray, isNotNull, sql } from "drizzle-orm";
-import { db } from "../db/db";
+import { db, type Tx } from "../db/db";
 import { coLoadingBoxCostChangeTable as changes, coLoadingBoxCostTable as costs, type CoLoadingBoxCostChangeRecord, type CoLoadingBoxCostRecord } from "../schemas/coLoadingBoxCost.schema";
 import { coLoadingSailingTable as sailings } from "../schemas/coLoadingSailing.schema";
 import { boxCostChanges, boxCostsChangedBy, type BoxCostLineInput } from "../lib/coLoadingBoxCosts";
@@ -36,9 +36,10 @@ export const coLoadingBoxCostRepository = {
    * Writes one container's costs and a record of each line that changed, together or not at all.
    * The sailing's row is locked first, so two saves go one after the other and each record's "old"
    * figure is the one it really replaced. With `expected` (what the dialog showed), a save over
-   * costs changed meanwhile throws BoxCostsChangedMeanwhile and writes nothing.
+   * costs changed meanwhile throws BoxCostsChangedMeanwhile and writes nothing. `by.id` null: the
+   * service's default costs a new sailing starts with, set by nobody (see costedContainers).
    */
-  async save(sailingId: string, companyId: string, containerNo: number, next: BoxCostLineInput[], expected: BoxCostLineInput[] | null, by: { id: string; name: string }): Promise<void> {
+  async save(sailingId: string, companyId: string, containerNo: number, next: BoxCostLineInput[], expected: BoxCostLineInput[] | null, by: { id: string | null; name: string }): Promise<void> {
     await db.transaction(async (tx) => {
       await tx.select({ id: sailings.id }).from(sailings).where(and(eq(sailings.id, sailingId), eq(sailings.companyId, companyId))).for("update");
       const stored = (
@@ -79,12 +80,19 @@ export const coLoadingBoxCostRepository = {
   // A change of the sailing itself that moves its box costs (its number of containers, its departure
   // date) goes into the same record, written with the change: coLoadingSailing.repository setDetailsRecorded.
 
-  /** The containers of a sailing that have a cost with an amount. */
-  async costedContainers(sailingId: string, companyId: string): Promise<number[]> {
-    const rows = await db
+  /**
+   * The containers of a sailing that have a cost a person set: an amount, saved by someone. They
+   * decide who may change the container type, the number of containers and the departure date
+   * (Council Review 7, K13), and keep the sailing from being removed (D4). A service's default
+   * costs, written when the sailing was made and not changed since, are set by nobody (Council
+   * Outlay 14, B4): money all the same on Earnings, but they lock nothing. `tx`: read in the
+   * transaction that holds the sailing's lock.
+   */
+  async costedContainers(sailingId: string, companyId: string, tx: Tx | typeof db = db): Promise<number[]> {
+    const rows = await tx
       .selectDistinct({ containerNo: costs.containerNo })
       .from(costs)
-      .where(and(eq(costs.companyId, companyId), eq(costs.sailingId, sailingId), isNotNull(costs.amount)))
+      .where(and(eq(costs.companyId, companyId), eq(costs.sailingId, sailingId), isNotNull(costs.amount), isNotNull(costs.updatedById)))
       .orderBy(asc(costs.containerNo));
     return rows.map((r) => r.containerNo);
   },

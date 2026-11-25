@@ -58,11 +58,11 @@ export const coLoadingSettingsGet = api(
   },
 );
 
-// A manager sets the planning share (50 to 100 percent).
+// A manager sets the planning share (50 to 100 percent); the boxes still to come are measured by it.
 export const coLoadingSettingsSet = api(
   { expose: true, auth: true, method: "PUT", path: "/co-loading/settings" },
   async ({ planningVolumePct }: { planningVolumePct: number }): Promise<CoLoadingSettings> => {
-    return service.saveSettings(planningVolumePct, managers());
+    return coLoadingSailingService.savePlanningPct(planningVolumePct, managers());
   },
 );
 
@@ -85,7 +85,7 @@ export const coLoadingServiceMoney = api(
 interface ServiceMoneyRequest {
   id: string;
   /** One container's Origin Costs, Ocean Freight and Destination Costs; null for none */
-  defaultBoxCosts: { kind: string & MaxLen<20>; amount: number | null; currency: string & MaxLen<3>; note: string & MaxLen<300> }[] | null;
+  defaultBoxCosts: ({ kind: string & MaxLen<20>; amount: number | null; currency: string & MaxLen<3>; note: string & MaxLen<300> }[] & MaxLen<3>) | null;
   /** In EUR per W/M; null for none */
   minEarningPerWm: number | null;
 }
@@ -110,7 +110,7 @@ export const coLoadingServiceTrend = api(
 export const coLoadingServiceInlandWeight = api(
   { expose: true, auth: true, method: "PUT", path: "/co-loading/services/:id/inland-weight" },
   async ({ id, inlandWeightKg }: { id: string; inlandWeightKg: number | null }): Promise<{ service: CoLoadingServiceItem }> => {
-    return { service: await service.setInlandWeight(id, inlandWeightKg, managers().companyID) };
+    return { service: await coLoadingSailingService.setInlandWeight(id, inlandWeightKg, managers().companyID) };
   },
 );
 

@@ -7,6 +7,7 @@
 import type { EarningsRow, SailingEarnings, ServiceMoney, ServiceTrend, TrendSailing } from "../interfaces/interfaces";
 import { checkBoxCosts, type BoxCostLineInput } from "./coLoadingBoxCosts";
 import type { BoxCostKind } from "../interfaces/interfaces";
+import { sailingProfit } from "./coLoadingEarnings";
 import { stageHasLeft } from "./coLoadingSailing";
 
 const MAX_FLOOR = 99_999.99;
@@ -48,10 +49,12 @@ export function cleanServiceMoney(input: ServiceMoneyInput): { money: ServiceMon
 
 /**
  * What a row earns per W/M before the box, in EUR; null where that cannot be said: it is not
- * counted, its money or its EUR value is not known, or it has no W/M.
+ * counted, its money or its EUR value is not known, an amount of it is left out (a currency with no
+ * rate), it is not priced yet (no selling lines), or it has no W/M. Such a row would read as earning
+ * too little, and take a mark it may not deserve.
  */
-export function earnedPerWmEur(row: Pick<EarningsRow, "counted" | "moneyKnown" | "freightTons" | "beforeBox">): number | null {
-  if (!row.counted || !row.moneyKnown || !(row.freightTons > 0) || row.beforeBox.eur === null) return null;
+export function earnedPerWmEur(row: Pick<EarningsRow, "counted" | "moneyKnown" | "freightTons" | "beforeBox" | "missingCurrencies" | "noSelling">): number | null {
+  if (!row.counted || !row.moneyKnown || row.noSelling || row.missingCurrencies.length > 0 || !(row.freightTons > 0) || row.beforeBox.eur === null) return null;
   return Math.round((row.beforeBox.eur / row.freightTons) * 100) / 100;
 }
 
@@ -82,28 +85,40 @@ export interface TrendInput {
 const average = (values: number[], decimals: number): number | null => (values.length === 0 ? null : Math.round((values.reduce((a, b) => a + b, 0) / values.length) * 10 ** decimals) / 10 ** decimals);
 
 /**
- * The service's trend: its last sailings that have left - by their stage, or a departure date
- * before `today` - the oldest first, each with how it stands against the one before, and what they
- * come to together. A figure that is not known (no box costs, money not read, no EUR rate) is left
- * out of its average and counted as not known, never as 0.
+ * The sailings a trend looks at: the last TREND_SAILINGS that have left - by their stage, or a
+ * departure date before `today` - the oldest first. Chosen before any money is worked out, so a
+ * service with years of sailings reads the earnings of eight.
  */
-export function serviceTrend(sailings: readonly TrendInput[], today: string): ServiceTrend {
-  const left = sailings
+export function trendSailings<T extends { departureDate: string | null; stage: string; createdAt: Date }>(sailings: readonly T[], today: string): T[] {
+  return sailings
     .filter((s) => stageHasLeft(s.stage) || (s.departureDate !== null && s.departureDate < today))
     .sort((a, b) => (b.departureDate ?? "").localeCompare(a.departureDate ?? "") || b.createdAt.getTime() - a.createdAt.getTime())
     .slice(0, TREND_SAILINGS)
     .reverse();
-  const rows: TrendSailing[] = left.map((s) => {
+}
+
+/**
+ * The service's trend: its last sailings that have left (trendSailings), each with how it stands
+ * against the one before, and what they come to together. A figure that is not known is left out of
+ * its average and counted as not known, never as 0: a profit is known only where the list of
+ * sailings shows it complete (lib/coLoadingEarnings sailingProfit) - its money read, no amount left
+ * out, every container's box costs set and every loaded shipment priced - and in EUR. So is whether
+ * it covered its box: not judged while a container has no box costs. A profit valued at a rate that
+ * may still move (provisional) counts: it is the figure the list shows, with its mark.
+ */
+export function serviceTrend(sailings: readonly TrendInput[], today: string): ServiceTrend {
+  const rows: TrendSailing[] = trendSailings(sailings, today).map((s) => {
     const e = s.earnings;
-    const profit = e.moneyKnown ? e.totals.profit : null;
+    const shown = sailingProfit(s.sailingId, e);
+    const known = shown.profit !== null && shown.complete && shown.boxCostsComplete && shown.revenueComplete;
     return {
       sailingId: s.sailingId,
       name: s.name,
       departureDate: s.departureDate,
       fullPct: s.fullPct,
-      profitEur: profit ? profit.eur : null,
-      marginPct: e.moneyKnown ? e.totals.marginPct : null,
-      belowBreakEven: e.breakEven ? !e.breakEven.reached : null,
+      profitEur: known ? shown.profit!.eur : null,
+      marginPct: known ? shown.marginPct : null,
+      belowBreakEven: e.breakEven && shown.boxCostsComplete ? !e.breakEven.reached : null,
     };
   });
   const profits = rows.flatMap((r) => (r.profitEur === null ? [] : [r.profitEur]));

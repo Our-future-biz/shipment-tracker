@@ -285,12 +285,15 @@ export const coLoadingSailingPlanCargo = api(
   },
 );
 
-// Internal only (the Loading Planner, before it saves a plan linked to a sailing): whether the sailing exists in the
-// caller's company, and what it is called now. Company from the caller's auth.
+// Internal only (the Loading Planner, before it saves a plan linked to a sailing and when it opens one): whether the
+// sailing exists in the caller's company, what it is called now (null: it does not), and - withCargo, for a plan being
+// opened - its box's cargo as "Plan this box" takes it, to judge the plan's cargo by. Company from the caller's auth.
 export const _internalSailingRef = api(
   { expose: false, auth: true, method: "POST", path: "/internal/co-loading/sailing-ref" },
-  async ({ sailingId }: { sailingId: string }): Promise<{ reference: string | null }> => {
-    return { reference: await service.referenceOf(sailingId, getAuthData()!.companyID) };
+  async ({ sailingId, withCargo }: { sailingId: string; withCargo?: boolean }): Promise<{ reference: string | null; cargo?: SailingPlanCargo }> => {
+    const companyId = getAuthData()!.companyID;
+    const reference = await service.referenceOf(sailingId, companyId);
+    return reference !== null && withCargo ? { reference, cargo: await service.planCargo(sailingId, companyId) } : { reference };
   },
 );
 
@@ -310,11 +313,19 @@ export const coLoadingSailingTick = api(
   },
 );
 
+interface SailingNoteRequest {
+  id: string;
+  /** The note to keep; "" clears it */
+  note: string & MaxLen<4000>;
+  /** The note as the screen showed it: a save over a note a colleague changed since then is refused (aborted), nothing written */
+  expected?: string & MaxLen<4000>;
+}
+
 // Writes the sailing's hand-over note; "" clears it. Refused while the service is closed.
 export const coLoadingSailingNote = api(
   { expose: true, auth: true, method: "PUT", path: "/co-loading/sailings/:id/note" },
-  async ({ id, note }: { id: string; note: string & MaxLen<4000> }): Promise<SailingLog> => {
-    return coLoadingLogService.setNote(id, note, getAuthData()!);
+  async ({ id, note, expected }: SailingNoteRequest): Promise<SailingLog> => {
+    return coLoadingLogService.setNote(id, note, expected ?? null, getAuthData()!);
   },
 );
 

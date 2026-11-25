@@ -54,8 +54,7 @@ class CoLoadingServiceRepository {
     return row ?? null;
   }
 
-  /** Sets the service's inland weight (null for none); the service as it is now, null when not found. */
-  /** Sets the service's default box costs and its minimum earning per W/M (EUR); null clears each. */
+  /** Sets the service's default box costs and its minimum earning per W/M (EUR); null clears each. The service as it is now, null when not found. */
   async setMoney(id: string, companyId: string, money: { defaultBoxCosts: { kind: string; amount: number | null; currency: string; note: string }[] | null; minEarningPerWm: number | null }): Promise<CoLoadingServiceRecord | null> {
     const [row] = await db
       .update(services)
@@ -65,6 +64,7 @@ class CoLoadingServiceRepository {
     return row ?? null;
   }
 
+  /** Sets the service's inland weight (null for none); the service as it is now, null when not found. */
   async setInlandWeight(id: string, companyId: string, inlandWeightKg: number | null): Promise<CoLoadingServiceRecord | null> {
     const [row] = await db
       .update(services)

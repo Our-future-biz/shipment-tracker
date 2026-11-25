@@ -2,7 +2,7 @@ import { APIError } from "encore.dev/api";
 import type { SailingLog } from "../interfaces/interfaces";
 import { checklistFor, checklistOf, SAILING_NOTE_MAX, sailingHistory, tickRefusal } from "../lib/coLoadingLog";
 import { userNameOf } from "../lib/userName";
-import { coLoadingLogRepository as repo } from "../repositories/coLoadingLog.repository";
+import { coLoadingLogRepository as repo, NoteChangedMeanwhile } from "../repositories/coLoadingLog.repository";
 import { coLoadingSailingRepository as sailingRepo } from "../repositories/coLoadingSailing.repository";
 import { coLoadingSettingRepository } from "../repositories/coLoadingSetting.repository";
 import { coLoadingServiceService } from "./coLoadingService.service";
@@ -39,7 +39,10 @@ class CoLoadingLogService {
     };
   }
 
-  /** Ticks or unticks a step of the sailing's checklist; the tick keeps who and when. */
+  /**
+   * Ticks or unticks a step of the sailing's checklist; the tick keeps who and when. A step that
+   * already stands that way is left as it is: the checklist is answered as it is now.
+   */
   async setTick(id: string, step: string, done: boolean, actor: { userID: string; companyID: string }): Promise<SailingLog> {
     const sailing = await this.sailing(id, actor.companyID);
     await coLoadingServiceService.requireOpen(sailing.serviceId, actor.companyID);
@@ -52,13 +55,23 @@ class CoLoadingLogService {
     return this.log(sailing.id, actor.companyID);
   }
 
-  /** Writes the hand-over note; "" clears it. */
-  async setNote(id: string, note: string, actor: { userID: string; companyID: string }): Promise<SailingLog> {
+  /**
+   * Writes the hand-over note; "" clears it. With `expected` - the note the screen showed - a note a
+   * colleague changed since is not written over unseen: the save is refused, naming who changed it.
+   */
+  async setNote(id: string, note: string, expected: string | null, actor: { userID: string; companyID: string }): Promise<SailingLog> {
     const text = (note ?? "").trim();
     if (text.length > SAILING_NOTE_MAX) throw APIError.invalidArgument(`Keep the note to ${SAILING_NOTE_MAX.toLocaleString("en-US")} characters.`);
     const sailing = await this.sailing(id, actor.companyID);
     await coLoadingServiceService.requireOpen(sailing.serviceId, actor.companyID);
-    if (!(await repo.setNote(sailing.id, actor.companyID, text, { id: actor.userID, name: await userNameOf(actor.userID) }))) throw APIError.notFound("Sailing not found");
+    const by = { id: actor.userID, name: await userNameOf(actor.userID) };
+    try {
+      if (!(await repo.setNote(sailing.id, actor.companyID, text, expected === null ? null : expected.trim(), by))) throw APIError.notFound("Sailing not found");
+    } catch (err) {
+      if (err instanceof NoteChangedMeanwhile)
+        throw APIError.aborted(`The hand-over note was changed meanwhile${err.by ? ` by ${err.by}` : ""}. Nothing was saved: read the note again, then write yours.`);
+      throw err;
+    }
     return this.log(sailing.id, actor.companyID);
   }
 }

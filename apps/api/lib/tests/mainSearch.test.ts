@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MAIN_SEARCH_DEFAULT_LIMIT, MAIN_SEARCH_MAX_LIMIT, mainSearchInput, mainSearchNumber } from "../mainSearch";
+import { hasEveryWord, MAIN_SEARCH_DEFAULT_LIMIT, MAIN_SEARCH_MAX_LIMIT, mainSearchInput, mainSearchNumber } from "../mainSearch";
 
 describe("mainSearchNumber: what a container number or warehouse reference is searched for", () => {
   it("is what was typed in capitals, its spaces left out", () => {
@@ -49,5 +49,24 @@ describe("mainSearchInput", () => {
     expect(mainSearchInput("ab", 7.8)?.limit).toBe(7);
     expect(mainSearchInput("ab", 500)?.limit).toBe(MAIN_SEARCH_MAX_LIMIT);
     expect(mainSearchInput("ab", Number.NaN)?.limit).toBe(5);
+  });
+});
+
+describe("hasEveryWord: the main search of a kind matched in memory", () => {
+  it("finds a text whatever its diacritics and case, as the lists' search does", () => {
+    expect(hasEveryWord(["Plzeň (CZPLZ)"], "plzen")).toBe(true);
+    expect(hasEveryWord(["Plzen"], "PLZEŇ")).toBe(true);
+    expect(hasEveryWord(["Šanghaj – Železná Ruda"], "sanghaj zelezna")).toBe(true);
+    expect(hasEveryWord(["Łódź"], "lodz")).toBe(true);
+  });
+
+  it("needs every word typed, each anywhere in the texts", () => {
+    expect(hasEveryWord(["Import from Shanghai", "ISHA"], "isha shanghai")).toBe(true);
+    expect(hasEveryWord(["Import from Shanghai", null, undefined, ""], "shanghai rotterdam")).toBe(false);
+  });
+
+  it("finds nothing for no words, and never a word made across two texts", () => {
+    expect(hasEveryWord(["Import"], "   ")).toBe(false);
+    expect(hasEveryWord(["MSC", "Anna"], "mscanna")).toBe(false);
   });
 });

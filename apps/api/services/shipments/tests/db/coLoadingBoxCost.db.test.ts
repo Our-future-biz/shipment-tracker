@@ -11,8 +11,9 @@ import { coLoadingSailingTable as sailings } from "../../schemas/coLoadingSailin
 // The SQL a sailing's box costs rely on (migrations 0102 and 0103), against the shipments database
 // (Council Review 7, K18): a cost row and its record of change written together, the record's "old"
 // figure being the one really replaced, a save over costs changed meanwhile refused with nothing
-// written, two saves at one moment taken one after the other, and one company's costs kept from
-// another's. Runs only under `encore test` (SHIPMENTS_DB_TESTS=1 encore test services/shipments/tests/db).
+// written, two saves at one moment taken one after the other, one company's costs kept from
+// another's, and a service's defaults that lock nothing until a person changes them (Council
+// Outlay 14, B4). Runs only under `encore test` (SHIPMENTS_DB_TESTS=1 encore test services/shipments/tests/db).
 
 const JANA = { id: randomUUID(), name: "Jana Nová" };
 const EVA = { id: randomUUID(), name: "Eva Malá" };
@@ -108,6 +109,50 @@ describe("a container's box costs, saved", () => {
     expect(await repo.listOf([s.id], other)).toEqual([]);
     expect(await repo.changes(s.id, other)).toEqual([]);
     expect(await repo.costedContainers(s.id, other)).toEqual([]);
+  });
+
+  it("that are the service's defaults, set by nobody, lock neither Edit sailing nor a removal - and are money all the same (Council Outlay 14, B4)", async () => {
+    const companyId = randomUUID();
+    const s = await newSailing(companyId);
+    await repo.save(s.id, companyId, 1, three(1000, { destination: 300 }), null, { id: null, name: "Service default" });
+    expect(await stored(s.id, companyId)).toEqual([
+      [1, "destination", "300.00", "EUR", "Service default"],
+      [1, "ocean", "1000.00", "USD", "Service default"],
+    ]);
+    expect((await recordOf(s.id, companyId)).map((c) => [c.kind, c.changedById, c.changedByName]).sort()).toEqual([
+      ["destination", null, "Service default"],
+      ["ocean", null, "Service default"],
+    ]);
+    expect(await repo.costedContainers(s.id, companyId)).toEqual([]);
+    let seen: number[] | null = null;
+    await coLoadingSailingRepository.setDetailsRecorded(s.id, companyId, { containerCount: 1, cutoffDate: null }, EVA, (now, costed) => {
+      seen = costed;
+      return { facts: { vessel: now.vessel, voyage: now.voyage, pol: now.pol, pod: now.pod, hub: now.hub, containerType: now.containerType }, changes: [] };
+    });
+    expect(seen).toEqual([]);
+    let held: number[] | null = null;
+    await expect(
+      coLoadingSailingRepository.removeJudged(s.id, companyId, (_linked, costed) => {
+        held = costed;
+        throw new Error("kept");
+      }),
+    ).rejects.toThrow("kept");
+    expect(held).toEqual([]);
+  });
+
+  it("that a manager changes become a person's: the dialog showing the defaults saves over them, and the container counts as costed", async () => {
+    const companyId = randomUUID();
+    const s = await newSailing(companyId);
+    await repo.save(s.id, companyId, 1, three(1000), null, { id: null, name: "Service default" });
+    await repo.save(s.id, companyId, 2, three(1000), null, { id: null, name: "Service default" });
+    await repo.save(s.id, companyId, 1, three(1200), three(1000), EVA);
+    expect(await stored(s.id, companyId)).toEqual([
+      [1, "ocean", "1200.00", "USD", "Eva Malá"],
+      [2, "ocean", "1000.00", "USD", "Service default"],
+    ]);
+    expect(await repo.costedContainers(s.id, companyId)).toEqual([1]);
+    // A dialog that still shows the defaults names who changed them meanwhile.
+    await expect(repo.save(s.id, companyId, 1, three(900), three(1000), JANA)).rejects.toMatchObject({ by: "Eva Malá" });
   });
 
   it("record a change of the sailing itself in the same record, under container 0", async () => {
