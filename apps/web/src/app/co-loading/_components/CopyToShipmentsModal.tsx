@@ -5,18 +5,8 @@ import { Button, Checkbox } from "antd";
 import { AppModal } from "@/components/AppModal";
 import type { SailingShipmentFacts } from "@/hooks/useCoLoadingServices";
 import { apiErrorMessage } from "@/lib/api";
-import { formatDate } from "@/lib/date";
 import { HINT, REF, TD, TH } from "@/styles/ui";
-
-/** A copied value as the dialog shows it: a date in the app's way, a text as it is, a dash for nothing. */
-const shown = (field: string, value: string) => (!value ? "—" : field === "estimatedDeparture" || field === "closingDate" ? formatDate(value) || value : value);
-
-/** What a copy did, in a sentence: "Copied to 3 shipments. 1 not changed: CZLCL… (why)". */
-export function copyResultWords(result: { copied: number; refused: { jobNumber: string; reason: string }[] }): string {
-  const copied = result.copied === 0 ? "Nothing was copied." : `Copied to ${result.copied === 1 ? "1 shipment" : `${result.copied} shipments`}.`;
-  if (result.refused.length === 0) return copied;
-  return `${copied} ${result.refused.length} not changed: ${result.refused.map((r) => `${r.jobNumber} (${r.reason})`).join("; ")}`;
-}
+import { copyResultWords, factShown as shown } from "../_lib/shipmentFacts";
 
 // "Copy to linked shipments" (Council Outlay 14, A3): the sailing's vessel, voyage, departure (as
 // ETD) and cut-off (as Closing Date) written to its shipments by hand, after seeing what each holds

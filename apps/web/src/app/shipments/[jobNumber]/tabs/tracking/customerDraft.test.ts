@@ -58,6 +58,32 @@ describe("the standard wording", () => {
     expect(message).toContain("has changed to 16.10.2026.");
   });
 
+  it("names the sailing a rolled shipment is on now, with its departure as the ETD - not the shipment's own, the old sailing's", () => {
+    const notSailed = [
+      { key: "departed", planned: "2026-12-10", actual: null },
+      { key: "arrived", planned: "2026-12-08", actual: null },
+      { key: "delivered", planned: null, actual: null },
+    ] as TrackingMilestone[];
+    const week52 = { vessel: "WEEK 52", voyage: "", departureDate: "2026-12-24" };
+    const rolled = draftValues(shipment, notSailed, "en", "Jana", "Lukas", week52);
+    const { message } = fillDraft(standardDraft("rolled", "en"), rolled);
+    expect(message).toContain("has been moved to a later sailing: WEEK 52, departing 24.12.2026.");
+    expect(message).toContain("ETD: 24.12.2026");
+    expect(message).not.toContain("10.12.2026");
+    // An ETA before the new departure is the old sailing's: left out.
+    expect(message).not.toContain("ETA: 08.12.2026");
+    expect(fillDraft(standardDraft("rolled", "cs"), draftValues(shipment, notSailed, "cs", "", "", week52)).message).toContain("byla přesunuta na pozdější odjezd: WEEK 52, odjezd 24.12.2026.");
+    // An ETA after it is kept: it may have been put right.
+    const later = notSailed.map((m) => (m.key === "arrived" ? { ...m, planned: "2027-01-20" } : m));
+    expect(draftValues(shipment, later, "en", "", "", week52).facts).toContain("ETA: 20.01.2027");
+  });
+
+  it("says no 'new dates' for a roll when the sailing is not known, and leaves no stray marks", () => {
+    const { message } = fillDraft(standardDraft("rolled", "en"), values);
+    expect(message).toContain("has been moved to a later sailing.");
+    expect(message).not.toMatch(/new dates|: \./);
+  });
+
   it("copes with no contact name, in both languages", () => {
     const en = draftValues(shipment, milestones, "en", "", "Eva");
     expect(fillDraft(standardDraft("status", "en"), en).message.startsWith("Dear Sir or Madam,")).toBe(true);

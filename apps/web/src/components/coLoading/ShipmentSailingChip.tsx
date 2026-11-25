@@ -8,7 +8,7 @@ import { AppModal } from "@/components/AppModal";
 import { BoxFillChip } from "@/app/co-loading/_components/BoxFillChip";
 import { containersWords, fillWords } from "@/app/co-loading/_lib/boxUtilization";
 import { CUTOFF_TONE, cutoffState, cutoffWords, linkNeedsReason, SAILING_STAGE_LABEL, SAILING_STAGE_TONE, sailingHref, sailingTitle, stageOf } from "@/app/co-loading/_lib/sailings";
-import { useShipmentSailing, type ShipmentSailingItem } from "@/hooks/useCoLoadingServices";
+import { shipmentSailingKind, useShipmentSailing, type ShipmentSailingItem } from "@/hooks/useCoLoadingServices";
 import { apiErrorMessage } from "@/lib/api";
 import { businessToday, formatDate } from "@/lib/date";
 import { useMessages } from "@/lib/toast";
@@ -61,10 +61,9 @@ function SailingChoice({ sailing, picked, onPick, today }: { sailing: ShipmentSa
 // 14, A1): the sailing it is on, as a link, with its cut-off and how full its box is - or, for a
 // shipment Co-Loading is for and that is on none, "Put on a sailing". Moving it on and taking it off
 // are here too. The calls are the sailing page's own, so the server holds to the same rules.
-// Nothing shows for a shipment Co-Loading is not for.
+// Nothing shows for a shipment Co-Loading is not for; a read that failed is said, in the server's words.
 export function ShipmentSailingChip({ shipment, className }: { shipment: ChipShipment; className: string }) {
-  const kind = [shipment.serviceName, shipment.freightMode, shipment.loadType].map((v) => (v ?? "").trim()).join("|");
-  const { place, link, unlink, move } = useShipmentSailing(shipment.id, kind);
+  const { place, isError, error: readError, link, unlink, move } = useShipmentSailing(shipment.id, shipmentSailingKind(shipment));
   const message = useMessages();
   const today = businessToday();
   // "put": on no sailing, picking one. "move": on one, picking another of its service with the reason. "remove": asked before it is taken off.
@@ -78,6 +77,17 @@ export function ShipmentSailingChip({ shipment, className }: { shipment: ChipShi
     setError(null);
   }, [dialog]);
 
+  // Not "on no sailing": whether it is on one is not known.
+  if (!place && isError) {
+    const why = `Its Co-Loading sailing could not be read - ${apiErrorMessage(readError)}.`;
+    return (
+      <Tooltip title={why}>
+        <span className={`${className} !cursor-default !text-amber-700`} role="status" aria-label={why}>
+          Co-Loading: not read
+        </span>
+      </Tooltip>
+    );
+  }
   if (!place) return null;
   const { on, services, coming } = place;
   if (!on && services.length === 0) return null;

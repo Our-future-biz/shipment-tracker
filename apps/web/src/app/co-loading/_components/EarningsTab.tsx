@@ -10,7 +10,8 @@ import { Pill } from "@/components/Pill";
 import { CountChip, SectionCard } from "@/components/SectionCard";
 import { useSailingBoxCostChanges, useSailingEarnings, useSailingUtilization } from "@/hooks/useCoLoadingServices";
 import { formatDate, formatDateTime } from "@/lib/date";
-import { earnedPerWm, sellRestOf, sellRestWords } from "../_lib/sellRest";
+import { fmtMoney } from "@/lib/money";
+import { boxCurrency, boxPerWmOf, earnedPerWm, sellRestOf, sellRestWords } from "../_lib/sellRest";
 import { WhatIfCard } from "./WhatIfCard";
 import { BTN, BTN_PRIMARY, CARD, EMPTY_STATE, HINT, LINK, REF, TD, TD_TOTAL, TH } from "@/styles/ui";
 import { tableFreightTons } from "../_lib/boxUtilization";
@@ -275,12 +276,13 @@ export function EarningsTab({ sailingId, containerType, closed, onOpenShipments 
   const under = (a: EarningsAmount) => (known && linked > 0 ? amountWords(a).under : null);
   const boxSet = earnings.boxCosts.set;
   const sellRest = known ? sellRestOf(earnings, box) : null;
-  // The tab's main currency, for a rate typed into "What if I add this".
-  const mainCurrency = totals.beforeBox.eur !== null ? "EUR" : "CZK";
-  const perWmWords = (v: { value: number; currency: string }) => v.value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  // The one currency the per-W/M figures, "Sell the rest at" and "What if I add this" are set against each other in: never CZK beside EUR.
+  const perWmCurrency = boxCurrency(totals);
+  const perWmWords = (v: { value: number; currency: string }) => fmtMoney(v.value, v.currency, true);
   // What the box costs for each W/M loaded: the bar a shipment's own earning per W/M is read against.
-  const boxPerWm = known && totals.boxCosts && totals.freightTons > 0 ? Math.round((((mainCurrency === "EUR" ? totals.boxCosts.eur : null) ?? totals.boxCosts.czk) / totals.freightTons) * 100) / 100 : null;
-  const totalPerWm = known && totals.freightTons > 0 ? earnedPerWm({ counted: true, moneyKnown: true, freightTons: totals.freightTons, beforeBox: totals.beforeBox }) : null;
+  const boxPerWm = known ? boxPerWmOf(totals) : null;
+  const totalPerWm = known && totals.freightTons > 0 ? earnedPerWm({ counted: true, moneyKnown: true, freightTons: totals.freightTons, beforeBox: totals.beforeBox }, perWmCurrency) : null;
+  const floor = floorWords(earnings);
   const unpriced = unpricedShipments(earnings);
   // What makes the profit less than final, said on its tile (Council Review 7, K7 and K8).
   const remarks = known && boxSet ? profitRemarks(sailingProfitOf(sailingId, earnings)) : [];
@@ -331,9 +333,9 @@ export function EarningsTab({ sailingId, containerType, closed, onOpenShipments 
 
       <Checks checks={earningsChecks(earnings)} />
       {/* The service's minimum earning per W/M (Council Outlay 14, B4): how the shipments stand against it. A mark only. */}
-      {floorWords(earnings) && (
+      {floor && (
         <p className={`m-0 text-[13px] ${(earnings.belowFloor ?? 0) > 0 ? "font-medium text-amber-700" : "text-slate-500"}`} role="status">
-          {floorWords(earnings)}
+          {floor}
         </p>
       )}
 
@@ -396,7 +398,7 @@ export function EarningsTab({ sailingId, containerType, closed, onOpenShipments 
                   <th className={`${TH} !text-right max-sm:hidden`}>Inland delivery</th>
                   <th className={`${TH} !text-right max-sm:hidden`}>Other costs</th>
                   <th className={`${TH} !text-right ${boxSet ? "max-lg:hidden" : ""}`}>Earned before box</th>
-                  <th className={`${TH} !text-right max-xl:hidden`} title="What the shipment earns before the box, for each W/M it takes">
+                  <th className={`${TH} !text-right max-xl:hidden`} title={`What the shipment earns before the box, for each W/M it takes, in ${perWmCurrency}`}>
                     Earned / W/M
                   </th>
                   {boxSet && <th className={`${TH} !text-right max-lg:hidden`}>Box cost share</th>}
@@ -407,7 +409,7 @@ export function EarningsTab({ sailingId, containerType, closed, onOpenShipments 
               <tbody>
                 {earnings.rows.map((row) => {
                   const notes = earningsNotes(row);
-                  const rowPerWm = earnedPerWm(row);
+                  const rowPerWm = earnedPerWm(row, perWmCurrency);
                   return (
                     <tr key={row.shipmentId} className={row.counted ? "" : "text-slate-400"}>
                       <td className={`${TD} !pl-4`}>
@@ -437,7 +439,7 @@ export function EarningsTab({ sailingId, containerType, closed, onOpenShipments 
                         <Amount amount={row.beforeBox} known={row.moneyKnown} negativeRed={row.counted} />
                       </td>
                       {/* Shipments compared as rates (B2): below the box's cost per W/M, it does not pay its place. */}
-                      <td className={`${TD} text-right tabular-nums max-xl:hidden ${rowPerWm && boxPerWm !== null && rowPerWm.currency === mainCurrency && rowPerWm.value < boxPerWm ? "text-red-600" : ""}`}>
+                      <td className={`${TD} text-right tabular-nums max-xl:hidden ${rowPerWm && boxPerWm && rowPerWm.value < boxPerWm.value ? "text-red-600" : ""}`}>
                         {rowPerWm ? perWmWords(rowPerWm) : EMPTY_CELL}
                       </td>
                       {boxSet && <td className={`${TD} text-right tabular-nums max-lg:hidden`}>{row.boxShare ? <Amount amount={row.boxShare} /> : EMPTY_CELL}</td>}
@@ -473,7 +475,7 @@ export function EarningsTab({ sailingId, containerType, closed, onOpenShipments 
                     {totalPerWm ? (
                       <span className="inline-flex flex-col items-end leading-tight">
                         <span>{perWmWords(totalPerWm)}</span>
-                        {boxPerWm !== null && <span className="text-[11px] font-normal text-slate-500">box {boxPerWm.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>}
+                        {boxPerWm && <span className="text-[11px] font-normal text-slate-500">box {perWmWords(boxPerWm)}</span>}
                       </span>
                     ) : (
                       EMPTY_CELL
@@ -496,7 +498,7 @@ export function EarningsTab({ sailingId, containerType, closed, onOpenShipments 
       </SectionCard>
 
       {/* A sum for an enquiry (B3): only once the box has costs to share and something is loaded. */}
-      {known && boxSet && linked > 0 && totals.profit && <WhatIfCard earnings={earnings} box={box} currency={mainCurrency} />}
+      {known && boxSet && linked > 0 && totals.profit && <WhatIfCard earnings={earnings} box={box} />}
 
       <details className={`${HINT} m-0`}>
         <summary className="cursor-pointer font-medium text-slate-600">How these figures are worked out</summary>

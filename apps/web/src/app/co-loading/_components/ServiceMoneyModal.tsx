@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Button, Input, InputNumber, Select } from "antd";
+import { Button, Input, Select } from "antd";
 import { AppModal } from "@/components/AppModal";
+import { DecimalInput } from "@/components/DecimalInput";
 import { useServiceMoney } from "@/hooks/useCoLoadingServices";
 import { apiErrorMessage } from "@/lib/api";
 import { useMessages } from "@/lib/toast";
@@ -80,7 +81,8 @@ export function ServiceMoneyModal({ open, onClose, service }: { open: boolean; o
           {lines.map((line) => (
             <div key={line.kind} className="grid grid-cols-[150px_140px_90px_1fr] items-center gap-2">
               <span className="text-[13px] text-slate-700">{BOX_COST_LABEL[line.kind]}</span>
-              <InputNumber aria-label={`${BOX_COST_LABEL[line.kind]}: amount`} min={0} precision={2} controls={false} placeholder="Not set" value={line.amount} onChange={(amount) => set(line.kind, { amount })} className="!w-full" />
+              {/* The app's own number field: an amount typed the Czech way ("2100,50") is 2,100.50, not 210,050. */}
+              <DecimalInput aria-label={`${BOX_COST_LABEL[line.kind]}: amount`} min={0} max={99999999.99} precision={2} controls={false} placeholder="Not set" value={line.amount} onChange={(amount) => set(line.kind, { amount })} className="!w-full" />
               <Select aria-label={`${BOX_COST_LABEL[line.kind]}: currency`} value={line.currency} onChange={(currency) => set(line.kind, { currency })} options={[...new Set([...BOX_COST_CURRENCIES, line.currency])].map((c) => ({ value: c, label: c }))} />
               <Input aria-label={`${BOX_COST_LABEL[line.kind]}: note`} maxLength={200} placeholder="Note (optional)" value={line.note} onChange={(e) => set(line.kind, { note: e.target.value })} />
             </div>
@@ -91,7 +93,7 @@ export function ServiceMoneyModal({ open, onClose, service }: { open: boolean; o
         </div>
         <label className="flex flex-col gap-1.5 border-t border-slate-100 pt-4">
           <span className={LABEL_TEXT}>Minimum earning per W/M (EUR)</span>
-          <InputNumber aria-label="Minimum earning per W/M in EUR" min={0} precision={2} controls={false} placeholder="None" value={floor} onChange={setFloor} className="!w-[200px]" />
+          <DecimalInput aria-label="Minimum earning per W/M in EUR" min={0} max={99999.99} precision={2} controls={false} placeholder="None" value={floor} onChange={setFloor} className="!w-[200px]" />
           <span className={HINT}>
             What a shipment should earn per W/M before the box is paid for: its selling less its inland delivery and other costs. A shipment below it is marked on the sailing&apos;s Earnings
             tab. It is a mark only: nothing is refused.

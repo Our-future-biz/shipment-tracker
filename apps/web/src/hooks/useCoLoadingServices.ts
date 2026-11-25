@@ -1,6 +1,6 @@
 "use client";
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { api, isNotFound } from "@/lib/api";
 import type { controllers, interfaces } from "@/lib/api/client";
 import { isUuid } from "@/lib/uuid";
@@ -12,6 +12,40 @@ const LIST_KEY = ["co-loading-services"] as const;
 
 /** What every Co-Loading query's key starts with: a shipment write elsewhere marks them all stale (useShipments). */
 export const CO_LOADING_KEY = LIST_KEY;
+
+/**
+ * The key of one sailing's own read, and with `view` of every other view of it (its fill, earnings,
+ * checklist and history, customer notices, Master Job...): all start with the sailing's, so a write
+ * that reads the sailing again reads each of them again too.
+ */
+export const sailingKey = (id: string, ...view: string[]) => [...LIST_KEY, "sailing", id, ...view];
+
+/** What linking shipments to a sailing or taking them off leaves stale: see useSailingShipmentLinks. */
+export function invalidateAfterSailingLinks(qc: QueryClient, sailingId: string) {
+  return Promise.all([
+    // The shipments lists: the sailing's Linked shipments and what Link shipments offers are both lists of them.
+    qc.invalidateQueries({ queryKey: ["shipments"] }),
+    // Everything read of this sailing: its fill, its removed list, its earnings (the profit in its header moves too),
+    // its history, its customers to tell and its Master Job's list of the sailing's shipments.
+    qc.invalidateQueries({ queryKey: sailingKey(sailingId) }),
+    // The service's list of sailings shows each box's fill too.
+    qc.invalidateQueries({ queryKey: [...LIST_KEY, "sailings"] }),
+  ]);
+}
+
+/**
+ * Every sailing's customer notices: a "sailed" or "rolled" notice recorded on a shipment's own page
+ * (Tell the customer) stands on its sailing's Customers to tell too. Which sailing is not known there,
+ * so all of them; only the ones on screen are read at once.
+ */
+export const invalidateSailingNotices = (qc: QueryClient) =>
+  qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === LIST_KEY[0] && q.queryKey[1] === "sailing" && q.queryKey[3] === "notices" });
+
+/** A tick or a note saved: the log as the server gives it back, and the Earnings record of changes, which words a tick and a note too. */
+export function afterSailingLogWrite(qc: QueryClient, id: string, log: interfaces.SailingLog) {
+  qc.setQueryData(sailingKey(id, "log"), log);
+  return qc.invalidateQueries({ queryKey: sailingKey(id, "box-cost-changes") });
+}
 
 /** The company's Co-Loading Concept services, the oldest first: the module's tiles (closed ones a manager's only). */
 export function useCoLoadingServices() {
@@ -51,14 +85,23 @@ export function useCoLoadingSettings() {
   return { settings: query.data ?? null, isLoading: query.isLoading, isError: query.isError, save, saveChecklist };
 }
 
-/** A sailing's checklist, hand-over note and history (Council Outlay 14, C5), with the tick and the note to set. Read again with every other view of the sailing. */
+/**
+ * A sailing's checklist, hand-over note and history (Council Outlay 14, C5), with the tick and the
+ * note to set. Under the sailing's key: a link, a move or an edit of the sailing reads it again.
+ */
 export function useSailingLog(id: string) {
   const qc = useQueryClient();
-  const key = [...LIST_KEY, "sailing-log", id];
+  const key = sailingKey(id, "log");
   const query = useQuery({ queryKey: key, queryFn: () => api.shipments.coLoadingSailingLog(id), enabled: !!id });
-  const took = (log: interfaces.SailingLog) => qc.setQueryData(key, log);
+  const took = (log: interfaces.SailingLog) => afterSailingLogWrite(qc, id, log);
   const tick = useMutation({ mutationFn: (input: { step: string; done: boolean }) => api.shipments.coLoadingSailingTick(id, input), onSuccess: took });
-  const note = useMutation({ mutationFn: (text: string) => api.shipments.coLoadingSailingNote(id, { note: text }), onSuccess: took });
+  // `expected`: the note the box started from (lib sailingLog noteRequest). A note a colleague changed meanwhile is refused;
+  // the log is then read again, so theirs shows beside what was typed.
+  const note = useMutation({
+    mutationFn: (input: { note: string; expected: string }) => api.shipments.coLoadingSailingNote(id, input),
+    onSuccess: took,
+    onError: () => qc.invalidateQueries({ queryKey: key }),
+  });
   return { log: query.data ?? null, isLoading: query.isLoading, isError: query.isError, tick, note };
 }
 
@@ -114,14 +157,14 @@ export function useCoLoadingSailings(serviceId: string) {
     mutationFn: (input: CoLoadingSailingNew) => api.shipments.coLoadingSailingCreate(serviceId, input),
     onSuccess: () => qc.invalidateQueries({ queryKey: key }),
   });
-  return { sailings: query.data?.data ?? [], isLoading: query.isLoading, isError: query.isError, create };
+  return { sailings: query.data?.data ?? [], isLoading: query.isLoading, isError: query.isError, error: query.error, create };
 }
 
 /** One sailing, for its own page. */
 export function useCoLoadingSailing(id: string) {
   const isId = isUuid(id);
   const query = useQuery({
-    queryKey: [...LIST_KEY, "sailing", id],
+    queryKey: sailingKey(id),
     queryFn: () => api.shipments.coLoadingSailingGet(id),
     enabled: isId,
     retry: (failures, err) => !isNotFound(err) && failures < 1,
@@ -135,7 +178,7 @@ export function useCoLoadingSailing(id: string) {
  */
 export function useSailingUtilization(id: string) {
   const query = useQuery({
-    queryKey: [...LIST_KEY, "sailing", id, "utilization"],
+    queryKey: sailingKey(id, "utilization"),
     queryFn: () => api.shipments.coLoadingSailingUtilization(id),
     enabled: isUuid(id),
     staleTime: 0,
@@ -149,7 +192,7 @@ export function useSailingUtilization(id: string) {
 /** A sailing's earnings, read fresh each time the tab opens. Managers only: `enabled` keeps others from asking. */
 export function useSailingEarnings(id: string, enabled = true) {
   const query = useQuery({
-    queryKey: [...LIST_KEY, "sailing", id, "earnings"],
+    queryKey: sailingKey(id, "earnings"),
     queryFn: () => api.shipments.coLoadingSailingEarnings(id),
     enabled: enabled && isUuid(id),
     staleTime: 0,
@@ -179,14 +222,14 @@ export function useSailingBoxCosts(id: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (costs: { containerNo: number; lines: BoxCostInput[]; expected: BoxCostInput[] }) => api.shipments.coLoadingSailingBoxCostsSave(id, costs),
-    onSuccess: () => qc.invalidateQueries({ queryKey: [...LIST_KEY, "sailing", id] }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: sailingKey(id) }),
   });
 }
 
 /** Every change of a sailing's box costs, the last one first; read only once asked for. */
 export function useSailingBoxCostChanges(id: string, enabled: boolean) {
   const query = useQuery({
-    queryKey: [...LIST_KEY, "sailing", id, "box-cost-changes"],
+    queryKey: sailingKey(id, "box-cost-changes"),
     queryFn: () => api.shipments.coLoadingSailingBoxCostChanges(id),
     enabled: enabled && isUuid(id),
   });
@@ -227,6 +270,12 @@ export function useSailingRemove(id: string) {
 export type ShipmentSailing = Awaited<ReturnType<typeof api.shipments.coLoadingShipmentSailing>>;
 export type ShipmentSailingItem = ShipmentSailing["coming"][number];
 
+/** What decides which sailings a shipment may go on - its Service Name, mode and load type - in one text: part of the key of its sailing's read, so a change of it reads again. */
+export const shipmentSailingKind = (s: { serviceName?: string | null; freightMode?: string | null; loadType?: string | null }): string =>
+  [s.serviceName, s.freightMode, s.loadType].map((v) => (v ?? "").trim()).join("|");
+
+const shipmentSailingKey = (shipmentId: string, kind: string) => [...LIST_KEY, "of-shipment", shipmentId, kind];
+
 /**
  * A shipment's sailing, for the shipment's page, with putting it on one, moving it and taking it
  * off from there. The same calls as on the sailing's own page, so the same checks hold. After each,
@@ -235,8 +284,7 @@ export type ShipmentSailingItem = ShipmentSailing["coming"][number];
 export function useShipmentSailing(shipmentId: string, kind = "") {
   const qc = useQueryClient();
   const query = useQuery({
-    // `kind`: what decides which sailings the shipment may go on (its Service Name, mode and load type), so a change of it reads again.
-    queryKey: [...LIST_KEY, "of-shipment", shipmentId, kind],
+    queryKey: shipmentSailingKey(shipmentId, kind),
     queryFn: () => api.shipments.coLoadingShipmentSailing(shipmentId),
     enabled: isUuid(shipmentId),
     // A box fills from other people's work: read again on coming back to the page.
@@ -252,12 +300,27 @@ export function useShipmentSailing(shipmentId: string, kind = "") {
       api.shipments.coLoadingSailingMoveShipment(input.fromSailingId, shipmentId, { toSailingId: input.toSailingId, reason: input.reason }),
     onSuccess: settle,
   });
-  return { place: query.data ?? null, isLoading: query.isLoading, isError: query.isError, link, unlink, move };
+  // A failed first read is said (isLoadingError); a failed refresh keeps the sailing as last read.
+  return { place: query.data ?? null, isLoading: query.isLoading, isError: query.isLoadingError, error: query.error, link, unlink, move };
+}
+
+/**
+ * The sailing a shipment is on now, as its page's header (ShipmentSailingChip) has read it: taken
+ * from that read and never asked for again here (`enabled: false`), so a dialog of the page adds no
+ * request. Null while the header has not read it, or when the shipment is on no sailing.
+ */
+export function useShipmentSailingOnPage(shipment: { id: string; serviceName?: string | null; freightMode?: string | null; loadType?: string | null }) {
+  const query = useQuery({
+    queryKey: shipmentSailingKey(shipment.id, shipmentSailingKind(shipment)),
+    queryFn: () => api.shipments.coLoadingShipmentSailing(shipment.id),
+    enabled: false,
+  });
+  return query.data?.on ?? null;
 }
 
 /** The shipments taken off a sailing, the last one first: who took each off, when and why. */
 export function useSailingRemoved(id: string) {
-  const query = useQuery({ queryKey: [...LIST_KEY, "sailing", id, "removed"], queryFn: () => api.shipments.coLoadingSailingRemoved(id), enabled: isUuid(id) });
+  const query = useQuery({ queryKey: sailingKey(id, "removed"), queryFn: () => api.shipments.coLoadingSailingRemoved(id), enabled: isUuid(id) });
   return { removed: query.data?.data ?? [], isError: query.isError };
 }
 
@@ -267,15 +330,7 @@ export function useSailingRemoved(id: string) {
  */
 export function useSailingShipmentLinks(sailingId: string) {
   const qc = useQueryClient();
-  // The shipments lists, and the fill of the box the shipment joined or left.
-  const settle = () =>
-    Promise.all([
-      qc.invalidateQueries({ queryKey: ["shipments"] }),
-      // Everything read of this sailing: its fill, its removed list, and its earnings - the profit in its header moves too.
-      qc.invalidateQueries({ queryKey: [...LIST_KEY, "sailing", sailingId] }),
-      // The service's list of sailings shows each box's fill too.
-      qc.invalidateQueries({ queryKey: [...LIST_KEY, "sailings"] }),
-    ]);
+  const settle = () => invalidateAfterSailingLinks(qc, sailingId);
   const link = useMutation({
     mutationFn: (input: { shipmentIds: string[]; reason?: string }) => api.shipments.coLoadingSailingLinkShipments(sailingId, input),
     onSuccess: settle,
@@ -324,7 +379,8 @@ export function useWaitingShipments(serviceName: string, enabled = true) {
     staleTime: 0,
     refetchOnWindowFocus: true,
   });
-  return { waiting: query.data?.data ?? [], total: query.data?.pagination.total ?? 0, isLoading: query.isLoading, isError: query.isError };
+  // A failed first read is said (isLoadingError); a failed refresh keeps the list as last read.
+  return { waiting: query.data?.data ?? [], total: query.data?.pagination.total ?? 0, isLoading: query.isLoading, isError: query.isLoadingError, error: query.error };
 }
 
 /**
@@ -376,7 +432,7 @@ export function useBoardProfits(enabled: boolean) {
 export function useSailingShipmentFacts(sailingId: string) {
   const qc = useQueryClient();
   const query = useQuery({
-    queryKey: [...LIST_KEY, "sailing", sailingId, "shipment-facts"],
+    queryKey: sailingKey(sailingId, "shipment-facts"),
     queryFn: () => api.shipments.coLoadingSailingShipmentFacts(sailingId),
     enabled: isUuid(sailingId),
     staleTime: 0,
@@ -385,16 +441,17 @@ export function useSailingShipmentFacts(sailingId: string) {
   // The shipments change: their lists and pages are read again, and the comparison with them.
   const copy = useMutation({
     mutationFn: (shipmentIds: string[]) => api.shipments.coLoadingSailingCopyToShipments(sailingId, { shipmentIds }),
-    onSuccess: () => Promise.all([qc.invalidateQueries({ queryKey: ["shipments"] }), qc.invalidateQueries({ queryKey: [...LIST_KEY, "sailing", sailingId] })]),
+    onSuccess: () => Promise.all([qc.invalidateQueries({ queryKey: ["shipments"] }), qc.invalidateQueries({ queryKey: sailingKey(sailingId) })]),
   });
-  return { facts: query.data?.data ?? [], isLoading: query.isLoading, isError: query.isError, copy };
+  // A failed first read is said (isLoadingError): no facts then is not "nothing differs". A failed refresh keeps them as last read.
+  return { facts: query.data?.data ?? [], isLoading: query.isLoading, isError: query.isLoadingError, error: query.error, copy };
 }
 export type SailingShipmentFacts = ReturnType<typeof useSailingShipmentFacts>["facts"][number];
 
 /** A sailing's customer notices (Council Outlay 14, C6): who was told the cargo sailed or was rolled, and the recording of it for several shipments. */
 export function useSailingNotices(id: string) {
   const qc = useQueryClient();
-  const key = [...LIST_KEY, "sailing-notices", id];
+  const key = sailingKey(id, "notices");
   const query = useQuery({ queryKey: key, queryFn: () => api.shipments.coLoadingSailingNotices(id), enabled: !!id });
   const record = useMutation({
     mutationFn: (input: { kind: "sailed" | "rolled"; shipmentIds: string[]; channel: string; note?: string }) => api.shipments.coLoadingSailingNoticesRecord(id, input),
@@ -410,10 +467,11 @@ export function useSailingNotices(id: string) {
 /**
  * A sailing's Master Job (Council Outlay 14, C2): read, made from the sailing's shipments, linked by its MCZ number, more shipments put on it, unlinked.
  * A Master Job writes onto its shipments, so the shipments lists, the Master Jobs and every view of the sailing are read again.
+ * Under the sailing's key: its list of the sailing's shipments is read again when one is linked, moved or taken off.
  */
 export function useSailingMasterJob(id: string) {
   const qc = useQueryClient();
-  const key = [...LIST_KEY, "sailing-master-job", id];
+  const key = sailingKey(id, "master-job");
   const query = useQuery({ queryKey: key, queryFn: () => api.shipments.coLoadingSailingMasterJob(id), enabled: !!id });
   const settle = (now: interfaces.SailingMasterJob) => {
     qc.setQueryData(key, now);

@@ -100,8 +100,10 @@ export const sailingStepDays = (frequency: string): number | null => (frequency 
  * ports, HUB, container type and number of containers, and - for a weekly or bi-weekly service - the
  * next week's name with the cut-off and the departure moved on by 7 or 14 days. The last sailing is
  * the one that leaves last - or one with no departure date yet, when it was made after that one. A
- * named vessel is not carried over: the next one has another. Null when the service has no sailing
- * yet. `today` (YYYY-MM-DD) says how many weeks the year has, for a week counted on without a date.
+ * named vessel is not carried over: the next one has another. After a pause the dates go on step by
+ * step until the departure (or, without one, the cut-off) is `today` or later, so the form never
+ * starts from a sailing that has left. Null when the service has no sailing yet. `today`
+ * (YYYY-MM-DD) also says how many weeks the year has, for a week counted on without a date.
  * Everything stays editable.
  */
 export function nextSailingStart(
@@ -115,15 +117,23 @@ export function nextSailingStart(
   const undated = madeLast(sailings.filter((s) => s.departureDate === null && (!dated || s.createdAt > dated.createdAt)));
   const last = (undated ?? dated ?? madeLast([...sailings]))!;
   const step = sailingStepDays(frequency);
-  const departureDate = step && last.departureDate ? addDays(last.departureDate, step) : null;
-  const cutoffDate = step && last.cutoffDate ? addDays(last.cutoffDate, step) : null;
+  let departureDate = step && last.departureDate ? addDays(last.departureDate, step) : null;
+  let cutoffDate = step && last.cutoffDate ? addDays(last.cutoffDate, step) : null;
+  // How many steps the new sailing is after the last one: more than one after a pause.
+  let steps = 1;
+  while (step && (departureDate ?? cutoffDate) !== null && (departureDate ?? cutoffDate)! < today) {
+    departureDate = departureDate && addDays(departureDate, step);
+    cutoffDate = cutoffDate && addDays(cutoffDate, step);
+    steps += 1;
+  }
   const week = sailingWeek(last.vessel);
   let vessel = "";
   if (step && week) {
     // The week the new departure falls in when it is known; else the last week counted on, back to 1 after the year's last week (28 December is always in it).
     const weeksInYear = isoWeek(`${today.slice(0, 4)}-12-28`);
-    const counted = Number(week.slice(5)) + step / 7;
-    vessel = `WEEK ${departureDate ? isoWeek(departureDate) : counted > weeksInYear ? counted - weeksInYear : counted}`;
+    let counted = Number(week.slice(5)) + (steps * step) / 7;
+    while (counted > weeksInYear) counted -= weeksInYear;
+    vessel = `WEEK ${departureDate ? isoWeek(departureDate) : counted}`;
   }
   return {
     from: last.vessel,
@@ -132,14 +142,16 @@ export function nextSailingStart(
 }
 
 /**
- * The sailing cargo is rolled to: the first one still to come that leaves after this one. For a
- * sailing with no departure date yet, the first one to come that was made after it - an earlier
- * week is never offered as "next". Null when there is none: then the sailing is picked by hand.
+ * The sailing cargo is rolled to: the first one still to come that leaves after this one. One with
+ * no departure date yet - this one or the one to go to - is judged by when it was made: it counts as
+ * later only when it was made after this one, so an earlier week is never offered as "next". Null
+ * when there is none: then the sailing is picked by hand.
  */
 export function nextSailingAfter<T extends { id: string; departureDate: string | null; createdAt: string; stage?: string | null }>(sailing: { id: string; departureDate: string | null; createdAt: string }, sailings: readonly T[], today: string): T | null {
   const coming = sailingsInOrder(sailings, today).coming.filter((s) => s.id !== sailing.id);
-  if (!sailing.departureDate) return coming.find((s) => s.createdAt > sailing.createdAt) ?? null;
-  return coming.find((s) => s.departureDate === null || s.departureDate >= sailing.departureDate!) ?? null;
+  const madeAfter = (s: T) => s.createdAt > sailing.createdAt;
+  if (!sailing.departureDate) return coming.find(madeAfter) ?? null;
+  return coming.find((s) => (s.departureDate === null ? madeAfter(s) : s.departureDate >= sailing.departureDate!)) ?? null;
 }
 
 /** The cut-off beside today, in words: "today", "in 2 days", "3 days ago"; "" with no cut-off. Both YYYY-MM-DD. */

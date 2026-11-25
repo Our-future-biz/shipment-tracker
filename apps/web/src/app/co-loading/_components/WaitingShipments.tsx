@@ -8,15 +8,10 @@ import { EMPTY_CELL } from "@/components/EmptyCell";
 import { CountChip, SectionCard } from "@/components/SectionCard";
 import { apiErrorMessage } from "@/lib/api";
 import { businessToday, formatDate } from "@/lib/date";
-import { CANCELLED_STATUS } from "@/lib/enums";
 import { useMessages } from "@/lib/toast";
 import { HINT, LINK, REF, TD, TH } from "@/styles/ui";
-import { boxCargoOf, cutoffWarning, fillWords, oddInBox, overfillWarning, tableCbm, tableKg } from "../_lib/boxUtilization";
+import { boxCargoOf, cutoffWarning, fillWords, overfillWarning, tableCbm, tableKg, waitingForBox } from "../_lib/boxUtilization";
 import { cutoffWords, linkNeedsReason, SAILING_STAGE_LABEL, sailingsInOrder, sailingTitle, stageOf } from "../_lib/sailings";
-
-/** The shipments of a list still waiting for a box: not the cancelled ones, nor those of another kind than the box is for. */
-export const waitingForBox = <T extends { status?: string | null; freightMode?: string | null; loadType?: string | null }>(shipments: readonly T[], serviceMode: string): T[] =>
-  shipments.filter((s) => s.status !== CANCELLED_STATUS && !oddInBox(serviceMode, s));
 
 // "Not on a sailing yet" on a service's page (Council Outlay 14, A5): the service's shipments that
 // are in no box, with what each would bring, to tick and put on one of the sailings still to come.
@@ -24,9 +19,9 @@ export const waitingForBox = <T extends { status?: string | null; freightMode?: 
 // so the server holds to the same rules; a box past its cut-off or over its limit is remarked on,
 // never refused. Nothing is linked while the service is closed.
 export function WaitingShipments({ serviceId, serviceName, serviceMode, closed }: { serviceId: string; serviceName: string; serviceMode: string; closed: boolean }) {
-  const { waiting: all, total, isLoading, isError } = useWaitingShipments(serviceName);
+  const { waiting: all, total, isLoading, isError, error } = useWaitingShipments(serviceName);
   const waiting = useMemo(() => waitingForBox(all, serviceMode), [all, serviceMode]);
-  const { sailings } = useCoLoadingSailings(serviceId);
+  const { sailings, isLoading: sailingsLoading, isError: sailingsFailed, error: sailingsError } = useCoLoadingSailings(serviceId);
   const today = businessToday();
   const coming = useMemo(() => sailingsInOrder(sailings, today).coming, [sailings, today]);
   const link = useLinkToSailing();
@@ -43,7 +38,14 @@ export function WaitingShipments({ serviceId, serviceName, serviceMode, closed }
     setTicked((prev) => (prev.every((id) => waiting.some((s) => s.id === id)) ? prev : prev.filter((id) => waiting.some((s) => s.id === id))));
   }, [waiting]);
 
-  if (isLoading || isError) return null;
+  if (isLoading) return null;
+  // Not "nothing waits": what waits is not known.
+  if (isError)
+    return (
+      <p className="m-0 text-[13px] text-red-600" role="alert">
+        Could not load the shipments waiting for a sailing - {apiErrorMessage(error)}.
+      </p>
+    );
   const picked = waiting.filter((s) => ticked.includes(s.id));
   const added = picked.reduce(
     (sum, s) => {
@@ -80,7 +82,13 @@ export function WaitingShipments({ serviceId, serviceName, serviceMode, closed }
   return (
     <SectionCard title="Not on a sailing yet" bodyClassName="p-0" extra={<CountChip count={waiting.length} />}>
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-slate-100 px-4 py-2.5">
-        {coming.length === 0 ? (
+        {coming.length === 0 && sailingsFailed ? (
+          <span className="text-[13px] text-red-600" role="alert">
+            Could not load the service&apos;s sailings - {apiErrorMessage(sailingsError)}.
+          </span>
+        ) : coming.length === 0 && sailingsLoading ? (
+          <span className={HINT}>Reading the sailings still to come…</span>
+        ) : coming.length === 0 ? (
           <span className="text-[13px] text-slate-700" role="status">
             No sailing still to come: create the next one with Create new sailing above, then put these on it.
           </span>

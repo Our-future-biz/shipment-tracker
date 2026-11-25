@@ -1,9 +1,10 @@
 "use client";
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { api, apiErrorMessage } from "@/lib/api";
 import { useToast } from "@/lib/toast";
 import type { interfaces } from "@/lib/api/client";
+import { invalidateSailingNotices } from "./useCoLoadingServices";
 import { shipmentAttachmentsKey } from "./useShipmentAttachments";
 import { invalidateShipmentDerivedViews } from "./useShipments";
 import { TRACKING_ATTENTION_KEY } from "./useTrackingAttention";
@@ -65,6 +66,19 @@ export interface RecordEventInput {
 }
 
 export const shipmentTrackingKey = (shipmentId: string) => ["shipment-tracking", shipmentId] as const;
+
+/** The notice kinds a Co-Loading sailing's Customers to tell lists (Council Outlay 14, C6). */
+const SAILING_NOTICE_KINDS = new Set(["sailed", "rolled"]);
+
+/**
+ * What a customer notice recorded on the shipment leaves stale, beside its tracking (`settled`): the
+ * customer's Communication log, and - for a "sailed" or "rolled" notice - its sailing's Customers to tell.
+ */
+export function afterCustomerNotice(queryClient: QueryClient, kind: string, settled: () => void = () => undefined) {
+  settled();
+  queryClient.invalidateQueries({ queryKey: ["customer-notes"] });
+  if (SAILING_NOTICE_KINDS.has(kind)) void invalidateSailingNotices(queryClient);
+}
 
 /** How long a screen that only peeks at the tracking (a lock note, a tick) takes it from the cache. */
 export const TRACKING_PEEK_STALE_MS = 60_000;
@@ -128,10 +142,7 @@ export function useTrackingActions(shipmentId: string) {
     /** Says nothing on failure: the dialog stays open and shows why. Arrival notice, ETA change and POD sent land in the customer's Communication log. */
     tellCustomer: useMutation({
       mutationFn: (input: CustomerNoticeInput) => api.shipments.customerNoticeRecord(shipmentId, input),
-      onSettled: () => {
-        onSettled();
-        queryClient.invalidateQueries({ queryKey: ["customer-notes"] });
-      },
+      onSettled: (_data, _err, input) => afterCustomerNotice(queryClient, input.kind, onSettled),
     }),
     /** Says nothing on failure: the dialog that records stays open and shows why. */
     record: useMutation({ mutationFn: (input: RecordEventInput) => api.shipments.trackingEventRecord(shipmentId, input), onSettled }),

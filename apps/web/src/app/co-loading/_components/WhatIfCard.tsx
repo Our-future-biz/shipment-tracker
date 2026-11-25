@@ -1,19 +1,22 @@
 "use client";
 
 import { useState } from "react";
-import { InputNumber } from "antd";
+import { DecimalInput } from "@/components/DecimalInput";
 import { SectionCard } from "@/components/SectionCard";
+import { fmtMoney } from "@/lib/money";
 import { HINT, LABEL_TEXT } from "@/styles/ui";
 import type { BoxUtilization } from "../_lib/boxUtilization";
 import type { SailingEarnings } from "../_lib/earnings";
-import { whatIfOf } from "../_lib/sellRest";
+import { boxCurrency, whatIfOf } from "../_lib/sellRest";
 
-const money = (v: number, currency: string) => `${v.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currency}`;
 
 // "What if I add this" (Council Outlay 14, B3): a manager types the cargo of an enquiry and what it
 // would earn per W/M before the box, and sees the box and the sailing's profit with it. A sum on the
-// screen only: nothing is saved, no shipment is made. Shown once the box has costs to share.
-export function WhatIfCard({ earnings, box, currency }: { earnings: SailingEarnings; box: BoxUtilization | null; currency: string }) {
+// screen only: nothing is saved, no shipment is made. Shown once the box has costs to share. The rate
+// is asked for in the currency the sum is made in (boxCurrency), so a rate is never added to a profit
+// in another one. Its fields read a decimal comma ("85,5") as the app's number fields do.
+export function WhatIfCard({ earnings, box }: { earnings: SailingEarnings; box: BoxUtilization | null }) {
+  const currency = boxCurrency(earnings.totals);
   const [cbm, setCbm] = useState<number | null>(null);
   const [kg, setKg] = useState<number | null>(null);
   const [rate, setRate] = useState<number | null>(null);
@@ -26,15 +29,15 @@ export function WhatIfCard({ earnings, box, currency }: { earnings: SailingEarni
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           <label className="flex flex-col gap-1.5">
             <span className={LABEL_TEXT}>Volume (cbm)</span>
-            <InputNumber id="what-if-cbm" aria-label="Volume in cbm" min={0} max={500} precision={2} decimalSeparator="." value={cbm} onChange={setCbm} className="!w-full" />
+            <DecimalInput id="what-if-cbm" aria-label="Volume in cbm" min={0} max={500} precision={2} value={cbm} onChange={setCbm} className="!w-full" />
           </label>
           <label className="flex flex-col gap-1.5">
             <span className={LABEL_TEXT}>Weight (kg)</span>
-            <InputNumber id="what-if-kg" aria-label="Weight in kg" min={0} max={100000} precision={0} value={kg} onChange={setKg} className="!w-full" />
+            <DecimalInput id="what-if-kg" aria-label="Weight in kg" min={0} max={100000} precision={0} value={kg} onChange={setKg} className="!w-full" />
           </label>
           <label className="flex flex-col gap-1.5">
             <span className={LABEL_TEXT}>Earns per W/M, before the box ({currency})</span>
-            <InputNumber id="what-if-rate" aria-label={`Earning per W/M in ${currency}`} min={0} max={1000000} precision={2} decimalSeparator="." value={rate} onChange={setRate} className="!w-full" />
+            <DecimalInput id="what-if-rate" aria-label={`Earning per W/M in ${currency}`} min={0} max={1000000} precision={2} value={rate} onChange={setRate} className="!w-full" />
           </label>
         </div>
         {result ? (
@@ -45,12 +48,12 @@ export function WhatIfCard({ earnings, box, currency }: { earnings: SailingEarni
               {result.over && <span className="font-semibold text-red-600"> - over its limit</span>}.
             </p>
             <p className="m-0">
-              It earns <span className="font-semibold text-slate-900">{money(result.earns, result.currency)}</span> before the box and would carry {money(result.share, result.currency)} of the box costs, which the other shipments
-              then no longer carry: <span className={`font-semibold ${result.after < 0 ? "text-red-600" : "text-slate-900"}`}>{money(result.after, result.currency)}</span> after its share.
+              It earns <span className="font-semibold text-slate-900">{fmtMoney(result.earns, result.currency, true)}</span> before the box and would carry {fmtMoney(result.share, result.currency, true)} of the box costs, which the other shipments
+              then no longer carry: <span className={`font-semibold ${result.after < 0 ? "text-red-600" : "text-slate-900"}`}>{fmtMoney(result.after, result.currency, true)}</span> after its share.
             </p>
             <p className="m-0">
-              The sailing&apos;s profit goes from <span className={result.profitNow < 0 ? "text-red-600" : ""}>{money(result.profitNow, result.currency)}</span> to{" "}
-              <span className={`font-semibold ${result.profitThen < 0 ? "text-red-600" : "text-slate-900"}`}>{money(result.profitThen, result.currency)}</span>.
+              The sailing&apos;s profit goes from <span className={result.profitNow < 0 ? "text-red-600" : ""}>{fmtMoney(result.profitNow, result.currency, true)}</span> to{" "}
+              <span className={`font-semibold ${result.profitThen < 0 ? "text-red-600" : "text-slate-900"}`}>{fmtMoney(result.profitThen, result.currency, true)}</span>.
             </p>
           </div>
         ) : (

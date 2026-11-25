@@ -64,6 +64,8 @@ export function buildRowData(shipment: ShipmentItem): Record<string, string> {
     // stored field (Total Weight In Tons, Total Volume In CBM) still passes that stored
     // value on: it is what the column shows when there are no dimensions to compute from.
     if (col.apiField) {
+      // The sailing comes with its ids: automations and conditional formatting get its name, as its cell shows it.
+      if (col.key === "sailing") { data[col.key] = getFieldValue(shipment, col.key); continue; }
       const val = shipment[col.apiField as keyof ShipmentItem];
       if (val == null) { data[col.key] = ""; }
       else if (typeof val === "object") { data[col.key] = JSON.stringify(val); }
@@ -204,9 +206,14 @@ export function invalidateAfterShipmentUpdate(queryClient: QueryClient, data: co
   invalidateCoLoadingViews(queryClient, BOX_FIELDS.some((field) => data[field] !== undefined));
 }
 
-/** A shipment linked to a master job or taken off one: the shipments, and what the master jobs show of their houses. */
+/**
+ * A shipment linked to a master job or taken off one: the shipments, what the master jobs show of
+ * their houses, and the Co-Loading sailings' views - a sailing's Master Job card lists which of its
+ * shipments are on it, and Earnings marks one in a master job.
+ */
 export function invalidateAfterMasterJobLink(queryClient: QueryClient) {
   invalidateMasterJobViews(queryClient);
+  queryClient.invalidateQueries({ queryKey: [...CO_LOADING_KEY, "sailing"] });
   return queryClient.invalidateQueries({ queryKey: ["shipments"] });
 }
 

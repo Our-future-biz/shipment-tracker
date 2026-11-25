@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { QueryClient } from "@tanstack/react-query";
-import { invalidateAfterMasterJobLink, invalidateAfterShipmentUpdate, refreshShipmentCopies, relinkCargo } from "./useShipments";
+import { buildRowData, getFieldValue, invalidateAfterMasterJobLink, invalidateAfterShipmentUpdate, refreshShipmentCopies, relinkCargo, type ShipmentItem } from "./useShipments";
 
 /** The keys a write marked stale, as the query client was asked. */
 function invalidatedBy(write: (queryClient: QueryClient) => unknown): unknown[] {
@@ -40,6 +40,24 @@ describe("what a shipment write leaves stale", () => {
 
 afterEach(() => {
   vi.useRealTimers();
+});
+
+describe("the Co-Loading sailing a job is on (Council Outlay 14, A1)", () => {
+  const onSailing = { id: "j1", jobNumber: "CZLCL00000001", status: "Booking Confirmed", sailing: { id: "s1", serviceId: "svc", name: "WEEK 51" } } as unknown as ShipmentItem;
+  const onNone = { id: "j2", jobNumber: "CZLCL00000002", sailing: null } as unknown as ShipmentItem;
+
+  it("shows the sailing's name in its cell, nothing for a job on none", () => {
+    expect(getFieldValue(onSailing, "sailing")).toBe("WEEK 51");
+    expect(getFieldValue(onNone, "sailing")).toBe("");
+    expect(getFieldValue({ id: "j3" } as unknown as ShipmentItem, "sailing")).toBe("");
+  });
+
+  it("hands automations and conditional formatting the sailing's name, not its ids as JSON", () => {
+    expect(buildRowData(onSailing).sailing).toBe("WEEK 51");
+    expect(buildRowData(onNone).sailing).toBe("");
+    // The other fields as before.
+    expect(buildRowData(onSailing).status).toBe("Booking Confirmed");
+  });
 });
 
 describe("refreshShipmentCopies", () => {

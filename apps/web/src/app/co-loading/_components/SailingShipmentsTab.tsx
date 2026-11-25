@@ -31,7 +31,8 @@ import { downloadCsv } from "@/lib/csv";
 import { loadListCells, loadListFileName, loadListOf } from "../_lib/loadList";
 import { downloadLoadListPdf } from "../_lib/loadListPdf";
 import { linkNeedsReason, nextSailingAfter, SAILING_STAGE_LABEL, sailingTitle, stageHasLeft, stageOf, statusBeforeDeparture } from "../_lib/sailings";
-import { CopyToShipmentsModal, copyResultWords } from "./CopyToShipmentsModal";
+import { copyResultWords, differsWords } from "../_lib/shipmentFacts";
+import { CopyToShipmentsModal } from "./CopyToShipmentsModal";
 import { MoveShipmentModal } from "./MoveShipmentModal";
 
 // The picker's head stays put while its rows scroll, as the master job's picker does.
@@ -70,8 +71,11 @@ export function SailingShipmentsTab({
   // The biggest first, to find what to roll when a box is over; null: as the list comes.
   const [sortBy, setSortBy] = useState<"weightKg" | "volumeCbm" | null>(null);
   // The sailing cargo is rolled to: the next one of the service still to come.
-  const { sailings: siblings } = useCoLoadingSailings(sailing.serviceId);
+  const { sailings: siblings, isLoading: siblingsLoading, isError: siblingsFailed, error: siblingsError } = useCoLoadingSailings(sailing.serviceId);
   const next = useMemo(() => nextSailingAfter(sailing, siblings, businessToday()), [sailing, siblings]);
+  // The list holds this sailing itself once read: empty, it was not read, and "no other sailing to come" would be a guess.
+  const siblingsUnread = siblings.length === 0 && (siblingsLoading || siblingsFailed);
+  const rollHint = siblingsFailed && siblings.length === 0 ? `The service's sailings could not be read - ${apiErrorMessage(siblingsError)}.` : siblingsUnread ? "Reading the service's sailings…" : next ? "" : "This service has no other sailing still to come: create the next one on the service's page.";
   const [toMove, setToMove] = useState<ShipmentItem | null>(null);
   // The figures are the box's own (Box utilization): each shipment's cargo lines, else its typed
   // totals, in kg. While they are read, the same rule is applied to the shipment here (boxCargoOf).
@@ -100,9 +104,11 @@ export function SailingShipmentsTab({
   );
   const { removed } = useSailingRemoved(sailing.id);
   // The sailing's facts beside each shipment's own (Council Outlay 14, A3): what a copy would change, and a port that differs.
-  const { facts, copy } = useSailingShipmentFacts(sailing.id);
+  const { facts, isLoading: factsLoading, isError: factsFailed, error: factsError, copy } = useSailingShipmentFacts(sailing.id);
   const factsOf = new Map(facts.map((f) => [f.shipmentId, f]));
   const toCopy = facts.filter((f) => !f.skipped && f.changes.length > 0).length;
+  // Not read: then nothing is known to differ, which is not "nothing differs".
+  const factsUnread = factsFailed ? `What the shipments hold could not be read - ${apiErrorMessage(factsError)}.` : null;
   const [copying, setCopying] = useState(false);
   const [listBusy, setListBusy] = useState(false);
   // The load list (A8) is made from what is on screen: the shipments' own fields and the box's figures.
@@ -114,8 +120,9 @@ export function SailingShipmentsTab({
       if (kind === "pdf") await downloadLoadListPdf(list);
       else downloadCsv(`${loadListFileName(list.title)}.csv`, loadListCells(list));
       message.success(`${list.title} downloaded`);
-    } catch (err) {
-      message.error(`The load list was not made - ${apiErrorMessage(err)}`);
+    } catch {
+      // Made in the browser, not by the server: there are no server's words to show.
+      message.error(`The load list's ${kind === "pdf" ? "PDF" : "CSV file"} could not be made. Try again.`);
     } finally {
       setListBusy(false);
     }
@@ -151,8 +158,8 @@ export function SailingShipmentsTab({
               Load list <DownOutlined className="text-[10px]" />
             </Button>
           </Dropdown>
-          <Tooltip title={closed ? closedHint : "The sailing's vessel, voyage, departure and cut-off, written to its shipments after a preview"}>
-            <Button size="small" icon={<CopyOutlined />} disabled={closed || shipments.length === 0} onClick={() => setCopying(true)}>
+          <Tooltip title={closed ? closedHint : factsUnread ?? (factsLoading ? "Reading what the shipments hold…" : "The sailing's vessel, voyage, departure and cut-off, written to its shipments after a preview")}>
+            <Button size="small" icon={<CopyOutlined />} disabled={closed || shipments.length === 0 || factsLoading || factsFailed} onClick={() => setCopying(true)}>
               Copy to shipments{toCopy > 0 ? ` (${toCopy})` : ""}
             </Button>
           </Tooltip>
@@ -185,11 +192,17 @@ export function SailingShipmentsTab({
           . Open each to set its status.
         </div>
       )}
+      {/* The comparison with the sailing was not read: no "differs" mark below means nothing then. */}
+      {factsUnread && linked.length > 0 && (
+        <div className="border-b border-amber-200 bg-amber-50 px-4 py-2 text-[13px] text-amber-800" role="alert">
+          {factsUnread} Which shipments differ from the sailing is not shown until it can be.
+        </div>
+      )}
       {/* What is ticked, and what can be done with it together. */}
       {ticked.length > 0 && (
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-indigo-100 bg-indigo-50/60 px-4 py-2" role="status">
           <span className="text-[13px] font-medium text-slate-800">{ticked.length === 1 ? "1 shipment ticked" : `${ticked.length} shipments ticked`}</span>
-          <Tooltip title={closed ? closedHint : next ? "" : "This service has no other sailing still to come: create the next one on the service's page."}>
+          <Tooltip title={closed ? closedHint : rollHint}>
             <Button size="small" type="primary" disabled={closed || !next} onClick={() => setBulk("roll")}>
               {next ? `Roll to ${sailingTitle(next)}` : "Roll to next sailing"}
             </Button>
@@ -238,9 +251,7 @@ export function SailingShipmentsTab({
               const isTicked = ticked.includes(s.id);
               // How the shipment differs from its sailing: a port (never copied), or what a copy would change.
               const fact = factsOf.get(s.id);
-              const differs = fact
-                ? [...fact.mismatches.map((m) => `${m.label}: ${m.shipment}, the sailing's is ${m.sailing}`), ...(fact.skipped ? [] : fact.changes.map((c) => `${c.label}: ${c.old || "empty"}, the sailing's is ${c.next}`))].join(" · ")
-                : "";
+              const differs = fact ? differsWords(fact) : "";
               return (
               <tr key={s.id} className={`${part && !part.counted ? "text-slate-400" : ""} ${isTicked ? "bg-indigo-50/60" : ""}`}>
                 <td className={TD}>

@@ -429,10 +429,32 @@ describe("a sailing's profit read off its earnings, for its header", () => {
 
 describe("the service's minimum and its trend (Council Outlay 14, B4 and B5)", () => {
   it("says how the shipments stand against the minimum, and nothing while there is none", () => {
-    expect(floorWords({ minEarningPerWm: null, belowFloor: 0 })).toBe("");
-    expect(floorWords({})).toBe("");
-    expect(floorWords({ minEarningPerWm: 85.5, belowFloor: 0 })).toBe("Every shipment earns at least the service's minimum of 85.50 EUR per W/M before the box.");
-    expect(floorWords({ minEarningPerWm: 85.5, belowFloor: 2 })).toBe("2 shipments earn less than the service's minimum of 85.50 EUR per W/M before the box.");
+    const judged = [row(), row({ shipmentId: "2" })];
+    expect(floorWords({ minEarningPerWm: null, belowFloor: 0, moneyKnown: true, rows: judged })).toBe("");
+    expect(floorWords({ moneyKnown: true, rows: judged })).toBe("");
+    expect(floorWords({ minEarningPerWm: 85.5, belowFloor: 0, moneyKnown: true, rows: judged })).toBe("Every shipment earns at least the service's minimum of 85.50 EUR per W/M before the box.");
+    expect(floorWords({ minEarningPerWm: 85.5, belowFloor: 2, moneyKnown: true, rows: judged })).toBe("2 shipments earn less than the service's minimum of 85.50 EUR per W/M before the box.");
+    // A cancelled shipment is not one of "every shipment".
+    expect(floorWords({ minEarningPerWm: 85.5, belowFloor: 0, moneyKnown: true, rows: [...judged, row({ counted: false, moneyKnown: false })] })).toMatch(/^Every shipment earns at least/);
+  });
+
+  it("says 'every shipment' only when every counted one was judged, and nothing while the money is not known", () => {
+    const min = { minEarningPerWm: 85.5, belowFloor: 0, moneyKnown: true };
+    // What the server skips: money not read, no EUR value, no W/M, an amount left out for want of a rate, no selling lines.
+    const skipped = [row({ moneyKnown: false }), row({ beforeBox: amt(20000, null) }), row({ freightTons: 0 }), row({ missingCurrencies: ["USD"] }), row({ noSelling: true })];
+    for (const r of skipped) {
+      const words = floorWords({ ...min, rows: [row(), r] });
+      expect(words).not.toMatch(/Every shipment/);
+      expect(words).toBe("1 shipment could not be judged: no selling lines, money not read, an amount with no exchange rate, or no weight and volume. None of the others earns less than the service's minimum of 85.50 EUR per W/M before the box.");
+    }
+    expect(floorWords({ ...min, rows: [row({ noSelling: true }), row({ freightTons: 0 })] })).toBe(
+      "No shipment can be set against the service's minimum of 85.50 EUR per W/M yet. 2 shipments could not be judged: no selling lines, money not read, an amount with no exchange rate, or no weight and volume.",
+    );
+    expect(floorWords({ ...min, belowFloor: 1, rows: [row(), row({ noSelling: true })] })).toBe(
+      "1 shipment earns less than the service's minimum of 85.50 EUR per W/M before the box. 1 shipment could not be judged: no selling lines, money not read, an amount with no exchange rate, or no weight and volume.",
+    );
+    expect(floorWords({ ...min, moneyKnown: false, rows: [row()] })).toBe("");
+    expect(floorWords({ ...min, rows: [] })).toBe("");
   });
 
   it("says the trend in one sentence, and what of it is known", () => {
@@ -441,6 +463,9 @@ describe("the service's minimum and its trend (Council Outlay 14, B4 and B5)", (
     expect(trendWords({ ...base, profitKnown: 5, breakEvenKnown: 6 })).toBe("Last 8 sailings: average fill 62%, average profit 1,240.00 EUR (of 5 known), 2 below break-even (of 6 known).");
     expect(trendWords({ sailings: [null], averageFillPct: null, averageProfitEur: null, profitKnown: 0, belowBreakEven: 0, breakEvenKnown: 0 })).toBe("Last sailing: fill not known, profit not known, break-even not known.");
     expect(trendWords({ ...base, sailings: [] })).toBe("No sailing of this service has left yet.");
+    // An average that rounds to nothing is no loss: never "-0.00 EUR".
+    expect(trendWords({ ...base, averageProfitEur: -0 })).toBe("Last 8 sailings: average fill 62%, average profit 0.00 EUR, 2 below break-even.");
+    expect(trendWords({ ...base, averageProfitEur: -1240.5 })).toContain("average profit -1,240.50 EUR");
   });
 
   it("points an arrow against the sailing before, and none where a figure is not known", () => {

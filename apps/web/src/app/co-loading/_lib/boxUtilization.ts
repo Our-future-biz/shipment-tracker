@@ -1,4 +1,5 @@
 import type { interfaces } from "@/lib/api/client";
+import { CANCELLED_STATUS } from "@/lib/enums";
 import { shipmentCargoFigures } from "@/app/shipments/[jobNumber]/tabs/warehouse/remeasuredLines";
 
 // The words and figures of a sailing's Box utilization tab (Council Outlay 12). The server works
@@ -234,6 +235,10 @@ export function oddInBox(serviceMode: string, shipment: { freightMode?: string |
   if (serviceMode === "sea_lcl") return ["Full Load", "Project Shipment"].find((name) => same(load, name)) ?? null;
   return null;
 }
+
+/** The shipments of a list still waiting for a box: not the cancelled ones, nor those of another kind than the box is for. */
+export const waitingForBox = <T extends { status?: string | null; freightMode?: string | null; loadType?: string | null }>(shipments: readonly T[], serviceMode: string): T[] =>
+  shipments.filter((s) => s.status !== CANCELLED_STATUS && !oddInBox(serviceMode, s));
 
 /** Why the picked shipments cannot be linked as they are: some are not what the box is for (the server refuses them: Council Review 7, K3). null when none is odd. */
 export function oddWarning(kinds: string[]): string | null {

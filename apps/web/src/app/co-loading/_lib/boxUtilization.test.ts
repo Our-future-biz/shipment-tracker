@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { boxCargoOf, breakEvenMark, fillOfBox, fillWords, fullWords, meterBar, meterScale, meterTone, meterWords, missingNote, noVolumeWords, containersWords, cutoffWarning, oddInBox, oddWarning, overfillWarning, removedReasonWords, rowNotes, shareWords, sinceLinkedWords, specialCargoOf, usedOfLimit, type BoxMeter, type BoxRow, type BoxUtilization } from "./boxUtilization";
+import { CANCELLED_STATUS } from "@/lib/enums";
+import { boxCargoOf, breakEvenMark, fillOfBox, fillWords, fullWords, meterBar, meterScale, meterTone, meterWords, missingNote, noVolumeWords, containersWords, cutoffWarning, oddInBox, oddWarning, overfillWarning, removedReasonWords, rowNotes, shareWords, sinceLinkedWords, specialCargoOf, usedOfLimit, waitingForBox, type BoxMeter, type BoxRow, type BoxUtilization } from "./boxUtilization";
 
 const HC = { containerType: "40' HC", insideCbm: 76.4, planningCbm: 64.9, standardKg: 26200, heavyTestedKg: 28400, maxKg: 28400, inlandKg: null as number | null, planningPct: 85, containers: 1 };
 const OT = { containerType: "40' OT", insideCbm: 67.3, planningCbm: 57.2, standardKg: 26600, heavyTestedKg: null, maxKg: 28550, inlandKg: null, planningPct: 85, containers: 1 };
@@ -202,6 +203,20 @@ describe("a shipment of another kind than the box is for", () => {
     // Read trimmed and in any case, as the server reads them.
     expect(oddInBox("sea_lcl", { freightMode: " sea freight ", loadType: "consolidation" })).toBeNull();
     expect(oddInBox("sea_lcl", { freightMode: "SEA FREIGHT", loadType: " full load" })).toBe("Full Load");
+  });
+
+  it("is not among the shipments waiting for a box, nor is a cancelled one", () => {
+    const waiting = [
+      { id: "lcl", status: "Booking Confirmed", freightMode: "Sea Freight", loadType: "Consolidation" },
+      { id: "cancelled", status: CANCELLED_STATUS, freightMode: "Sea Freight", loadType: "Consolidation" },
+      { id: "air", status: "Booking Confirmed", freightMode: "Air Freight", loadType: "Consolidation" },
+      { id: "fcl", status: "Booking Confirmed", freightMode: "Sea Freight", loadType: "Full Load" },
+      { id: "bare", status: null, freightMode: null, loadType: null },
+    ];
+    expect(waitingForBox(waiting, "sea_lcl").map((s) => s.id)).toEqual(["lcl", "bare"]);
+    // A full load waits for a box of a service that takes full loads.
+    expect(waitingForBox(waiting, "sea_fcl").map((s) => s.id)).toEqual(["lcl", "fcl", "bare"]);
+    expect(waitingForBox([], "sea_lcl")).toEqual([]);
   });
 
   it("is remarked on in its row, and is not linked", () => {

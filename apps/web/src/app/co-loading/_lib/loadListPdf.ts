@@ -37,6 +37,22 @@ const toHelvetica = (v: string) =>
     .replace(/Ł/g, "L")
     .replace(/[^ -~ -ÿ]/g, "?");
 
+/** The height of a line of a row, in mm. */
+const LINE_H = 3.4;
+/** The most lines a row may have and still fit on a page under the headings (the footer kept clear). */
+const MAX_LINES = Math.floor((PAGE_H - 16 - MARGIN - 7 - 2.6) / LINE_H);
+/** What stands at the end of a cell cut short: the reader sees that more was there. */
+export const CUT_MARK = "… (cut)";
+
+/**
+ * A cell's lines as its row prints them: all of them - the row grows to the longest cell, so a long
+ * delivery address keeps its end on the list handed over. Only a cell longer than a whole page is
+ * cut, and its last line says so.
+ */
+export function cellLines(lines: readonly string[], max = MAX_LINES): string[] {
+  return lines.length <= max ? [...lines] : [...lines.slice(0, max - 1), CUT_MARK];
+}
+
 const cellsOf = (r: LoadListRow): string[] => [
   String(r.no),
   r.jobNumber,
@@ -97,10 +113,9 @@ export function buildLoadListPdf(list: LoadList, fonts?: PdfFonts): jsPDF {
     LOAD_LIST_COLUMNS.forEach((title, i) => doc.text(clean(title.toUpperCase()), RIGHT.has(i) ? xs[i]! + WIDTHS[i]! - 1.5 : xs[i]! + 1.5, y + 4.6, { align: RIGHT.has(i) ? "right" : "left" }));
     y += 7;
   };
-  const LINE_H = 3.4;
   const drawRow = (cells: string[], bold = false) => {
     font(bold ? "bold" : "normal", 7.5);
-    const wrapped = cells.map((cell, i) => (cell ? (doc.splitTextToSize(clean(cell), WIDTHS[i]! - 3) as string[]).slice(0, 6) : []));
+    const wrapped = cells.map((cell, i) => (cell ? cellLines(doc.splitTextToSize(clean(cell), WIDTHS[i]! - 3) as string[]) : []));
     const height = Math.max(1, ...wrapped.map((w) => w.length)) * LINE_H + 2.6;
     if (y + height > PAGE_H - 16) {
       doc.addPage();

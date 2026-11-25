@@ -8,6 +8,7 @@ import { apiErrorMessage } from "@/lib/api";
 import { formatDateTime } from "@/lib/date";
 import { useMessages } from "@/lib/toast";
 import { CARD, HINT } from "@/styles/ui";
+import { noteChangedMeanwhile, noteEditorOnRead, noteRequest, type NoteEditor } from "../_lib/sailingLog";
 import { CustomersToldCard } from "./CustomersToldCard";
 
 const NOTE_MAX = 2000;
@@ -30,10 +31,12 @@ const KIND_DOT: Record<string, string> = {
 export function SailingLogTab({ sailingId, closed }: { sailingId: string; closed: boolean }) {
   const { log, isLoading, isError, tick, note } = useSailingLog(sailingId);
   const message = useMessages();
-  const [text, setText] = useState("");
+  // The box and the stored note it started from: Save sends that one, so a colleague's change meanwhile is refused, not written over.
+  const [editor, setEditor] = useState<NoteEditor>({ text: "", startedFrom: "" });
   const stored = log?.note ?? "";
-  // The stored note fills the box when it is read, and again after a save.
-  useEffect(() => setText(stored), [stored]);
+  // The stored note fills the box when it is read, and after a save; what is typed meanwhile is kept (noteEditorOnRead).
+  useEffect(() => setEditor((now) => noteEditorOnRead(now, stored)), [stored]);
+  const text = editor.text;
 
   if (isLoading)
     return (
@@ -57,13 +60,16 @@ export function SailingLogTab({ sailingId, closed }: { sailingId: string; closed
     }
   };
   const saveNote = async () => {
+    const request = noteRequest(editor);
     try {
-      await note.mutateAsync(text.trim());
-      message.success(text.trim() ? "Note saved" : "Note cleared");
+      await note.mutateAsync(request);
+      message.success(request.note ? "Note saved" : "Note cleared");
     } catch (err) {
+      // In the server's words - a colleague changed the note meanwhile, naming who. The typed text stays in the box.
       message.error(apiErrorMessage(err));
     }
   };
+  const changedMeanwhile = noteChangedMeanwhile(editor, stored);
   const closedHint = closed ? "The service is closed: nothing changes until a manager reopens it." : "";
 
   return (
@@ -97,8 +103,26 @@ export function SailingLogTab({ sailingId, closed }: { sailingId: string; closed
             disabled={closed}
             placeholder="What whoever takes this box over needs to know: who was promised what, what is still open."
             value={text}
-            onChange={(e) => setText(e.target.value)}
+            onChange={(e) => setEditor((now) => ({ ...now, text: e.target.value }))}
           />
+          {/* A colleague's note stored since this box started: theirs beside what is typed, nothing lost. */}
+          {changedMeanwhile && (
+            <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[13px] text-amber-800" role="status">
+              <p className="m-0 font-medium">
+                {log.noteByName || "Somebody"} changed the note meanwhile{log.noteAt ? ` (${formatDateTime(log.noteAt)})` : ""}
+                {stored ? ". Their note:" : ", clearing it."}
+              </p>
+              {stored && <p className="m-0 mt-1 whitespace-pre-wrap text-slate-800">{stored}</p>}
+              <div className="mt-2 flex flex-wrap gap-2">
+                <Button size="small" disabled={closed} onClick={() => setEditor({ text: stored, startedFrom: stored })}>
+                  Use their note
+                </Button>
+                <Button size="small" disabled={closed} onClick={() => setEditor((now) => ({ ...now, startedFrom: stored }))}>
+                  Keep mine, to save over theirs
+                </Button>
+              </div>
+            </div>
+          )}
           <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
             <span className={HINT}>{log.noteAt ? `Last written by ${log.noteByName || "somebody"} · ${formatDateTime(log.noteAt)}` : closedHint || "Nobody has written a note yet."}</span>
             <Button type="primary" disabled={closed || text.trim() === stored} loading={note.isPending} onClick={saveNote}>

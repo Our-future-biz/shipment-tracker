@@ -10,6 +10,7 @@ import type { interfaces } from "@/lib/api/client";
 import { formatDateTime } from "@/lib/date";
 import { useMessages } from "@/lib/toast";
 import { EMPTY_STATE, HINT, LINK, REF, TD, TH } from "@/styles/ui";
+import { toTell } from "../_lib/sailingLog";
 
 type Row = interfaces.SailingNoticeRow;
 const CHANNELS = [
@@ -18,9 +19,6 @@ const CHANNELS = [
   { value: "other", label: "Another way" },
 ];
 const CHANNEL_WORD: Record<string, string> = { email: "e-mail", phone: "phone", other: "another way" };
-
-/** The rows not told yet: what the tick-all ticks, and what the count says is still to do. */
-export const toTell = (rows: readonly Row[]): Row[] => rows.filter((r) => r.told === null);
 
 function NoticeList({ kind, rows, sailingId, intro, empty }: { kind: "sailed" | "rolled"; rows: Row[]; sailingId: string; intro: string; empty: string }) {
   const { record } = useSailingNotices(sailingId);

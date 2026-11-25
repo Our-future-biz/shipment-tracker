@@ -3,8 +3,10 @@
 // it is tested without React. Everything here is an estimate from today's figures, and says so.
 //
 // "Earned before box" is a shipment's selling less its own inland delivery and other costs: what it
-// brings toward the box. All money is in the tab's main currency (EUR, or CZK where no EUR rate is known).
+// brings toward the box. All money is in one currency, boxCurrency's: EUR where both the earning
+// before the box and the box costs have an EUR value, else CZK - never the two mixed.
 
+import { fmtMoney } from "@/lib/money";
 import type { BoxUtilization } from "./boxUtilization";
 import type { EarningsAmount, SailingEarnings } from "./earnings";
 
@@ -16,6 +18,25 @@ const round2 = (n: number) => Math.round(n * 100) / 100;
 /** Two amounts in one currency: EUR where both have it, else CZK. */
 function inOne(a: EarningsAmount, b: EarningsAmount): { a: number; b: number; currency: "EUR" | "CZK" } {
   return a.eur !== null && b.eur !== null ? { a: a.eur, b: b.eur, currency: "EUR" } : { a: a.czk, b: b.czk, currency: "CZK" };
+}
+
+/**
+ * The one currency a box's figures are set against each other in - what the free space must earn,
+ * "What if I add this", Earned / W/M and the box's cost per W/M: EUR where the earning before the box
+ * and the box costs both have it, else CZK. Without box costs, the earning's own.
+ */
+export function boxCurrency(t: { beforeBox: EarningsAmount; boxCosts: EarningsAmount | null }): "EUR" | "CZK" {
+  return inOne(t.beforeBox, t.boxCosts ?? t.beforeBox).currency;
+}
+
+/** An amount in that currency. */
+const valueIn = (a: EarningsAmount, currency: "EUR" | "CZK"): number | null => (currency === "EUR" ? a.eur : a.czk);
+
+/** What the box costs for each W/M loaded, the bar a shipment's own earning per W/M is read against; null without box costs or a W/M. */
+export function boxPerWmOf(t: { freightTons: number; beforeBox: EarningsAmount; boxCosts: EarningsAmount | null }): { value: number; currency: "EUR" | "CZK" } | null {
+  if (!t.boxCosts || !(t.freightTons > 0)) return null;
+  const { b: boxCost, currency } = inOne(t.beforeBox, t.boxCosts);
+  return { value: round2(boxCost / t.freightTons), currency };
 }
 
 /**
@@ -87,30 +108,33 @@ export function sellRestOf(e: SailingEarnings, box: BoxUtilization | null): Sell
   };
 }
 
-const money = (v: number, currency: string) => `${v.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currency}`;
 const wm = (v: number) => v.toLocaleString("en-US", { maximumFractionDigits: 1 });
 
 /** "Sell the rest at" in sentences: the room, the rate that covers the box, the rates for the margins. */
 export function sellRestWords(s: SellRest): string[] {
   const room = `Room for about ${wm(s.freeWm)} W/M more with the same mix of cargo (${s.limitedBy} fills first).`;
-  if (s.freeWm <= 0) return [s.shortfall > 0 ? `No room left to sell: the box is full by ${s.limitedBy}, and ${money(s.shortfall, s.currency)} of its costs are not covered.` : `No room left to sell: the box is full by ${s.limitedBy}.`];
+  if (s.freeWm <= 0) return [s.shortfall > 0 ? `No room left to sell: the box is full by ${s.limitedBy}, and ${fmtMoney(s.shortfall, s.currency, true)} of its costs are not covered.` : `No room left to sell: the box is full by ${s.limitedBy}.`];
   const first =
     s.shortfall <= 0
       ? `${room} The box is paid for: whatever the rest earns before the box is profit.`
-      : `${room} To break even the rest must earn at least ${money(s.breakEvenRate ?? 0, s.currency)} per W/M before the box.`;
+      : `${room} To break even the rest must earn at least ${fmtMoney(s.breakEvenRate ?? 0, s.currency, true)} per W/M before the box.`;
   const rates = s.margins.filter((m) => m.rate !== null);
   const out = [first];
   // A margin today's cargo already brings needs nothing of the rest: said so, not as a rate of 0.
-  if (rates.length > 0) out.push(`For a margin of ${rates.map((m) => `${m.pct}%: ${m.rate === 0 ? "reached already" : `${money(m.rate!, s.currency)} per W/M`}`).join(" · ")}.`);
-  out.push(`Today's cargo earns ${money(s.earnedPerWm, s.currency)} per W/M; the box costs ${money(s.boxPerWm, s.currency)} per loaded W/M.`);
+  if (rates.length > 0) out.push(`For a margin of ${rates.map((m) => `${m.pct}%: ${m.rate === 0 ? "reached already" : `${fmtMoney(m.rate!, s.currency, true)} per W/M`}`).join(" · ")}.`);
+  out.push(`Today's cargo earns ${fmtMoney(s.earnedPerWm, s.currency, true)} per W/M; the box costs ${fmtMoney(s.boxPerWm, s.currency, true)} per loaded W/M.`);
   return out;
 }
 
-/** What a shipment earns per W/M before the box, in the tab's main currency; null where it cannot be said (no W/M, money not known, cancelled). */
-export function earnedPerWm(row: { counted: boolean; moneyKnown: boolean; freightTons: number; beforeBox: EarningsAmount }): { value: number; currency: "EUR" | "CZK" } | null {
+/**
+ * What a shipment earns per W/M before the box, in the given currency (boxCurrency's), so every row
+ * reads against the box's cost per W/M in the same one; null where it cannot be said (no W/M, money
+ * not known, cancelled, no value in that currency).
+ */
+export function earnedPerWm(row: { counted: boolean; moneyKnown: boolean; freightTons: number; beforeBox: EarningsAmount }, currency: "EUR" | "CZK"): { value: number; currency: "EUR" | "CZK" } | null {
   if (!row.counted || !row.moneyKnown || !(row.freightTons > 0)) return null;
-  const currency = row.beforeBox.eur !== null ? "EUR" : "CZK";
-  return { value: round2((row.beforeBox.eur ?? row.beforeBox.czk) / row.freightTons), currency };
+  const earned = valueIn(row.beforeBox, currency);
+  return earned === null ? null : { value: round2(earned / row.freightTons), currency };
 }
 
 /** A shipment someone thinks of adding: its cargo, and what it would earn per W/M before the box. */
@@ -142,14 +166,17 @@ export interface WhatIf {
 /**
  * "What if I add this" (B3): the box and the money with one more shipment, nothing saved. The box
  * costs stay what they are, so the newcomer's whole earning before the box goes to the profit; its
- * share of the box is the W/M share it would carry, which the others no longer do. Null while there
- * are no box costs to share or the input is no cargo.
+ * share of the box is the W/M share it would carry, which the others no longer do. The rate is taken
+ * in boxCurrency's currency, the one the card asks for it in. Null while there are no box costs to
+ * share or the input is no cargo.
  */
 export function whatIfOf(e: SailingEarnings, box: BoxUtilization | null, input: WhatIfInput): WhatIf | null {
   if (!e.totals.boxCosts || !e.totals.profit || !box) return null;
   const newWm = Math.max(input.kg / 1000, input.cbm);
   if (!(newWm > 0) || !(input.rate >= 0)) return null;
-  const { a: profitNow, b: boxCost, currency } = inOne(e.totals.profit, e.totals.boxCosts);
+  // The profit as the server works it out (before the box less the box costs), in that one currency.
+  const { a: earned, b: boxCost, currency } = inOne(e.totals.beforeBox, e.totals.boxCosts);
+  const profitNow = earned - boxCost;
   const pct = (meter: BoxUtilization["volume"], more: number) => (meter && meter.limit > 0 ? Math.round(((meter.used + more) / meter.limit) * 100) : null);
   const [volumePct, weightPct] = [pct(box.volume, input.cbm), pct(box.weight, input.kg)];
   const earns = round2(input.rate * newWm);

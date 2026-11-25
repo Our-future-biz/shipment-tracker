@@ -202,12 +202,27 @@ describe("the next sailing, pre-filled (Council Outlay 14, A4)", () => {
     expect(nextSailingStart([{ ...last, vessel: "MSC Anna" }], "weekly", "2026-11-24")?.values).toMatchObject({ vessel: "", voyage: "", departureDate: "2026-12-24" });
     expect(nextSailingStart([last], "ad_hoc", "2026-11-24")?.values).toMatchObject({ vessel: "", cutoffDate: null, departureDate: null, pol: last.pol, containerCount: 2 });
   });
+
+  it("after a pause, goes on week by week until the departure is today or later - never a sailing that has left", () => {
+    // A weekly service whose last sailing left on 1 October: on 25 November the next one is the week of 26 November.
+    const old = { ...last, vessel: "WEEK 40", cutoffDate: "2026-09-28", departureDate: "2026-10-01" };
+    const start = nextSailingStart([old], "weekly", "2026-11-25")!;
+    expect(start.values).toMatchObject({ vessel: "WEEK 48", cutoffDate: "2026-11-23", departureDate: "2026-11-26" });
+    expect(sailingDeparted({ departureDate: start.values.departureDate, stage: "open" }, "2026-11-25")).toBe(false);
+    // A departure of today itself is still to come.
+    expect(nextSailingStart([old], "weekly", "2026-11-26")?.values.departureDate).toBe("2026-11-26");
+    // Bi-weekly: on by 14 days at a time.
+    expect(nextSailingStart([old], "bi_weekly", "2026-11-25")?.values).toMatchObject({ departureDate: "2026-11-26", vessel: "WEEK 48" });
+    // With only a cut-off, the cut-off is what must not be past; the week is counted on by as many steps.
+    expect(nextSailingStart([{ ...old, departureDate: null }], "weekly", "2026-11-25")?.values).toMatchObject({ cutoffDate: "2026-11-30", departureDate: null, vessel: "WEEK 49" });
+  });
 });
 
 describe("the sailing cargo is rolled to (Council Outlay 14, A9)", () => {
   const TODAY = "2026-11-24";
   const s = (id: string, departureDate: string | null, createdAt = "2026-11-01T08:00:00Z") => ({ id, departureDate, createdAt });
-  const all = [s("w48", "2026-11-26"), s("w49", "2026-12-03"), s("w50", "2026-12-10"), s("w47", "2026-11-19"), s("later", null)];
+  // "later" has no date yet and was made after the others.
+  const all = [s("w48", "2026-11-26"), s("w49", "2026-12-03"), s("w50", "2026-12-10"), s("w47", "2026-11-19"), s("later", null, "2026-11-20T08:00:00Z")];
 
   it("is the first one to leave after this one", () => {
     expect(nextSailingAfter(all[1]!, all, TODAY)?.id).toBe("w50");
@@ -223,6 +238,15 @@ describe("the sailing cargo is rolled to (Council Outlay 14, A9)", () => {
     const week53 = s("w53", null, "2026-11-24T08:00:00Z");
     expect(nextSailingAfter(week52, [week52, week53], TODAY)?.id).toBe("w53");
     expect(nextSailingAfter(week53, [week52, week53], TODAY)).toBeNull();
+  });
+
+  it("is, for a dated sailing, never an undated one made before it - an earlier week", () => {
+    const week44 = s("w44", null, "2026-10-01T08:00:00Z");
+    const week45 = s("w45", "2026-11-30", "2026-10-08T08:00:00Z");
+    expect(nextSailingAfter(week45, [week44, week45], TODAY)).toBeNull();
+    // One made after it still is.
+    const week46 = s("w46", null, "2026-10-15T08:00:00Z");
+    expect(nextSailingAfter(week45, [week44, week45, week46], TODAY)?.id).toBe("w46");
   });
 
   it("is none when nothing else is to come", () => {

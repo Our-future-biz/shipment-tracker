@@ -1,5 +1,6 @@
 import type { ShipmentItem } from "@/hooks/useShipments";
 import type { TrackingMilestone } from "@/hooks/useShipmentTracking";
+import { sailingTitle } from "@/app/co-loading/_lib/sailings";
 import { formatDate } from "@/lib/date";
 import { shipmentEmailSubject } from "../../../_lib/shipmentEmail";
 
@@ -67,9 +68,10 @@ const BODY: Record<NoticeKindValue, Record<NoticeLanguage, { subject: string; le
     en: { subject: "sailed", lead: "Your shipment {reference} has sailed." },
     cs: { subject: "zásilka odplula", lead: "Vaše zásilka {reference} odplula." },
   },
+  // {sailing}: the sailing it is on now, with its departure. A move writes nothing onto the shipment, so its own ETD is the old sailing's.
   rolled: {
-    en: { subject: "moved to a later sailing", lead: "We are sorry to inform you that your shipment {reference} has been moved to a later sailing. The new dates are below." },
-    cs: { subject: "přesun na pozdější odjezd", lead: "omlouváme se, Vaše zásilka {reference} byla přesunuta na pozdější odjezd. Nové termíny uvádíme níže." },
+    en: { subject: "moved to a later sailing", lead: "We are sorry to inform you that your shipment {reference} has been moved to a later sailing: {sailing}." },
+    cs: { subject: "přesun na pozdější odjezd", lead: "omlouváme se, Vaše zásilka {reference} byla přesunuta na pozdější odjezd: {sailing}." },
   },
 };
 
@@ -90,15 +92,29 @@ const FACT_LABELS: Record<NoticeLanguage, { mode: string; containers: string; ro
 // With no person to name: Czech says hello without a name, English needs someone to be dear.
 const NO_CONTACT: Record<NoticeLanguage, string> = { en: "Sir or Madam", cs: "" };
 
-export type DraftValues = Record<"contact" | "reference" | "eta" | "delivery" | "facts" | "sender", string>;
+export type DraftValues = Record<"contact" | "reference" | "eta" | "delivery" | "facts" | "sender" | "sailing", string>;
 
-/** What each placeholder stands for on this shipment. */
+/** A Co-Loading sailing a shipment was moved to, as a roll notice names it. */
+export interface DraftSailing {
+  vessel: string;
+  voyage: string;
+  departureDate: string | null;
+}
+
+const DEPARTING: Record<NoticeLanguage, string> = { en: "departing", cs: "odjezd" };
+
+/**
+ * What each placeholder stands for on this shipment. `sailing` is the Co-Loading sailing it is on
+ * now, given for a roll notice: a move writes none of the new sailing's dates onto the shipment, so
+ * its ETD is taken from the sailing, and an ETA before that departure - the old sailing's - is left out.
+ */
 export function draftValues(
   shipment: ShipmentItem,
   milestones: readonly TrackingMilestone[],
   language: NoticeLanguage,
   contactName: string,
   sender: string,
+  sailing: DraftSailing | null = null,
 ): DraftValues {
   const row = (key: string) => milestones.find((m) => m.key === key);
   const labels = FACT_LABELS[language];
@@ -106,12 +122,15 @@ export function draftValues(
   const arrived = row("arrived");
   const delivered = row("delivered");
   const containers = (shipment.containers ?? []).map((c) => c.containerNumber).filter(Boolean).join(", ");
+  const fromSailing = sailing !== null && !departed?.actual;
+  const etd = fromSailing ? (sailing.departureDate ?? "") : (departed?.planned ?? "");
+  const etaBeforeEtd = fromSailing && !!etd && !!arrived?.planned && arrived.planned < etd;
   const facts: [string, string][] = [
     [labels.mode, [shipment.freightMode, shipment.tradeDirection].filter(Boolean).join(" ")],
     [labels.containers, containers],
     [labels.route, [shipment.pol, shipment.pod].filter(Boolean).join(" → ")],
-    departed?.actual ? [labels.atd, formatDate(departed.actual)] : [labels.etd, formatDate(departed?.planned)],
-    arrived?.actual ? [labels.ata, formatDate(arrived.actual)] : [labels.eta, formatDate(arrived?.planned)],
+    departed?.actual ? [labels.atd, formatDate(departed.actual)] : [labels.etd, formatDate(etd)],
+    arrived?.actual ? [labels.ata, formatDate(arrived.actual)] : [labels.eta, etaBeforeEtd ? "" : formatDate(arrived?.planned)],
     [labels.hub, formatDate(shipment.etaWarehouse)],
     [labels.delivery, formatDate(delivered?.planned)],
   ];
@@ -122,15 +141,16 @@ export function draftValues(
     delivery: formatDate(delivered?.planned),
     facts: facts.filter(([, value]) => value).map(([label, value]) => `${label}: ${value}`).join("\n"),
     sender,
+    sailing: sailing ? [sailingTitle(sailing), sailing.departureDate ? `${DEPARTING[language]} ${formatDate(sailing.departureDate)}` : ""].filter(Boolean).join(", ") : "",
   };
 }
 
-/** The wording with its placeholders filled in; a line left with nothing to say loses its stray marks. */
+/** The wording with its placeholders filled in; a line left with nothing to say loses its stray marks ("Dear ,", "sailing: ."). */
 export function fillDraft(text: DraftText, values: DraftValues): DraftText {
   const fill = (s: string) => s.replace(/\{(\w+)\}/g, (whole, key: string) => (key in values ? values[key as keyof DraftValues] : whole));
   return {
     subject: fill(text.subject).replace(/ · $/, "").trim(),
-    message: fill(text.message).replace(/ +,/g, ",").replace(/\n{3,}/g, "\n\n"),
+    message: fill(text.message).replace(/ +,/g, ",").replace(/: +\./g, ".").replace(/\n{3,}/g, "\n\n"),
   };
 }
 

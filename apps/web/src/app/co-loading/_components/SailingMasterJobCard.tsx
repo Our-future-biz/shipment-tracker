@@ -60,6 +60,13 @@ export function SailingMasterJobCard({ sailingId, sailingName, closed }: { saili
     }
   };
 
+  // The Link button and Enter in the box: one link at a time, so a second Enter while one is sent sends nothing.
+  const handleLinkMcz = () => {
+    const number = mcz.trim();
+    if (closed || busy || !number) return;
+    void run(() => link.mutateAsync(number), `Master Job linked to ${sailingName}`).then((ok) => ok && setMcz(""));
+  };
+
   return (
     <SectionCard title="Master Job">
       {masterJob ? (
@@ -128,8 +135,8 @@ export function SailingMasterJobCard({ sailingId, sailingName, closed }: { saili
             Create master job
           </Button>
           <span className="text-[13px] text-slate-500">or link an existing one:</span>
-          <Input aria-label="MCZ number of an existing Master Job" className="!w-[190px]" placeholder="MCZ number" maxLength={40} value={mcz} disabled={closed} onChange={(e) => setMcz(e.target.value)} onPressEnter={() => mcz.trim() && void run(() => link.mutateAsync(mcz.trim()), `Master Job linked to ${sailingName}`).then((ok) => ok && setMcz(""))} />
-          <Button disabled={closed || busy || !mcz.trim()} loading={link.isPending} onClick={() => void run(() => link.mutateAsync(mcz.trim()), `Master Job linked to ${sailingName}`).then((ok) => ok && setMcz(""))}>
+          <Input aria-label="MCZ number of an existing Master Job" className="!w-[190px]" placeholder="MCZ number" maxLength={40} value={mcz} disabled={closed} onChange={(e) => setMcz(e.target.value)} onPressEnter={handleLinkMcz} />
+          <Button disabled={closed || busy || !mcz.trim()} loading={link.isPending} onClick={handleLinkMcz}>
             Link
           </Button>
           {closed && <span className={HINT}>{closedHint}</span>}

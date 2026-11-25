@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { BoxUtilization } from "./boxUtilization";
 import type { SailingEarnings } from "./earnings";
-import { earnedPerWm, freeWmOf, sellRestOf, sellRestWords, whatIfOf } from "./sellRest";
+import { boxCurrency, boxPerWmOf, earnedPerWm, freeWmOf, sellRestOf, sellRestWords, whatIfOf } from "./sellRest";
 
 const eur = (v: number) => ({ czk: v * 25, eur: v });
 const meter = (used: number, limit: number) => ({ used, limit, max: limit * 1.1, pct: Math.floor((used / limit) * 100), free: Math.round((limit - used) * 1000) / 1000, state: "room" as const });
@@ -85,18 +85,45 @@ describe("Sell the rest at (Council Outlay 14, B1)", () => {
       "Today's cargo earns 150.00 EUR per W/M; the box costs 225.00 EUR per loaded W/M.",
     ]);
   });
+
+  it("never prints a minus zero", () => {
+    const words = sellRestWords({ currency: "EUR", freeWm: 10, limitedBy: "volume", shortfall: 100, breakEvenRate: 10, margins: [], earnedPerWm: -0.001, boxPerWm: 10 });
+    expect(words.at(-1)).toBe("Today's cargo earns 0.00 EUR per W/M; the box costs 10.00 EUR per loaded W/M.");
+  });
 });
 
 describe("earned per W/M (B2)", () => {
-  it("is a shipment's earning before the box over its W/M", () => {
-    expect(earnedPerWm({ counted: true, moneyKnown: true, freightTons: 9.08, beforeBox: eur(484) })).toEqual({ value: 53.3, currency: "EUR" });
-    expect(earnedPerWm({ counted: true, moneyKnown: true, freightTons: 2, beforeBox: { czk: 5000, eur: null } })).toEqual({ value: 2500, currency: "CZK" });
+  it("is a shipment's earning before the box over its W/M, in the currency asked for", () => {
+    expect(earnedPerWm({ counted: true, moneyKnown: true, freightTons: 9.08, beforeBox: eur(484) }, "EUR")).toEqual({ value: 53.3, currency: "EUR" });
+    expect(earnedPerWm({ counted: true, moneyKnown: true, freightTons: 9.08, beforeBox: eur(484) }, "CZK")).toEqual({ value: 1332.6, currency: "CZK" });
+    expect(earnedPerWm({ counted: true, moneyKnown: true, freightTons: 2, beforeBox: { czk: 5000, eur: null } }, "CZK")).toEqual({ value: 2500, currency: "CZK" });
+    // Never another currency than the one asked for: a row with no EUR value has no EUR figure.
+    expect(earnedPerWm({ counted: true, moneyKnown: true, freightTons: 2, beforeBox: { czk: 5000, eur: null } }, "EUR")).toBeNull();
   });
 
   it("is not said for a cancelled shipment, one with no W/M, or one whose money is not known", () => {
-    expect(earnedPerWm({ counted: false, moneyKnown: true, freightTons: 2, beforeBox: eur(100) })).toBeNull();
-    expect(earnedPerWm({ counted: true, moneyKnown: true, freightTons: 0, beforeBox: eur(100) })).toBeNull();
-    expect(earnedPerWm({ counted: true, moneyKnown: false, freightTons: 2, beforeBox: eur(0) })).toBeNull();
+    expect(earnedPerWm({ counted: false, moneyKnown: true, freightTons: 2, beforeBox: eur(100) }, "EUR")).toBeNull();
+    expect(earnedPerWm({ counted: true, moneyKnown: true, freightTons: 0, beforeBox: eur(100) }, "EUR")).toBeNull();
+    expect(earnedPerWm({ counted: true, moneyKnown: false, freightTons: 2, beforeBox: eur(0) }, "EUR")).toBeNull();
+  });
+});
+
+describe("the box's one currency and its cost per W/M", () => {
+  // The earning before the box has an EUR value, the box costs none (the rates could not be read).
+  const mixed = { freightTons: 20, beforeBox: { czk: 75000, eur: 3000 }, boxCosts: { czk: 112500, eur: null } };
+
+  it("is EUR only where the earning before the box and the box costs both have it", () => {
+    expect(boxCurrency({ beforeBox: eur(3000), boxCosts: eur(4500) })).toBe("EUR");
+    expect(boxCurrency(mixed)).toBe("CZK");
+    expect(boxCurrency({ beforeBox: { czk: 75000, eur: null }, boxCosts: eur(4500) })).toBe("CZK");
+    expect(boxCurrency({ beforeBox: eur(3000), boxCosts: null })).toBe("EUR");
+  });
+
+  it("gives the box's cost per loaded W/M in that currency, never CZK set beside EUR rows", () => {
+    expect(boxPerWmOf({ freightTons: 20, beforeBox: eur(3000), boxCosts: eur(4500) })).toEqual({ value: 225, currency: "EUR" });
+    expect(boxPerWmOf(mixed)).toEqual({ value: 5625, currency: "CZK" });
+    expect(boxPerWmOf({ ...mixed, boxCosts: null })).toBeNull();
+    expect(boxPerWmOf({ ...mixed, freightTons: 0 })).toBeNull();
   });
 });
 
@@ -120,6 +147,17 @@ describe("What if I add this (B3)", () => {
 
   it("takes the tonnes where they are more than the cbm, and says when the box would be over", () => {
     expect(whatIfOf(earnings(), box(20, 13100), { cbm: 2, kg: 14000, rate: 50 })).toMatchObject({ wm: 14, weightPct: 103, over: true, earns: 700 });
+  });
+
+  it("works in CZK, as the card asks for the rate, when the box costs have no EUR value", () => {
+    const e = {
+      totals: { freightTons: 20, selling: { czk: 100000, eur: 4000 }, beforeBox: { czk: 75000, eur: 3000 }, boxCosts: { czk: 112500, eur: null }, profit: { czk: -37500, eur: null } },
+      breakEven: null,
+    } as unknown as SailingEarnings;
+    const r = whatIfOf(e, box(20, 13100), { cbm: 5, kg: 1000, rate: 2500 })!;
+    // The card labels the rate with boxCurrency: the same currency the sum is made in.
+    expect(boxCurrency(e.totals)).toBe("CZK");
+    expect(r).toMatchObject({ currency: "CZK", earns: 12500, share: 22500, profitNow: -37500, profitThen: -25000 });
   });
 
   it("is nothing without box costs or cargo", () => {

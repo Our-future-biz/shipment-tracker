@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Alert, AutoComplete, Button, Input, Radio, Select } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AppModal } from "@/components/AppModal";
+import { useShipmentSailingOnPage } from "@/hooks/useCoLoadingServices";
 import { findContact, useCustomerContacts } from "@/hooks/useCustomerContacts";
 import type { ShipmentItem } from "@/hooks/useShipments";
 import { useTrackingActions, type ShipmentTracking } from "@/hooks/useShipmentTracking";
@@ -79,9 +80,11 @@ export function TellCustomerModal({ shipment, tracking, initialKind, taskKey, on
 
   const contact = useMemo(() => findContact(contacts, shipment.customerPicContactId, shipment.customerPic), [contacts, shipment.customerPicContactId, shipment.customerPic]);
   const contactName = contact ? [contact.firstName, contact.lastName].filter(Boolean).join(" ") || contact.name : (shipment.customerPic ?? "");
+  // The Co-Loading sailing it is on now, as the page's header has read it (no request of its own): a roll notice names it and its departure.
+  const sailingNow = useShipmentSailingOnPage(shipment);
   const values = useMemo(
-    () => draftValues(shipment, tracking.milestones, language, contactName, user?.displayName || user?.email || ""),
-    [shipment, tracking.milestones, language, contactName, user?.displayName, user?.email],
+    () => draftValues(shipment, tracking.milestones, language, contactName, user?.displayName || user?.email || "", kind === "rolled" ? sailingNow : null),
+    [shipment, tracking.milestones, language, contactName, user?.displayName, user?.email, kind, sailingNow],
   );
   const draftKey = `${kind}:${language}`;
 

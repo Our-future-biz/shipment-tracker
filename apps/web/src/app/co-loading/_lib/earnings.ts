@@ -244,12 +244,38 @@ export function invoicedHint(e: SailingEarnings): string {
   return `${Math.min(99, Math.floor((invoiced.czk / selling.czk) * 100))}% invoiced`;
 }
 
-/** The Earnings tab's line about the service's minimum earning per W/M; "" while the service has none (Council Outlay 14, B4). */
-export function floorWords(e: Pick<SailingEarnings, "minEarningPerWm" | "belowFloor">): string {
-  if (e.minEarningPerWm == null) return "";
-  const min = `${e.minEarningPerWm.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} EUR per W/M`;
+/**
+ * Whether a row can be set against the service's minimum earning per W/M, as the server judges it
+ * (api lib/coLoadingServiceMoney): counted, its money read with nothing left out for want of a rate,
+ * selling lines to judge, an EUR value and a W/M. Any other row gets no mark either way.
+ */
+export const floorJudged = (r: Pick<EarningsRow, "counted" | "moneyKnown" | "noSelling" | "missingCurrencies" | "freightTons" | "beforeBox">): boolean =>
+  r.counted && r.moneyKnown && !r.noSelling && r.missingCurrencies.length === 0 && r.freightTons > 0 && r.beforeBox.eur !== null;
+
+/**
+ * The Earnings tab's line about the service's minimum earning per W/M (Council Outlay 14, B4); ""
+ * while the service has none, while the money is not known, or with no shipment counted. "Every
+ * shipment earns at least" only when every counted one was judged; else how many could not be.
+ */
+export function floorWords(e: Pick<SailingEarnings, "minEarningPerWm" | "belowFloor" | "moneyKnown" | "rows">): string {
+  if (e.minEarningPerWm == null || !e.moneyKnown) return "";
+  const counted = e.rows.filter((r) => r.counted);
+  if (counted.length === 0) return "";
+  const min = `${fmtMoney(e.minEarningPerWm, "EUR", true)} per W/M`;
   const below = e.belowFloor ?? 0;
-  return below === 0 ? `Every shipment earns at least the service's minimum of ${min} before the box.` : `${below === 1 ? "1 shipment earns" : `${below} shipments earn`} less than the service's minimum of ${min} before the box.`;
+  const unjudged = counted.filter((r) => !floorJudged(r)).length;
+  const lead =
+    below > 0
+      ? `${shipments(below)} ${below === 1 ? "earns" : "earn"} less than the service's minimum of ${min} before the box.`
+      : unjudged === 0
+        ? `Every shipment earns at least the service's minimum of ${min} before the box.`
+        : unjudged === counted.length
+          ? `No shipment can be set against the service's minimum of ${min} yet.`
+          : `None of the others earns less than the service's minimum of ${min} before the box.`;
+  if (unjudged === 0) return lead;
+  const notJudged = `${shipments(unjudged)} could not be judged: no selling lines, money not read, an amount with no exchange rate, or no weight and volume.`;
+  // With none below, the shipments not judged come first: "the others" are the ones that were.
+  return below === 0 && unjudged < counted.length ? `${notJudged} ${lead}` : `${lead} ${notJudged}`;
 }
 
 /** How a figure stands against the sailing before it: "up", "down", "same"; null when either is not known. */
@@ -259,8 +285,8 @@ export const trendArrow = (now: number | null, before: number | null | undefined
 export function trendWords(t: { sailings: readonly unknown[]; averageFillPct: number | null; averageProfitEur: number | null; profitKnown: number; belowBreakEven: number; breakEvenKnown: number }): string {
   const n = t.sailings.length;
   if (n === 0) return "No sailing of this service has left yet.";
-  const eur = (v: number) => `${v.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} EUR`;
-  const of = (known: number) => (known < n ? ` (of ${known} known)` : "");
+  const eur = (v: number) => fmtMoney(v, "EUR", true);
+  const of =(known: number) => (known < n ? ` (of ${known} known)` : "");
   return [
     `Last ${n === 1 ? "sailing" : `${n} sailings`}:`,
     [

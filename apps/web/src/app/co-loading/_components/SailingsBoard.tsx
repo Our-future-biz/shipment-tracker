@@ -127,7 +127,7 @@ export function SailingsBoard({ isManager }: { isManager: boolean }) {
           </div>
         )}
       </section>
-      <p className={`${HINT} m-0`}>Every open service&apos;s sailings that have not left yet, by cut-off. A sailing with no departure date stays here until it gets one that has passed.</p>
+      <p className={`${HINT} m-0`}>Every open service&apos;s sailings that have not left yet, by cut-off. A sailing leaves the board once its departure date has passed or it is set to Departed; one with no departure date stays until then.</p>
     </div>
   );
 }

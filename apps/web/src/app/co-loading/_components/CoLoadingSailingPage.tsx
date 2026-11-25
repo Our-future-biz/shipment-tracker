@@ -57,7 +57,8 @@ const text = (v: string | null | undefined) =>
  * A Co-Loading Concept sailing's own page, opened from its service's Sailings list, in the master
  * job page's shape: a white header band with the way back, the sailing at a glance and the tab strip,
  * then the tab. Its tabs are Box utilization (how full its box is: BoxUtilizationTab), Linked shipments (the shipments in its box:
- * SailingShipmentsTab) and Earnings (what its shipments earn: EarningsTab, for managers and admins only). The tab is kept in the address (?tab=), so a reload or a link keeps it.
+ * SailingShipmentsTab), Checklist and history (its checklist, hand-over note, history and customers to tell: SailingLogTab) and
+ * Earnings (what its shipments earn: EarningsTab, for managers and admins only). The tab is kept in the address (?tab=), so a reload or a link keeps it.
  */
 export function CoLoadingSailingPage() {
   const { sailingId } = useParams<{ serviceId: string; sailingId: string }>();

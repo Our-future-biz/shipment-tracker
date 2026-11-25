@@ -7,6 +7,7 @@ import { useCoLoadingSettings } from "@/hooks/useCoLoadingServices";
 import { apiErrorMessage } from "@/lib/api";
 import { useMessages } from "@/lib/toast";
 import { HINT, LABEL_TEXT } from "@/styles/ui";
+import { afterChecklistSave, checklistTexts, type ChecklistDirection } from "../_lib/sailingLog";
 
 const START_PCT = 85;
 /** What the share means on three common boxes: their inside volumes in cbm. */
@@ -33,16 +34,19 @@ export function CoLoadingSettingsModal({ open, onClose }: { open: boolean; onClo
   }, [open, isLoading]);
 
   // The sailings' checklist (Council Outlay 14, C5): one step per line, for import and for export services.
-  const storedLists = { import: (settings?.checklistImport ?? []).join("\n"), export: (settings?.checklistExport ?? []).join("\n") };
+  const storedLists = checklistTexts(settings);
   const [lists, setLists] = useState(storedLists);
+  // The stored lists fill the boxes each time it opens, and once they are read. A save puts back only
+  // its own list (afterChecklistSave): a refetch never wipes what is being typed in the other.
   useEffect(() => {
     if (open) setLists(storedLists);
-    // Opening, and the lists as read or saved, set this off.
+    // Only opening and the first read set this off.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, storedLists.import, storedLists.export]);
-  const saveList = async (direction: "import" | "export") => {
+  }, [open, isLoading]);
+  const saveList = async (direction: ChecklistDirection) => {
     try {
-      await saveChecklist.mutateAsync({ direction, steps: lists[direction].split("\n") });
+      const saved = await saveChecklist.mutateAsync({ direction, steps: lists[direction].split("\n") });
+      setLists((now) => afterChecklistSave(now, direction, saved));
       message.success(`Checklist for ${direction} sailings saved`);
     } catch (err) {
       message.error(apiErrorMessage(err));
