@@ -3,7 +3,7 @@ import { balanceOf } from "./balance";
 import { DEFAULT_RULES } from "./containers";
 import { findSpot, newFloor, occupy } from "./floor";
 import type { CargoLine } from "./gauge";
-import { pinPlaceWords } from "./dangerous";
+import { pinnedWords, pinPlaceWords } from "./dangerous";
 import { pinsNotKept, planLoad, type ContainerLoad } from "./plan";
 
 const line = (id: string, l: number, w: number, h: number, kg: number, colli: number, more: Partial<CargoLine> = {}): CargoLine => ({ id, name: id, lengthMm: l, widthMm: w, heightMm: h, weightKg: kg, colli, canTurn: true, stackable: false, ...more });
@@ -121,6 +121,22 @@ describe("pins (Council Outlay 14, P8)", () => {
     expect(balanceOf(pinnedElsewhere.loads[1]!.pieces, pinnedElsewhere.loads[1]!.container).ok).toBe(true);
   });
 
+  it("packs a container that takes cargo pinned to an end by the end-pin rules, though its own cargo has none", () => {
+    // A machine pinned to container no. 1 goes on a flat rack, which the crates pinned to the doors (its right end) fill
+    // up. Packed for the machine alone, the rack had it in the middle, and one crate had to stand before it.
+    const plan = planLoad([line("machine", 6000, 3000, 1000, 2000, 1, { pinBox: 1, canTurn: false }), line("crate", 2000, 1000, 1000, 10, 3, { pinEnd: "doors" })]);
+    expect(plan.loads.map((load) => [load.container.group, load.pinBox])).toEqual([["flat-rack", 1]]);
+    expect(colliOf(plan, "crate")).toEqual([3]);
+    expect(plan.pinNotes).toBeUndefined();
+    const [rack] = plan.loads;
+    expect(Math.min(...of(rack!, "crate").map((p) => p.z))).toBeGreaterThanOrEqual(Math.max(...of(rack!, "machine").map((p) => p.z + p.length)));
+    // So a flat rack opened for a wide machine, then filled up with blocks pinned to the doors.
+    const filled = planLoad([line("machine", 5000, 3600, 500, 5000, 1), line("block", 2000, 1200, 1300, 12000, 2, { pinEnd: "doors", canTurn: false })]);
+    expect(filled.loads.map((load) => load.container.group)).toEqual(["flat-rack"]);
+    expect(colliOf(filled, "block")).toEqual([2]);
+    expect(filled.pinNotes).toBeUndefined();
+  });
+
   it("says which of the plan's containers each pinned number is: a number is a name, not a place", () => {
     const plan = planLoad([pallets("a", 3, { pinBox: 2 }), pallets("free", 20)], ["20dc"], DEFAULT_RULES);
     expect(plan.loads.map((load) => load.pinBox)).toEqual([2, undefined, undefined]);
@@ -128,6 +144,11 @@ describe("pins (Council Outlay 14, P8)", () => {
     expect(pinPlaceWords(plan, 2)).toBe(" (#1 of the plan)");
     expect(pinPlaceWords(plan, 3)).toBe(" (not loaded)");
     expect(pinPlaceWords(plan, undefined)).toBe("");
+    // A line's pins, as the cargo list and the PDF say them.
+    expect(pinnedWords({ pinEnd: "doors", pinBox: 2 }, plan)).toBe("at the doors · container no. 2 (#1 of the plan)");
+    expect(pinnedWords({ pinBox: 3 }, plan)).toBe("container no. 3 (not loaded)");
+    expect(pinnedWords({ pinEnd: "front" }, plan)).toBe("at the front wall");
+    expect(pinnedWords({}, plan)).toBe("");
     // Two numbers: each its own container, by their order.
     const two = planLoad([pallets("b", 3, { pinBox: 5 }), pallets("a", 3, { pinBox: 2 })], ["20dc"], DEFAULT_RULES);
     expect(two.loads.map((load) => load.pinBox)).toEqual([2, 5]);

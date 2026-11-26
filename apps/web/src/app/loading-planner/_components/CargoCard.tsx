@@ -12,8 +12,9 @@ import { duplicateLine, moveLine, pastedLines, STANDARD_UNITS, withStandardUnit 
 import { stillTheList } from "../_lib/cargoUndo";
 import type { PlanRules } from "../_lib/containers";
 import { standardLabel } from "../_lib/gauge";
-import { dgWords, isDangerous, pinWords } from "../_lib/dangerous";
+import { dgWords, isDangerous, pinnedWords, pinWords } from "../_lib/dangerous";
 import { lineColour } from "../_lib/loadStats";
+import type { LoadPlan } from "../_lib/plan";
 import { LineNotesModal } from "./LineNotesModal";
 import { DIM_DECIMALS, DIM_UNITS, fromMm, toMm, type DimUnit } from "../_lib/units";
 
@@ -35,6 +36,8 @@ interface CargoCardProps {
   with45: boolean;
   /** The colour of a line's mark; by default its row's. A sailing's box is coloured by shipment. */
   colourOf?: (lineId: string) => { dot: string };
+  /** The plan as worked out now: a line pinned to a container number says which of its containers that is. Null while the cargo is not planned. */
+  plan: LoadPlan | null;
 }
 
 const UNIT_TABS = DIM_UNITS.map((unit) => ({ key: unit, label: unit }));
@@ -43,7 +46,7 @@ const UNIT_TABS = DIM_UNITS.map((unit) => ({ key: unit, label: unit }));
 // chosen unit and kept in millimetres. A line is planned as soon as all its figures are in; until
 // then its last column says which figure is missing. Each line has a number, which every drawing
 // and table of the plan uses for it.
-export function CargoCard({ lines, unit, onUnitChange, onChange, onAdd, newId, onRead, busy = false, rules, with45, colourOf }: CargoCardProps) {
+export function CargoCard({ lines, unit, onUnitChange, onChange, onAdd, newId, onRead, busy = false, rules, with45, colourOf, plan }: CargoCardProps) {
   // The line whose dangerous goods and lashing note are being edited.
   const [notesOf, setNotesOf] = useState<string | null>(null);
   const patch = (id: string, change: Partial<DraftLine>) => onChange(lines.map((line) => (line.id === id ? { ...line, ...change } : line)));
@@ -164,8 +167,8 @@ export function CargoCard({ lines, unit, onUnitChange, onChange, onAdd, newId, o
                         </Pill>
                       )}
                     </span>
-                    {/* Where the line is pinned in the plan (Council Outlay 14, P8). */}
-                    {pinWords(line) && <span className="mt-0.5 block text-[11px] font-medium text-indigo-600">Pinned: {pinWords(line)}</span>}
+                    {/* Where the line is pinned in the plan, a container number with the plan's container that stands for it, as on the result's cards and the PDF (Council Outlay 14, P8). */}
+                    {pinWords(line) && <span className="mt-0.5 block text-[11px] font-medium text-indigo-600">Pinned: {plan ? pinnedWords(line, plan) : pinWords(line)}</span>}
                     {/* What a piece of the line bears on top: other cargo may stand on it (Council Outlay 14, P9). */}
                     {line.topLoadKg ? <span className="mt-0.5 block text-[11px] font-medium text-indigo-600">Carries {line.topLoadKg.toLocaleString("en-US")} kg on top</span> : null}
                     {/* How the line is to be lashed, as typed in its "Dangerous goods and lashing" dialog (Council Outlay 14, P11). */}

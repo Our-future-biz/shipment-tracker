@@ -520,6 +520,7 @@ function PlanEditor({ saved }: { saved: interfaces.LoadingPlanItem | null }) {
           rules={rules}
           with45={with45}
           colourOf={colourOf}
+          plan={loadPlan === NO_PLAN ? null : loadPlan}
         />
         {/* What the stuffing gang and the surveyor must know that no figure says: printed on the plan's first page. */}
         <SectionCard title="Note for the stuffing gang">

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { balanceOf, centreLoad, floorHolds, floorOverloads } from "./balance";
+import { balanceOf, beddingNeeded, beddingOf, centreLoad, floorHolds, floorOverloads } from "./balance";
 import { CONTAINERS, containersWith, DEFAULT_RULES, maxWeightOn, restingNeeded } from "./containers";
-import { findSpot, newFloor, occupy } from "./floor";
+import { comesFirst, findSpot, freeSpots, newFloor, occupy } from "./floor";
 import { fitIn, fitLabel, footprints, gaugeOf, standardLabel, type CargoLine } from "./gauge";
 import { floorOverloadText, gaugeCheckOf, gaugeText, loadStats, ruleWarnings } from "./loadStats";
 import { isOutOfGauge, overhang, planLoad, type ContainerLoad, type LoadPlan } from "./plan";
@@ -93,6 +93,20 @@ describe("floor", () => {
     const floor = newFloor(10000, 2000);
     expect(findSpot(floor, 4000, 3000)).toMatchObject({ x: -500, z: 0 });
     expect(findSpot(floor, 12000, 1000)).toMatchObject({ x: 0, z: -1000 });
+  });
+
+  it("lists every free place a piece may take, the first of them by its rule the one findSpot takes", () => {
+    const floor = newFloor(6000, 2400);
+    occupy(floor, findSpot(floor, 2500, 1100)!, 2500, 1100);
+    // Beside the first piece, or behind it.
+    expect(freeSpots(floor, 2500, 1100, "snug").map(({ x, z }) => ({ x, z }))).toEqual([
+      { x: 1100, z: 0 },
+      { x: 0, z: 2500 },
+    ]);
+    for (const rule of ["snug", "front", "area", "doors"] as const) {
+      const first = freeSpots(floor, 2500, 1100, rule).reduce((a, b) => (comesFirst(b, a) ? b : a));
+      expect({ x: first.x, z: first.z }, rule).toEqual({ x: findSpot(floor, 2500, 1100, rule)!.x, z: findSpot(floor, 2500, 1100, rule)!.z });
+    }
   });
 });
 
@@ -483,6 +497,11 @@ describe("planLoad", () => {
       expect(floorOverloadText(overload!, spec("40dc"), "mm")).toContain(
         "It cannot be bedded there: it needs 4,667 mm of floor, and beams reaching no more than 1,000 mm beyond each end give 4,500 mm. Take a piece off this stretch.",
       );
+      // Its bedding, 2,167 mm more floor than the blocks stand on, is what the planner weighs a place by.
+      expect(beddingOf(overload!)).toBe(2167);
+      const rest = { from: 4000, to: 6500, weightKg: 7000 };
+      expect(beddingNeeded([rest, rest], spec("40dc"))).toBe(2167);
+      expect(beddingNeeded([rest, { from: 6500, to: 9000, weightKg: 7000 }], spec("40dc"))).toBe(0);
     });
 
     it("stands pieces end to end where side by side the floor would not carry them", () => {
@@ -492,6 +511,45 @@ describe("planLoad", () => {
       const [a, b] = load(plan).pieces;
       expect(a!.z + a!.length <= b!.z || b!.z + b!.length <= a!.z).toBe(true);
       expect(floorOverloads(load(plan))).toEqual([]);
+    });
+
+    it("stands heavy pieces end to end where abreast they would need bedding", () => {
+      // Two 6 t blocks abreast in a 40' DC: beams 1 m beyond their ends would carry them (13.5 t on 4.5 m), but they put
+      // 4.8 t per metre on a floor rated for 3, and the plan asked for beams spreading them over 4 m. End to end, none.
+      const forty = planLoad([line("block", 2500, 1100, 1000, 6000, { colli: 2, canTurn: false })], ["40dc"]);
+      // Two 7 t blocks in a 20' DC: 5.6 t per metre abreast on a floor rated for 4.8.
+      const twenty = planLoad([line("block", 2500, 1100, 1000, 7000, { colli: 2, canTurn: false })], ["20dc"]);
+      // And two 6 t blocks among pallets: the pallets do not make them stand abreast.
+      const among = planLoad([line("block", 2500, 1100, 1000, 6000, { colli: 2, canTurn: false }), line("pallet", 1200, 800, 1000, 300, { colli: 6 })], ["40dc"]);
+      for (const plan of [forty, twenty, among]) {
+        expect(plan.loads).toHaveLength(1);
+        const [a, b] = load(plan).pieces.filter((p) => p.name === "block");
+        expect(a!.z + a!.length <= b!.z || b!.z + b!.length <= a!.z).toBe(true);
+        expect(floorOverloads(load(plan))).toEqual([]);
+      }
+      expect(loadedCount(among)).toBe(8);
+    });
+
+    it("leaves heavy pieces abreast where the floor carries them so", () => {
+      // Two 6 t blocks abreast in a 20' DC put 4.8 t per metre on a floor rated for just that: no bedding, planned as ever.
+      const plan = planLoad([line("block", 2500, 1100, 1000, 6000, { colli: 2, canTurn: false })]);
+      expect(names(plan)).toEqual(["20' DC"]);
+      expect(load(plan).pieces.map((p) => p.z)).toEqual([1699, 1699]);
+      expect(floorOverloads(load(plan))).toEqual([]);
+    });
+
+    it("needs the least bedding where none is to be had", () => {
+      // Two 4 t blocks of 1.1 m need bedding wherever they stand in a 40' DC (3.6 t per metre each). Abreast they rested on
+      // 1.1 m and needed 2,667 mm of floor, 1,567 more; end to end they rest on 2.2 m, and the beams add 467 mm.
+      const plan = planLoad([line("block", 1000, 1100, 1000, 4000, { colli: 2, canTurn: false })], ["40dc"]);
+      expect(floorOverloads(load(plan))).toEqual([expect.objectContaining({ lengthMm: 2200, weightKg: 8000, spreadMm: 2667 })]);
+    });
+
+    it("does not pay for less bedding with a container more", () => {
+      // Four 6.5 t blocks go into one 20' DC two abreast, 26 t on 5 m with bedding; end to end only two would go in.
+      const plan = planLoad([line("block", 2500, 1100, 1000, 6500, { colli: 4, canTurn: false })], ["20dc"]);
+      expect(names(plan)).toEqual(["20' DC"]);
+      expect(floorOverloads(load(plan))).toEqual([expect.objectContaining({ lengthMm: 5000, weightKg: 26000, spreadMm: 5417 })]);
     });
 
     it("weighs cargo standing end to end by what the floor carries on that length", () => {

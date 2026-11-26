@@ -1,6 +1,7 @@
 import { jsPDF } from "jspdf";
+import { fontFile } from "@/lib/pdfFonts";
 import { NO_CLEARANCE, type ContainerSpec, type PlanRules } from "./containers";
-import { dgWarning, dgWords, isDangerous, lashingNotes, pinPlaceWords, pinWords } from "./dangerous";
+import { dgWarning, dgWords, isDangerous, lashingNotes, pinnedWords, pinWords } from "./dangerous";
 import { standardLabel, type CargoLine } from "./gauge";
 import { balanceLimitText, END_WALLS_NOTE, floorOverloadText, outOfBalanceText, ruleWarnings, hasDoors, lineColour, loadStats, planTotals, startText, type PieceGroup } from "./loadStats";
 import type { ContainerLoad, LoadPlan } from "./plan";
@@ -382,7 +383,7 @@ function summaryPage(doc: jsPDF, input: PlanPdfInput, colourOf: (lineId: string)
   // Outlay 14, P8). A pinned number is the user's name for a container: the plan's #k beside it.
   for (const text of plan.pinNotes ?? []) y = paragraph(doc, `Pin not kept - ${text}`, y, "bold", AMBER, newPage);
   const pinned = input.lines.filter((line) => pinWords(line));
-  if (pinned.length > 0) y = paragraph(doc, `Pinned: ${pinned.map((line) => `${numberOf(line.id)} ${line.name || "Cargo"} ${pinWords(line)}${pinPlaceWords(plan, line.pinBox)}`).join("; ")}.`, y, "normal", BODY, newPage) + 2;
+  if (pinned.length > 0) y = paragraph(doc, `Pinned: ${pinned.map((line) => `${numberOf(line.id)} ${line.name || "Cargo"} ${pinnedWords(line, plan)}`).join("; ")}.`, y, "normal", BODY, newPage) + 2;
 
   if (plan.notLoaded.length > 0) {
     setFont(doc, "bold", 9, RED);
@@ -611,15 +612,6 @@ export const planPdfFileName = (name: string): string =>
     .replace(/[^A-Za-z0-9 _-]+/g, " ")
     .replace(/\s+/g, " ")
     .trim() || "Loading plan"}.pdf`;
-
-async function fontFile(path: string): Promise<string> {
-  const reply = await fetch(path);
-  if (!reply.ok) throw new Error(`Font ${path}: ${reply.status}`);
-  const bytes = new Uint8Array(await reply.arrayBuffer());
-  let binary = "";
-  for (let at = 0; at < bytes.length; at += 0x8000) binary += String.fromCharCode(...bytes.subarray(at, at + 0x8000));
-  return btoa(binary);
-}
 
 // The font files are fetched once per visit, on the first PDF.
 let fontsOnce: Promise<PdfFonts | undefined> | null = null;

@@ -92,3 +92,9 @@ export function pinPlaceWords(plan: { loads: readonly ContainerLoad[] }, box: nu
   const index = plan.loads.findIndex((load) => load.pinBox === box);
   return index < 0 ? " (not loaded)" : ` (#${index + 1} of the plan)`;
 }
+
+/** A line's pins with the plan's container its number stands for, as the screen and the PDF say them: "at the doors · container no. 2 (#1 of the plan)"; "" for none. */
+export function pinnedWords(line: { pinEnd?: "front" | "doors"; pinBox?: number }, plan: { loads: readonly ContainerLoad[] }): string {
+  const words = pinWords(line);
+  return words && `${words}${pinPlaceWords(plan, line.pinBox)}`;
+}

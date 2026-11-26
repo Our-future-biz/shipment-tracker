@@ -1,4 +1,5 @@
 import { jsPDF } from "jspdf";
+import { fontFile } from "@/lib/pdfFonts";
 import { LOAD_LIST_COLUMNS, loadListFileName, type LoadList, type LoadListRow } from "./loadList";
 
 // A sailing's load list as a PDF (Council Outlay 14, A8): A4 landscape, the sailing's facts on top,
@@ -166,15 +167,6 @@ export function buildLoadListPdf(list: LoadList, fonts?: PdfFonts): jsPDF {
     doc.text(`Page ${page} of ${pages}`, MARGIN + WIDTH, PAGE_H - 7, { align: "right" });
   }
   return doc;
-}
-
-async function fontFile(path: string): Promise<string> {
-  const reply = await fetch(path);
-  if (!reply.ok) throw new Error(`Font ${path}: ${reply.status}`);
-  const bytes = new Uint8Array(await reply.arrayBuffer());
-  let binary = "";
-  for (let at = 0; at < bytes.length; at += 0x8000) binary += String.fromCharCode(...bytes.subarray(at, at + 0x8000));
-  return btoa(binary);
 }
 
 /** Makes the load list's PDF in the browser and hands it to the user as a download. Without the font files it is still made, in Helvetica. */

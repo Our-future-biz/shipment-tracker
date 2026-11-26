@@ -72,33 +72,59 @@ export function mirroredSlots(floor: Floor, long: number, short: number): Slot[]
 
 export const newFloor = (length: number, width: number): Floor => ({ length, width, free: [{ x: 0, z: 0, width, length }] });
 
+/** A free place for a piece, with the free rectangle it is in. */
+export interface PlaceSpot extends Spot {
+  rect: Rect;
+}
+
+/** How well a free rectangle suits a piece needing `needLength` x `needWidth` of it, by the rule; lower is better. */
+function scoreIn(rect: Rect, needLength: number, needWidth: number, rule: PlaceRule): number {
+  if (rule === "front") return rect.z * 100_000 + rect.x;
+  if (rule === "area") return rect.width * rect.length - needWidth * needLength;
+  // The further its far end reaches, the better; then the nearest the left side.
+  if (rule === "doors") return -(rect.z + rect.length) * 100_000 + rect.x;
+  return Math.min(rect.width - needWidth, rect.length - needLength);
+}
+
+/** Of two places with these scores, whether the first comes first: the lower score; of equal ones, the rectangle nearest the start corner. */
+const ranksFirst = (score: number, rect: Rect, than: PlaceSpot): boolean => score < than.score || (score === than.score && (rect.z < than.rect.z || (rect.z === than.rect.z && rect.x < than.rect.x)));
+
+/** Whether the rule prefers place `a` to place `b`, as `findSpot` chooses. */
+export const comesFirst = (a: PlaceSpot, b: PlaceSpot): boolean => ranksFirst(a.score, a.rect, b);
+
 /**
- * The best free place for a piece of this size, or null when there is none. A piece wider or longer
- * than the floor (flat racks only) needs the floor's whole width or length and is centred on it,
- * so its x or z comes out negative. Places are whole millimetres. `allowed`, when given, turns
- * down places for other reasons than room (the planner's floor-load rule).
+ * A piece's place in a free rectangle: against its door end for "doors", at its start otherwise. A
+ * piece wider or longer than the floor (flat racks only) needs the floor's whole width or length
+ * and is centred on it, so its x or z comes out negative. Places are whole millimetres.
+ */
+function spotAt(rect: Rect, length: number, width: number, needLength: number, needWidth: number, rule: PlaceRule, score: number): PlaceSpot {
+  const startZ = rule === "doors" ? rect.z + rect.length - needLength : rect.z;
+  return { x: Math.round(rect.x + (needWidth - width) / 2), z: Math.round(startZ + (needLength - length) / 2), score, rect };
+}
+
+/**
+ * The best free place for a piece of this size, or null when there is none. `allowed`, when given,
+ * turns down places for other reasons than room (the planner's floor-load rule).
  */
 export function findSpot(floor: Floor, length: number, width: number, rule: PlaceRule = "snug", allowed?: (x: number, z: number) => boolean): Spot | null {
   const needLength = Math.min(length, floor.length);
   const needWidth = Math.min(width, floor.width);
-  let best: (Spot & { rect: Rect }) | null = null;
-
+  let best: PlaceSpot | null = null;
   for (const rect of floor.free) {
     if (needLength > rect.length || needWidth > rect.width) continue;
-    // Ties go to the rectangle nearest the start corner.
-    let score = Math.min(rect.width - needWidth, rect.length - needLength);
-    if (rule === "front") score = rect.z * 100_000 + rect.x;
-    if (rule === "area") score = rect.width * rect.length - needWidth * needLength;
-    // The further its far end reaches, the better; then the nearest the left side.
-    if (rule === "doors") score = -(rect.z + rect.length) * 100_000 + rect.x;
-    const better = !best || score < best.score || (score === best.score && (rect.z < best.rect.z || (rect.z === best.rect.z && rect.x < best.rect.x)));
-    if (!better) continue;
-    // Against the door end of the free place for "doors", at its start otherwise.
-    const startZ = rule === "doors" ? rect.z + rect.length - needLength : rect.z;
-    const [x, z] = [Math.round(rect.x + (needWidth - width) / 2), Math.round(startZ + (needLength - length) / 2)];
-    if (!allowed || allowed(x, z)) best = { x, z, score, rect };
+    const score = scoreIn(rect, needLength, needWidth, rule);
+    if (best && !ranksFirst(score, rect, best)) continue;
+    const spot = spotAt(rect, length, width, needLength, needWidth, rule, score);
+    if (!allowed || allowed(spot.x, spot.z)) best = spot;
   }
   return best && { x: best.x, z: best.z, score: best.score };
+}
+
+/** Every free place for a piece of this size, one in each free rectangle that takes it, as `findSpot` would set it there. */
+export function freeSpots(floor: Floor, length: number, width: number, rule: PlaceRule): PlaceSpot[] {
+  const needLength = Math.min(length, floor.length);
+  const needWidth = Math.min(width, floor.width);
+  return floor.free.filter((rect) => needLength <= rect.length && needWidth <= rect.width).map((rect) => spotAt(rect, length, width, needLength, needWidth, rule, scoreIn(rect, needLength, needWidth, rule)));
 }
 
 /** Whether a place on the floor is still free: some free rectangle holds it whole. */

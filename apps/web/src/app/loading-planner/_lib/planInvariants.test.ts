@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { floorHolds } from "./balance";
+import { floorHolds, floorOverloads } from "./balance";
 import { CONTAINERS, DEFAULT_RULES, maxCargoKg, maxWeightWithBedding, passHeight, passWidth, usableLength, type PlanRules } from "./containers";
 import type { CargoLine } from "./gauge";
 import { gaugeCheckOf } from "./loadStats";
@@ -140,22 +140,79 @@ function faults(cargo: CargoLine[], plan: LoadPlan, rules?: PlanRules): string[]
   return found;
 }
 
+const VARIANTS = [
+  ["without pins or top-load limits", { topLoad: false, pins: false }],
+  ["with top-load limits", { topLoad: true, pins: false }],
+  ["with pins", { topLoad: false, pins: true }],
+  ["with pins and top-load limits", { topLoad: true, pins: true }],
+] as const;
+
+/** The 400 seeded cargo lists of a variant, each with the equipment and rules drawn for it, in the order drawn. */
+function* seededPlans(extras: Extras): Generator<{ cargo: CargoLine[]; nominated?: string[]; rules?: PlanRules }> {
+  const random = generator(20261124);
+  for (let i = 0; i < 400; i++) {
+    const cargo = randomCargo(random, extras);
+    const rules = random() < 0.5 ? DEFAULT_RULES : undefined;
+    const nominated = random() < 0.2 ? CONTAINERS.filter(() => random() < 0.4).map((c) => c.id) : undefined;
+    yield { cargo, nominated, rules };
+  }
+}
+
 describe("every plan", () => {
-  it.each([
-    ["without pins or top-load limits", { topLoad: false, pins: false }],
-    ["with top-load limits", { topLoad: true, pins: false }],
-    ["with pins", { topLoad: false, pins: true }],
-    ["with pins and top-load limits", { topLoad: true, pins: true }],
-  ] as const)("keeps every piece, in its own space, within the container's limits: %s", (_, extras) => {
-    const random = generator(20261124);
+  it.each(VARIANTS)("keeps every piece, in its own space, within the container's limits: %s", (_, extras) => {
     const problems: string[] = [];
-    for (let i = 0; i < 400; i++) {
-      const cargo = randomCargo(random, extras);
-      const rules = random() < 0.5 ? DEFAULT_RULES : undefined;
-      const nominated = random() < 0.2 ? CONTAINERS.filter(() => random() < 0.4).map((c) => c.id) : undefined;
+    for (const { cargo, nominated, rules } of seededPlans(extras)) {
       const found = faults(cargo, planLoad(cargo, nominated, rules), rules);
       if (found.length > 0) problems.push(`${JSON.stringify({ cargo, nominated, rules: rules !== undefined })}: ${found.slice(0, 3).join("; ")}`);
     }
     expect(problems).toEqual([]);
+  });
+});
+
+/** A short fingerprint of figures (FNV-1a over their JSON): the same figures, and only they, give the same one. */
+function fingerprint(figures: unknown): string {
+  const text = JSON.stringify(figures);
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < text.length; i++) hash = Math.imul(hash ^ text.charCodeAt(i), 0x01000193) >>> 0;
+  return hash.toString(16).padStart(8, "0");
+}
+
+/**
+ * What a plan says, figure by figure: each container with every piece where it stands, and what is
+ * not loaded. A container holding cargo pinned to an end is told by the cargo in it: such a container
+ * is laid out again from its front wall when its own packing had no end pin (system-25).
+ */
+function figuresOf(plan: LoadPlan, cargo: CargoLine[]): unknown {
+  const pinned = new Set(cargo.filter((line) => line.pinEnd).map((line) => line.id));
+  return {
+    loads: plan.loads.map(({ container, pieces, totalWeightKg, pinBox }) =>
+      pieces.some((p) => pinned.has(p.lineId))
+        ? [container.id, pinBox, pieces.map((p) => p.lineId).sort()]
+        : [container.id, pinBox, totalWeightKg, pieces.map((p) => [p.lineId, p.x, p.y, p.z, p.length, p.width, p.height, p.crosswise])],
+    ),
+    notLoaded: plan.notLoaded,
+  };
+}
+
+describe("cargo that needs no bedding", () => {
+  // The seeded lists with every piece a hundred times lighter: none of their plans asks for bedding. The planner moves
+  // a piece for bedding only in a plan that asks for some, so these are the very plans it made before it did
+  // (8b3d6905): the fingerprints were taken then.
+  it("is planned exactly as before the planner weighed bedding", () => {
+    const fingerprints = VARIANTS.map(([, extras]) => {
+      const figures: unknown[] = [];
+      for (const { cargo, nominated, rules } of seededPlans(extras)) {
+        const light = cargo.map((line) => ({ ...line, weightKg: Math.max(1, Math.round(line.weightKg / 100)) }));
+        const plan = planLoad(light, nominated, rules);
+        if (plan.loads.every((load) => floorOverloads(load).length === 0)) figures.push(figuresOf(plan, light));
+      }
+      return [figures.length, fingerprint(figures)];
+    });
+    expect(fingerprints).toEqual([
+      [400, "bef32b40"],
+      [400, "b370a494"],
+      [400, "0921e864"],
+      [400, "b370a567"],
+    ]);
   });
 });
