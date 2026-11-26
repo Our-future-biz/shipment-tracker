@@ -199,13 +199,13 @@ describe("the lists", () => {
   it("give a manager everything waiting and the last 30 days' answers, anyone else their own", async () => {
     repo.listForManagers.mockResolvedValue([request()]);
     repo.listForUser.mockResolvedValue([request({ status: "rejected" })]);
-    expect(await requests.list(manager)).toMatchObject([{ id: ID, status: "pending" }]);
+    expect(await requests.list(manager, NOW)).toMatchObject([{ id: ID, status: "pending" }]);
     expect(repo.listForManagers).toHaveBeenCalledWith("c1", expect.any(Date), 200);
     expect(repo.listForUser).not.toHaveBeenCalled();
     const since = repo.listForManagers.mock.lastCall![1] as Date;
-    expect(Math.round((Date.now() - since.getTime()) / 86_400_000)).toBe(30);
+    expect(NOW.getTime() - since.getTime()).toBe(30 * 86_400_000);
 
-    expect(await requests.list(user)).toMatchObject([{ status: "rejected" }]);
+    expect(await requests.list(user, NOW)).toMatchObject([{ status: "rejected" }]);
     expect(repo.listForUser).toHaveBeenCalledWith("c1", user.userID, expect.any(Date), 200);
     expect(repo.listForManagers).toHaveBeenCalledTimes(1);
   });
@@ -446,13 +446,14 @@ describe("withdrawing (K20)", () => {
 describe("the answers under the asker's bell", () => {
   it("are the user's own, not opened yet or opened in the last 7 days - an approval says whether it can still be used", async () => {
     repo.answersFor.mockResolvedValue([request({ status: "approved", decidedAt: NOW, decidedByName: "Eva Malá", comment: "Fine" }), request({ status: "rejected", decidedAt: NOW, decidedByName: "Eva Malá", comment: "No" })]);
-    expect(await requests.myAnswers(user)).toMatchObject([
+    // The day is passed in: an approval is good for 7 days from NOW, whatever the clock says when the test runs.
+    expect(await requests.myAnswers(user, NOW)).toMatchObject([
       { status: "approved", decidedByName: "Eva Malá", answerSeenAt: null, usable: true },
       { status: "rejected", usable: false },
     ]);
     expect(repo.answersFor).toHaveBeenCalledWith("c1", user.userID, expect.any(Date), 200);
     const seenSince = repo.answersFor.mock.lastCall![2] as Date;
-    expect(Math.round((Date.now() - seenSince.getTime()) / 86_400_000)).toBe(7);
+    expect(NOW.getTime() - seenSince.getTime()).toBe(7 * 86_400_000);
   });
 
   it("are marked seen by the one who asked; what is no id is left alone", async () => {
