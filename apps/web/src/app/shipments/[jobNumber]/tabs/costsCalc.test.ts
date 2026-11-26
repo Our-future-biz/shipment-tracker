@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { computeCosts, qtyOrOne, type BuyingRow, type SellingRow } from "./costsCalc";
+// The server's own job totals (invoicing lib/jobCostTotals: the customer's Shipments tab, the Money tab): pure, so they
+// run here beside the Costs tab's, and the two cannot drift apart unseen.
+import { jobCostTotals } from "../../../../../../api/services/invoicing/lib/jobCostTotals";
+import { computeCosts, qtyOrOne, realCounts, type BuyingRow, type SellingRow } from "./costsCalc";
 
 const buy = (over: Partial<BuyingRow>): BuyingRow => ({
   id: "b1",
@@ -184,11 +187,138 @@ describe("a quantity of 0 (Council Review 7, K19)", () => {
     expect(t.sellRowTotals).toMatchObject({ a: 0, b: 300, c: 200 });
   });
 
-  // A real cost with quantity 0 falls back to the estimate, as in lib/jobCostTotals; the Job Profit report counts it 0 instead.
-  it("adds nothing to the buying total: an estimate with quantity 0, and a real cost with quantity 0 falls back to the estimate", () => {
+  // A real cost at quantity 0 is a real cost of 0: its amount is filled in, so the estimate no longer counts (it used to).
+  it("adds nothing to the buying total: an estimate with quantity 0, and a real cost with quantity 0 over its estimate", () => {
     const none = computeCosts([buy({ id: "a", estQty: "0", estAmount: "400" })], [], "CZK", rates);
     expect(none.buyTotal).toBe(0);
-    const back = computeCosts([buy({ id: "a", estQty: "1", estAmount: "400", realQty: "0", realAmount: "999" })], [], "CZK", rates);
-    expect(back.buyTotal).toBe(400);
+    const real = computeCosts([buy({ id: "a", estQty: "1", estAmount: "400", realQty: "0", realAmount: "999" })], [], "CZK", rates);
+    expect(real.buyTotal).toBe(0);
+    expect(real.buyCZK).toBe(0);
+  });
+});
+
+describe("a real cost counts once its amount is filled in, even when it comes to 0", () => {
+  it("is filled in by its amount alone: a blank amount is none, whatever its quantity", () => {
+    expect(realCounts(buy({ realAmount: "0" }))).toBe(true);
+    expect(realCounts(buy({ realAmount: "0,00" }))).toBe(true);
+    expect(realCounts(buy({ realAmount: "" }))).toBe(false);
+    expect(realCounts(buy({ realAmount: "  " }))).toBe(false);
+    expect(realCounts(buy({ realAmount: "", realQty: "2" }))).toBe(false);
+  });
+
+  it("counts a real amount of 0 typed over an estimate as 0, not the estimate", () => {
+    const t = computeCosts([buy({ id: "a", estAmount: "400", realAmount: "0" })], [sell({ amount: "1000" })], "CZK", rates);
+    expect(t.buyRowTotals.a).toBe(0);
+    expect([t.buyTotal, t.buyCZK, t.profitCZK]).toEqual([0, 0, 1000]);
+    // The Real column has its total, 0.00, where it showed none.
+    expect([t.hasReal, t.realStrictTotal, t.estTotal]).toEqual([true, 0, 400]);
+  });
+
+  it("counts a real quantity of 0 typed over an estimate as 0, not the estimate", () => {
+    const t = computeCosts([buy({ id: "a", estAmount: "16", estCurrency: "EUR", realAmount: "20", realQty: "0", realCurrency: "EUR" })], [], "CZK", rates);
+    expect([t.buyRowTotals.a, t.buyTotal, t.buyCZK]).toEqual([0, 0, 0]);
+  });
+
+  it("sets it against the estimate: below it, and in Real − Estimated", () => {
+    const t = computeCosts(
+      [buy({ id: "a", estAmount: "400", realAmount: "0" }), buy({ id: "b", estAmount: "100", realAmount: "30", realQty: "0" })],
+      [],
+      "CZK",
+      rates,
+    );
+    expect([t.buyRowUnder.a, t.buyRowOver.a, t.buyRowUnder.b]).toEqual([true, false, true]);
+    expect(t.hasRxe).toBe(true);
+    expect(t.rxeTotal).toBe(-500);
+    expect(t.rxeRows.map((x) => [x.id, x.delta, x.pct])).toEqual([["a", -400, -100], ["b", -100, -100]]);
+  });
+
+  it("needs no rate for a 0: the row stays in the totals and no currency is missing", () => {
+    // The real currency has no rate, but a real cost of 0 needs none - nor does the blank estimate in it.
+    const t = computeCosts(
+      [
+        buy({ id: "a", estAmount: "400", realAmount: "0", realCurrency: "JPY" }),
+        buy({ id: "b", estAmount: "100", realAmount: "250", realQty: "0", realCurrency: "JPY" }),
+        buy({ id: "c", estCurrency: "JPY", realAmount: "0", realCurrency: "JPY" }),
+      ],
+      [],
+      "CZK",
+      rates,
+    );
+    expect(t.buyRowTotals).toEqual({ a: 0, b: 0, c: 0 });
+    expect([t.missingCurrencies, t.unconvertibleRowCount, t.buyTotal]).toEqual([[], 0, 0]);
+  });
+
+  it("leaves the estimate counting while the real amount is blank, and the Real total empty", () => {
+    const t = computeCosts([buy({ id: "a", estAmount: "400", realQty: "1" })], [], "CZK", rates);
+    expect([t.buyTotal, t.hasReal, t.hasRxe]).toEqual([400, false, false]);
+  });
+});
+
+describe("an estimate is there to compare with once it is filled in, even as 0 - as the real cost", () => {
+  it("sets a real cost against an estimate typed as 0, not against a blank one", () => {
+    const t = computeCosts(
+      [buy({ id: "a", estAmount: "0", realAmount: "300" }), buy({ id: "b", estAmount: "", realAmount: "300" }), buy({ id: "c", estAmount: "50", estQty: "0", realAmount: "20" })],
+      [],
+      "CZK",
+      rates,
+    );
+    expect([t.buyRowOver.a, t.buyRowOver.b, t.buyRowOver.c]).toEqual([true, false, true]);
+    expect(t.rxeRows.map((x) => [x.id, x.delta, x.pct])).toEqual([["a", 300, 0], ["c", 20, 0]]);
+    expect(t.rxeTotal).toBe(320);
+  });
+});
+
+describe("a row counting its real cost whose estimate has no rate", () => {
+  it("stays in the totals at its real cost; only its estimate is left out, of the Est. total and of Real − Estimated", () => {
+    const t = computeCosts(
+      [buy({ id: "a", estAmount: "10", estCurrency: "JPY", realAmount: "200" }), buy({ id: "b", estAmount: "100" })],
+      [sell({ amount: "500" })],
+      "CZK",
+      rates,
+    );
+    expect(t.buyRowTotals).toEqual({ a: 200, b: 100 });
+    expect([t.buyTotal, t.buyCZK, t.profitCZK, t.realStrictTotal, t.estTotal]).toEqual([300, 300, 200, 200, 100]);
+    expect([t.missingCurrencies, t.unconvertibleRowCount]).toEqual([[], 0]);
+    expect([t.estimateMissingCurrencies, t.estimateLeftOutCount]).toEqual([["JPY"], 1]);
+    expect([t.buyRowOver.a, t.buyRowUnder.a, t.hasRxe]).toEqual([false, false, false]);
+  });
+
+  it("is still left out when the side it counts has no rate: its estimate, until a real cost is filled in", () => {
+    const t = computeCosts([buy({ id: "a", estAmount: "10", estCurrency: "JPY", realQty: "1" })], [], "CZK", rates);
+    expect([t.buyRowTotals.a, t.unconvertibleRowCount, t.missingCurrencies, t.estimateLeftOutCount]).toEqual([null, 1, ["JPY"], 0]);
+  });
+});
+
+describe("the Costs tab and the server's job totals (lib/jobCostTotals)", () => {
+  it("give one cost for the same rows: a real cost counts once its amount is filled in, even at 0, and needs only its own rate", () => {
+    const r = { CZK: 1, EUR: 25.3, USD: 22.1 };
+    const buying = [
+      buy({ id: "a", estAmount: "500", realAmount: "0" }), // a real amount of 0: 0
+      buy({ id: "b", estAmount: "300", estCurrency: "EUR", realAmount: "280", realQty: "0", realCurrency: "EUR" }), // a real quantity of 0: 0
+      buy({ id: "c", estAmount: "40", realAmount: "0", realCurrency: "JPY" }), // a 0 needs no rate
+      buy({ id: "d", estAmount: "50", estQty: "2", estCurrency: "EUR", realQty: "2" }), // no real amount: the estimate, 2 × 50 EUR
+      buy({ id: "e", estAmount: "100", estCurrency: "USD", realAmount: "120.5", realCurrency: "USD" }), // the real cost
+      buy({ id: "f", estAmount: "1000", estQty: "0" }), // an estimate at quantity 0: 0
+      buy({ id: "g" }), // nothing typed
+      buy({ id: "h", estAmount: "10", estCurrency: "JPY", realAmount: "200" }), // the real cost; its estimate has no rate
+    ];
+    const web = computeCosts(buying, [], "EUR", r);
+    const blankIsNull = (v: string) => (v.trim() === "" ? null : v);
+    const server = jobCostTotals(
+      buying.map((b) => ({
+        estQty: blankIsNull(b.estQty), estAmount: blankIsNull(b.estAmount), estCurrency: b.estCurrency,
+        realQty: blankIsNull(b.realQty), realAmount: blankIsNull(b.realAmount), realCurrency: b.realCurrency,
+      })),
+      [],
+      "EUR",
+      r,
+      "CZK",
+    );
+    const cost = Math.round((2 * 50 * 25.3 + 120.5 * 22.1 + 200) * 100) / 100;
+    expect(web.buyCZK).toBe(cost);
+    expect(server.costCzk).toBe(cost);
+    expect([web.missingCurrencies, web.unconvertibleRowCount, server.missingCurrencies]).toEqual([[], 0, []]);
+    // Only the estimate beside a real cost is left out on the tab, and said to be.
+    expect([web.estimateMissingCurrencies, web.estimateLeftOutCount]).toEqual([["JPY"], 1]);
   });
 });

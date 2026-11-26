@@ -155,13 +155,13 @@ describe("Costs Breakdown's totals", () => {
         buy({ estAmount: "1000", realAmount: "900" }), // under its estimate
         buy({ realAmount: "5000" }), // a real cost nobody estimated: no overrun of an estimate
         buy({ estAmount: "700" }), // an estimate with no real cost yet
-        buy({ estAmount: "0", realAmount: "300" }), // an estimate of 0 is no estimate
+        buy({ estAmount: "0", realAmount: "300" }), // an estimate typed as 0 is one: its real cost of 300 is above it
       ],
       [],
       "CZK",
       RATES,
     );
-    expect(t).toMatchObject({ estimateCzk: 4200, realCzk: 10600, estimateOfRealCzk: 3500, realOfEstimatedCzk: 5300 });
+    expect(t).toMatchObject({ estimateCzk: 4200, realCzk: 10600, estimateOfRealCzk: 3500, realOfEstimatedCzk: 5600 });
     // No line with both: nothing to compare, and that is known.
     expect(moneyTotals([buy({ realAmount: "5000" }), buy({ estAmount: "700" })], [], "CZK", RATES)).toMatchObject({ estimateOfRealCzk: 0, realOfEstimatedCzk: 0 });
   });
@@ -239,6 +239,40 @@ describe("Costs Breakdown's totals", () => {
   it("count the lines with a value", () => {
     const job = only(facts({ lines: { selling: [sell({ amount: "100" }), sell()], buying: [buy({ estAmount: "5" }), buy({ realAmount: "7" }), buy()], billingCurrency: new Map() } }));
     expect([job.sellingLines, job.costLines]).toEqual([1, 2]);
+    // A real cost of 0 filled in over an estimate - an amount or a quantity of 0 - is the line's value: none.
+    const zero = only(facts({ lines: { selling: [], buying: [buy({ estAmount: "5", realAmount: "0" }), buy({ estAmount: "5", realAmount: "7", realQty: "0" }), buy({ estAmount: "5" })], billingCurrency: new Map() } }));
+    expect(zero.costLines).toBe(1);
+  });
+
+  it("take an estimate once it is filled in, even as 0, as one to set the real cost against - a blank one is none", () => {
+    const t = moneyTotals(
+      [
+        buy({ estAmount: "0", realAmount: "400" }), // an estimate of 0
+        buy({ estAmount: "100", estQty: "0", realAmount: "50" }), // an estimate at quantity 0
+        buy({ realAmount: "5000" }), // no estimate typed: no overrun of one
+      ],
+      [],
+      "CZK",
+      RATES,
+    );
+    expect(t).toMatchObject({ estimateCzk: 0, realCzk: 5450, estimateOfRealCzk: 0, realOfEstimatedCzk: 450, costCzk: 5450 });
+  });
+
+  it("count a real cost of 0 once its amount is filled in - not its estimate - and set it against that estimate", () => {
+    const t = moneyTotals(
+      [
+        buy({ estAmount: "500", realAmount: "0" }), // a real amount of 0
+        buy({ estAmount: "300", realAmount: "250", realQty: "0" }), // a real quantity of 0
+        buy({ estAmount: "100", estCurrency: "EUR", realAmount: "0", realCurrency: "JPY" }), // a 0 needs no rate
+      ],
+      [sell({ amount: "1000" })],
+      "CZK",
+      RATES,
+    );
+    expect(t).toEqual({
+      sellingCzk: 1000, estimateCzk: 3300, realCzk: 0, estimateOfRealCzk: 3300, realOfEstimatedCzk: 0, costCzk: 0, profitCzk: 1000, marginPct: 100,
+      missingCurrencies: [], ratesNote: "",
+    });
   });
 });
 
@@ -280,6 +314,18 @@ describe("delay charges not sold on", () => {
       ],
     );
     expect(out).toEqual([{ code: "container_demurrage", label: "Container demurrage (DEM)", currency: "CZK", amount: 700 }]);
+  });
+
+  it("takes a real cost of 0 filled in over the estimate as what the charge cost: nothing left to sell on", () => {
+    const out = notRechargedOf(
+      [
+        buy({ category: "container_detention", estAmount: "40", realAmount: "0" }), // a real amount of 0
+        buy({ category: "container_storage", estAmount: "60", estCurrency: "EUR", realAmount: "90", realQty: "0", realCurrency: "EUR" }), // a real quantity of 0
+        buy({ category: "truck_waiting", estAmount: "25", realQty: "1" }), // no real amount yet: its estimate
+      ],
+      [],
+    );
+    expect(out).toEqual([{ code: "truck_waiting", label: expect.any(String), currency: "CZK", amount: 25 }]);
   });
 
   it("takes a selling line of the older code of the same charge as sold on, and the other way round - two newer codes stay two charges", () => {

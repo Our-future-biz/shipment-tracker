@@ -103,4 +103,19 @@ describe("buildJobProfit quantities", () => {
     );
     expect(rows[0]).toMatchObject({ revenueCzk: 300, costCzk: 0, profitCzk: 300 });
   });
+
+  it("counts a real quantity of 0 typed over an estimate as 0, and needs no average for a 0", () => {
+    const { rows } = buildJobProfit(
+      [ship({ actualArrival: "2026-10-12" })],
+      [
+        { shipmentId: "s1", estQty: null, estAmount: "500", estCurrency: "CZK", realQty: "0", realAmount: "450", realCurrency: "CZK" },
+        { shipmentId: "s1", estQty: null, estAmount: "200", estCurrency: "CZK", realQty: null, realAmount: "0", realCurrency: "XYZ" },
+      ],
+      [],
+      AVG,
+      "2026-10",
+      "2026-10",
+    );
+    expect(rows[0]).toMatchObject({ costCzk: 0, unconverted: [] });
+  });
 });

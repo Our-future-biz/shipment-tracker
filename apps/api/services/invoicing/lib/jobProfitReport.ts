@@ -4,10 +4,13 @@
 // date — ATA for imports, ATD for exports — or, until that is known, of its ETA / ETD
 // (provisional); a Domestic or Road Department job in the month of its delivery (planned until
 // delivered). Line rules are those of Costs Breakdown: qty × amount (blank qty = 1);
-// buying counts the real cost once filled, otherwise the estimate; selling counts only rows
-// ticked "invoice". An amount whose currency has no average is left out and reported.
+// buying counts the real cost once its amount is filled in, even when it comes to 0, and the
+// estimate only while the real amount is blank (lib/jobCostTotals countedCost); selling counts
+// only rows ticked "invoice". An amount whose currency has no average is left out and reported
+// (a 0 needs none).
 
 import { isDeliveryDated, qtyOrOne } from "./invoiceCalc";
+import { countedCost } from "./jobCostTotals";
 import { compareJobNumbers } from "../../../lib/jobNumber";
 import type { JobProfitRow } from "../interfaces/interfaces";
 
@@ -111,11 +114,8 @@ export function buildJobProfit(
 
     let costCzk = 0;
     for (const b of buyBy.get(s.id) ?? []) {
-      // the real cost counts once it is filled in (even 0); until then the estimate
-      const realFilled = b.realAmount !== null && b.realAmount.trim() !== "";
-      costCzk += realFilled
-        ? toCzk(n(b.realAmount) * qtyOrOne(b.realQty), b.realCurrency)
-        : toCzk(n(b.estAmount) * qtyOrOne(b.estQty), b.estCurrency);
+      const { amount, currency } = countedCost(b);
+      costCzk += toCzk(amount, currency);
     }
     let revenueCzk = 0;
     for (const r of sellBy.get(s.id) ?? []) {

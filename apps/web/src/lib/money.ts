@@ -35,6 +35,15 @@ export function num(v: unknown): number {
 }
 
 /**
+ * Whether an amount is filled in: anything but nothing or blank text - a 0 typed is filled in. A cost line's real
+ * cost counts once its amount is, even when it comes to 0, and so does its estimate as one to compare against (the
+ * server's invoicing lib/jobCostTotals filledIn).
+ */
+export function amountFilledIn(v: string | number | null | undefined): boolean {
+  return v !== null && v !== undefined && String(v).trim() !== "";
+}
+
+/**
  * Strict amount parsing for validating input. Empty text is 0; text that is not a clean
  * amount (letters, two decimal separators of the same kind, more than 2 decimals) is null,
  * so the caller can show an error instead of silently saving a wrong number.

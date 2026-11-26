@@ -30,3 +30,17 @@ describe("the Costs tab's real cost (mock test run F1)", () => {
     expect(tab).toMatch(/realCostSaves\(r\.id, \{/);
   });
 });
+
+// A real amount typed as 0 is filled in (the rule of every buying figure, costsCalc realCounts).
+describe("the Costs tab's filled-in amounts", () => {
+  const tab = readFileSync(join(__dirname, "CostsTab.tsx"), "utf8");
+
+  it("mirrors a new estimate currency to Real only while the real amount is blank", () => {
+    expect(tab).toMatch(/const mirror = !realCounts\(r\);/);
+  });
+
+  it("locks a row with an amount typed as 0, estimated or real", () => {
+    expect(tab).toMatch(/amountFilledIn\(r\.estAmount\) \|\| realCounts\(r\)/);
+    expect(tab).not.toMatch(/num\(r\.realAmount\)/);
+  });
+});

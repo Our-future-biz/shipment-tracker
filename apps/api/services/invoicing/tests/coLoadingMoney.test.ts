@@ -91,6 +91,9 @@ describe("coLoadingMoney", () => {
 
   it("counts a line it does not know as the shipment's own, and says how many there are", () => {
     expect(coLoadingMoney([buy("TEST freight", "10"), buy("", "5"), buy("", "0")], [], RATES, NONE)).toMatchObject({ otherCzk: 375, unrecognisedLines: 2 });
+    // A line whose real cost of 0 is filled in over its estimate has no value: nothing of it to remark on.
+    const zero = coLoadingMoney([buy("TEST freight", "10", { realAmount: "0" }), buy("", "5", { realAmount: "8", realQty: "0" })], [], RATES, NONE);
+    expect(zero).toMatchObject({ otherCzk: 0, unrecognisedLines: 0 });
   });
 
   it("leaves an amount without a rate out, names its currency, and keeps the rest", () => {
@@ -104,6 +107,21 @@ describe("coLoadingMoney", () => {
     expect(czkOnly).toMatchObject({ eurRate: null, sellingCzk: 1000, inlandCzk: 100, missingCurrencies: [] });
   });
 
+  it("counts a real cost of 0 filled in over an estimate as 0 - an amount or a quantity of 0 - and needs no rate for it", () => {
+    const money = coLoadingMoney(
+      [
+        buy("inland_collection", "100", { realAmount: "0" }),
+        buy("customs_import", "60", { realAmount: "40", realQty: "0" }),
+        buy("insurance", "30", { realAmount: "0", realCurrency: "GBP" }),
+        buy("customs_import", "10", { realAmount: "12" }),
+      ],
+      [],
+      RATES,
+      NONE,
+    );
+    expect(money).toMatchObject({ inlandCzk: 0, otherCzk: 300, missingCurrencies: [] });
+  });
+
   it("is all zeros for a shipment with no lines", () => {
     expect(coLoadingMoney([], [], RATES, NONE)).toMatchObject({ sellingCzk: 0, invoicedCzk: 0, inlandCzk: 0, otherCzk: 0, ownBoxCzk: 0, masterJobCzk: 0, sellingLines: 0, untickedLines: 0 });
   });
@@ -114,5 +132,10 @@ describe("road freight typed by hand", () => {
     const m = coLoadingMoney([buy("road_freight", "100"), buy("road_toll", "10"), buy("road_freight", "200", { sourceTruckingRef: "trucking:trip:1" }), buy("road_fuel", "")], [], RATES, NONE);
     expect(m.inlandCzk).toBe(7750);
     expect(m.handRoadLines).toBe(2);
+  });
+
+  it("is not remarked on when its real cost of 0 is filled in over its estimate - an amount or a quantity of 0", () => {
+    const m = coLoadingMoney([buy("road_freight", "100", { realAmount: "0" }), buy("road_toll", "10", { realAmount: "9", realQty: "0" })], [], RATES, NONE);
+    expect([m.inlandCzk, m.handRoadLines]).toEqual([0, 0]);
   });
 });

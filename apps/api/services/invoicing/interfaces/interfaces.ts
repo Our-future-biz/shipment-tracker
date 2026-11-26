@@ -1895,16 +1895,17 @@ export interface OperationsMoneyTotals {
   sellingCzk: number | null;
   /** Every estimate (the footer of the Est. column) */
   estimateCzk: number | null;
-  /** The real costs filled in so far (the footer of the Real column) - not what profit counts: see costCzk */
+  /** The real costs filled in so far, a real cost of 0 too (the footer of the Real column) - not what profit counts: see costCzk */
   realCzk: number | null;
   /**
-   * Like for like, over ONLY the buy lines with both an estimate and a real cost: their estimates, and their real
-   * costs. 0 and 0 when no line has both; both null when one of those lines has a currency with no rate. (A real
-   * cost with no estimate is in neither: it is no overrun of an estimate.)
+   * Like for like, over ONLY the buy lines with both an estimate and a real cost filled in (an amount typed, even when
+   * the line comes to 0): their estimates, and their real costs. 0 and 0 when no line has both; both null when one of
+   * those lines has a currency with no rate (a 0 needs none). (A real cost with no estimate is in neither: it is no
+   * overrun of an estimate. An estimate typed as 0 is one: a real cost above it is.)
    */
   estimateOfRealCzk: number | null;
   realOfEstimatedCzk: number | null;
-  /** What profit counts as cost: a line's real cost once it is filled in, its estimate until then */
+  /** What profit counts as cost: a line's real cost once its amount is filled in, even when it comes to 0, and its estimate only while the real amount is blank */
   costCzk: number | null;
   /** sellingCzk - costCzk */
   profitCzk: number | null;
@@ -1999,7 +2000,7 @@ export interface OperationsMoneyJob {
    * left off the invoice since before it.
    */
   lateChargeSince: string | null;
-  /** Selling / cost lines with a value; null when the lines could not be read */
+  /** Selling / cost lines with a value (a cost line's on the side that counts, as costCzk); null when the lines could not be read */
   sellingLines: number | null;
   costLines: number | null;
   totals: OperationsMoneyTotals;
@@ -2054,9 +2055,9 @@ export interface CoLoadingMoneyItem {
   /** How many selling rows with a value are ticked "Invoice", and how many are not ticked. */
   sellingLines: number;
   untickedLines: number;
-  /** Buying lines with a value whose category the catalogue does not know (counted as other costs). */
+  /** Buying lines with a value (on the side that counts) whose category the catalogue does not know (counted as other costs). */
   unrecognisedLines: number;
-  /** Road freight lines typed by hand (not written by Trucking): the trunk haul belongs to the box's Origin Costs. */
+  /** Road freight lines with a value (on the side that counts) typed by hand (not written by Trucking): the trunk haul belongs to the box's Origin Costs. */
   handRoadLines: number;
   /** Currencies with no rate: the amounts in them are left out of the figures above. */
   missingCurrencies: string[];

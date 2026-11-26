@@ -17,6 +17,14 @@ describe("buying costs against their estimates", () => {
     expect(lineVsEstimate(line({ realCurrency: "GBP" }), czkPer)).toBeNull();
   });
 
+  it("compares a real cost of 0 once its amount is filled in - an amount or a quantity of 0 - and needs no rate for it", () => {
+    expect(lineVsEstimate(line({ realAmount: "0" }), czkPer)).toEqual({ delta: -200, currency: "EUR", czk: -5000 });
+    expect(lineVsEstimate(line({ realQty: "0" }), czkPer)).toEqual({ delta: -200, currency: "EUR", czk: -5000 });
+    // In a currency with no rate, a 0 is still 0: the estimate of 200 EUR is 5000 CZK under.
+    expect(lineVsEstimate(line({ realAmount: "0", realCurrency: "GBP" }), czkPer)).toEqual({ delta: -5000, currency: "CZK", czk: -5000 });
+    expect(lineVsEstimate(line({ realQty: "0", realCurrency: "GBP" }), czkPer)).toEqual({ delta: -5000, currency: "CZK", czk: -5000 });
+  });
+
   it("waits for both the estimate and the real cost", () => {
     expect(lineVsEstimate(line({ realAmount: null }), czkPer)).toBeNull();
     expect(lineVsEstimate(line({ estAmount: "" }), czkPer)).toBeNull();

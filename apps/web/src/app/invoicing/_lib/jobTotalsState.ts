@@ -30,6 +30,16 @@ export function jobTotalsState({ costsLoaded, ratesLoading, ratesError, missingC
 }
 
 /** What a left-out mark says: "2 rows of the job are left out: ČNB publishes no rate for GBP." */
+/**
+ * What the quote comparison says about the job's rows that count their real cost while their
+ * estimate has no rate (computeCosts estimateLeftOutCount): those estimates are not in "Real costs
+ * against the estimates", so what they moved shows under the rows added, changed or removed.
+ */
+export function estimatesLeftOutText({ currencies, rows }: { currencies: readonly string[]; rows: number }): string {
+  const one = rows === 1;
+  return `The estimate${one ? "" : "s"} of ${one ? "1 row" : `${rows} rows`} in ${currencies.join(", ")} ${one ? "has" : "have"} no ČNB rate: ${one ? "it is" : "they are"} left out of real costs against the estimates, and what ${one ? "it" : "they"} moved shows under the rows added, changed or removed.`;
+}
+
 export function leftOutText({ currencies, rows }: { currencies: string[]; rows: number }): string {
   const list = currencies.join(", ");
   return rows > 0

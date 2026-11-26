@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { amountEdited, amountInBox, amountTypingAllowed, decimalInputText, money, normaliseAmount, num, parseMoney, round2, sumRounded } from "./money";
+import { amountEdited, amountFilledIn, amountInBox, amountTypingAllowed, decimalInputText, money, normaliseAmount, num, parseMoney, round2, sumRounded } from "./money";
 
 describe("num", () => {
   it.each([
@@ -200,5 +200,12 @@ describe("decimalInputText", () => {
     expect(decimalInputText(undefined)).toBe("");
     expect(decimalInputText("12,")).toBe("12.");
     expect(decimalInputText("-")).toBe("-");
+  });
+});
+
+describe("amountFilledIn", () => {
+  it("takes a 0 typed as filled in, and only nothing or blank text as not", () => {
+    expect(["0", "0,00", 0, "12.5", -3].map(amountFilledIn)).toEqual([true, true, true, true, true]);
+    expect(["", "  ", null, undefined].map(amountFilledIn)).toEqual([false, false, false, false]);
   });
 });

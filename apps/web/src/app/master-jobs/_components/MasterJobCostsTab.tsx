@@ -9,7 +9,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, apiErrorMessage } from "@/lib/api";
 import type { controllers, interfaces } from "@/lib/api/client";
 import { chargeLabel, chargeOptions } from "@/lib/chargeCodes";
-import { money, normaliseAmount } from "@/lib/money";
+import { amountFilledIn, money, normaliseAmount } from "@/lib/money";
 import { useLatestRates } from "@/lib/fx";
 import { eurTotal, type EurTotal } from "../_lib/eurTotal";
 import { masterJobModeOf } from "../_lib/masterJobWords";
@@ -61,7 +61,10 @@ function lineTotal(amount: string | null, qty: string | null): number | null {
   return Number(amount) * (Number.isFinite(q) ? q : 1);
 }
 
-/** What a line comes to in the split: its real cost, or else its estimate; null when it has neither. */
+/**
+ * What a line comes to in the split: its real cost once its amount is filled in, even when it comes to 0, and its
+ * estimate only while the real amount is blank (the server's lib/jobCostTotals countedCost); null when it has neither.
+ */
 function shownTotal(l: Line): { total: number; currency: string } | null {
   const real = lineTotal(l.realAmount, l.realQty);
   if (real != null) return { total: real, currency: l.realCurrency };
@@ -113,9 +116,9 @@ export function MasterJobCostsTab({ masterJob }: Props) {
     queryFn: () => api.invoicing.invoicingMasterJobCosts(masterJob.id),
   });
   // A filled buying cost is locked: a double-click opens its row, a click elsewhere locks it again. A
-  // line not filled yet (just added) stays open. Each field still saves as before.
+  // line not filled yet (just added) stays open. Each field still saves as before. An amount typed as 0 is filled in.
   const { openKey, open, close } = useOpenRow();
-  const filled = (l: Line) => !!(l.category || Number(l.estAmount) || Number(l.realAmount));
+  const filled = (l: Line) => !!l.category || amountFilledIn(l.estAmount) || amountFilledIn(l.realAmount);
 
   // With several saves on their way (fields left one after another) an answer can arrive after a
   // later one's: the view is then read again once the last is in, rather than taken from either.
@@ -236,10 +239,10 @@ export function MasterJobCostsTab({ masterJob }: Props) {
     if (invoiceNumber === line.invoiceNumber) return;
     save(line, { invoiceNumber, received: invoiceNumber !== "" });
   };
-  // A currency change on Estimated is mirrored to Real while Real is empty - not on a paid invoice's line,
-  // whose real side stays as paid (the server would refuse the whole change).
+  // A currency change on Estimated is mirrored to Real while Real is empty - a real amount filled in, even 0, keeps its
+  // own - and not on a paid invoice's line, whose real side stays as paid (the server would refuse the whole change).
   const saveEstCurrency = (line: Line, currency: string) =>
-    save(line, { estCurrency: currency, ...(Number(line.realAmount) || line.invoicePaidOn ? {} : { realCurrency: currency }) });
+    save(line, { estCurrency: currency, ...(amountFilledIn(line.realAmount) || line.invoicePaidOn ? {} : { realCurrency: currency }) });
   // A shipment in or out of a line's split: the other shipments share the line out between them.
   const saveInSplit = (line: Line, shipmentId: string, inSplit: boolean) =>
     save(line, {

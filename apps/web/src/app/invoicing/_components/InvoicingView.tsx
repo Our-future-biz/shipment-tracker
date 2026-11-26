@@ -29,7 +29,7 @@ import { InvoicePanel } from "./InvoicePanel";
 import { BillingQueue } from "./BillingQueue";
 import { invoicedLineCount } from "../_lib/lineCounts";
 import { jobDuzp } from "../_lib/openInvoices";
-import { jobTotalsState, leftOutText } from "../_lib/jobTotalsState";
+import { estimatesLeftOutText, jobTotalsState, leftOutText } from "../_lib/jobTotalsState";
 import { profitQuoteRef, quoteVsJob, type QuoteVsJob } from "../_lib/quoteVsJob";
 
 /** Tabs of a job, as on the shipment detail page; the default one is left out of the URL. */
@@ -180,7 +180,16 @@ function ShipmentSummary({ shipment, nextDuzp }: ShipmentProps & { nextDuzp: str
 const diffTone = (v: number) => (v > 0.004 ? "text-ok" : v < -0.004 ? "text-danger" : "text-slate-500");
 
 /** Why the job's profit is not the quote's: the parts of the difference, each in the billing currency. */
-function QuoteDifference({ cmp, jobProfit, quoteRef, currency }: { cmp: QuoteVsJob; jobProfit: number; quoteRef: string; currency: string }) {
+interface QuoteDifferenceProps {
+  cmp: QuoteVsJob;
+  jobProfit: number;
+  quoteRef: string;
+  currency: string;
+  /** The job's rows that count their real cost while their estimate has no rate (computeCosts): those estimates are not in Real − Estimated. */
+  estimatesLeftOut: { currencies: readonly string[]; rows: number };
+}
+
+function QuoteDifference({ cmp, jobProfit, quoteRef, currency, estimatesLeftOut }: QuoteDifferenceProps) {
   const row = (label: string, value: string, className = "") => (
     <div className={`flex items-baseline justify-between gap-6 ${className}`}>
       <span>{label}</span>
@@ -199,6 +208,9 @@ function QuoteDifference({ cmp, jobProfit, quoteRef, currency }: { cmp: QuoteVsJ
       </div>
       {cmp.missingRates.length > 0 && (
         <div className="text-[12px] text-amber-700">Quote lines in {cmp.missingRates.join(", ")} have no rate on the job and are left out of the rates part.</div>
+      )}
+      {estimatesLeftOut.rows > 0 && (
+        <div className="text-[12px] text-amber-700">{estimatesLeftOutText(estimatesLeftOut)}</div>
       )}
       <div className="text-[12px] text-slate-500">All in {currency}. Nothing is recalculated: the quote keeps its own figure.</div>
     </div>
@@ -243,7 +255,11 @@ function QuoteProfitFacts({ shipment }: ShipmentProps) {
   else if (ref && !cmp) profit = <span className="text-slate-500 truncate" title="No rate for its currency">No rate for its currency</span>;
   else if (ref && cmp) {
     profit = (
-      <Popover content={<QuoteDifference cmp={cmp} jobProfit={jobProfit} quoteRef={shownRef ?? ref} currency={billingCur} />} trigger={["hover", "focus"]} placement="bottom">
+      <Popover
+        content={<QuoteDifference cmp={cmp} jobProfit={jobProfit} quoteRef={shownRef ?? ref} currency={billingCur} estimatesLeftOut={{ currencies: t.estimateMissingCurrencies, rows: t.estimateLeftOutCount }} />}
+        trigger={["hover", "focus"]}
+        placement="bottom"
+      >
         <button type="button" className="inline-flex items-baseline gap-2 bg-transparent border-0 p-0 cursor-help text-[13px] tabular-nums whitespace-nowrap">
           <strong className="text-slate-900">{money(cmp.quoteProfit)}</strong>
           <span className={`font-semibold ${diffTone(cmp.difference)}`} aria-label={`The job is ${signed(cmp.difference)} ${billingCur} against the quote`}>

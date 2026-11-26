@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { jobTotalsState, leftOutText } from "./jobTotalsState";
+import { estimatesLeftOutText, jobTotalsState, leftOutText } from "./jobTotalsState";
 
 const base = { costsLoaded: true, ratesLoading: false, ratesError: false, missingCurrencies: [] as string[], unconvertibleRowCount: 0 };
 
@@ -35,5 +35,16 @@ describe("leftOutText", () => {
     expect(leftOutText({ currencies: ["GBP"], rows: 1 })).toBe("1 row of the job is left out: ČNB publishes no rate for GBP.");
     expect(leftOutText({ currencies: ["GBP", "TRY"], rows: 3 })).toBe("3 rows of the job are left out: ČNB publishes no rate for GBP, TRY.");
     expect(leftOutText({ currencies: ["EUR"], rows: 0 })).toBe("ČNB publishes no rate for EUR.");
+  });
+});
+
+describe("estimatesLeftOutText", () => {
+  it("says which estimates are not in the real costs against the estimates, one row or several", () => {
+    expect(estimatesLeftOutText({ currencies: ["JPY"], rows: 1 })).toBe(
+      "The estimate of 1 row in JPY has no ČNB rate: it is left out of real costs against the estimates, and what it moved shows under the rows added, changed or removed.",
+    );
+    expect(estimatesLeftOutText({ currencies: ["JPY", "KRW"], rows: 2 })).toBe(
+      "The estimates of 2 rows in JPY, KRW have no ČNB rate: they are left out of real costs against the estimates, and what they moved shows under the rows added, changed or removed.",
+    );
   });
 });

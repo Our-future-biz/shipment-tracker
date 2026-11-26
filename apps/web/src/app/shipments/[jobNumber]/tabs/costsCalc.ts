@@ -4,12 +4,16 @@
  * Rules:
  *  - a row = quantity × unit price; an empty quantity counts as 1
  *  - conversions always go through CZK, with the job's ČNB rates (fx service)
- *  - a row's base is its Real Cost; until that is filled in, its Est. Amount
- *  - "R x E" = Real − Estimated, only when both are filled in
+ *  - buying counts the real cost once its amount is filled in, even when it comes to 0, and the
+ *    estimate only while the real amount is blank (realCounts; the server's lib/jobCostTotals countedCost)
+ *  - "R x E" = Real − Estimated, only when both are filled in (an estimate or a real cost of 0 too)
  *
  * A currency without a rate is NEVER converted at 1 — such a row would be added silently at
  * the wrong amount. It is left out of the totals instead and reported in missingCurrencies,
- * so the user can be told.
+ * so the user can be told. Only the side that counts needs its rate for a buying row's total, as
+ * on the server: a row counting its real cost whose estimate has no rate stays in the totals,
+ * and only its estimate is left out - of the Est. total and of Real − Estimated and its marks
+ * (estimateMissingCurrencies, estimateLeftOutCount). A buying amount of 0 needs no rate.
  *
  * Each row's total in the billing currency is rounded to cents, as the row shows it, and the totals
  * add up those rounded rows, so a total is always the sum of the figures printed above it (User Council
@@ -22,16 +26,15 @@
  */
 
 import { chargeLabel } from "@/lib/chargeCodes";
-import { money, num, round2 } from "@/lib/money";
+import { amountFilledIn, money, num, round2 } from "@/lib/money";
 
 /**
  * The quantity of a cost or selling row: a blank quantity means 1 (a lump sum), but a 0 typed on
  * purpose stays 0 - that row then adds nothing (Council Review 7, K19). The server holds the same
  * rule (api invoicing lib/invoiceCalc qtyOrOne), so the Costs tab's totals agree with invoices (the
- * selling lines), the job's cost totals (lib/jobCostTotals) and a sailing's Earnings. In the last
- * two, as here, a real cost that comes to 0 falls back to the estimate. The Job Profit report
- * (lib/jobProfitReport) differs there: it counts a real cost once its amount is typed, so a real
- * amount at quantity 0 is 0 in it, where this tab shows the estimate.
+ * selling lines), the job's cost totals (lib/jobCostTotals), Operations money, a sailing's Earnings
+ * and the Job Profit report. A real cost at quantity 0 is a real cost of 0: its amount is filled in,
+ * so it counts, here as in all of them, and the estimate does not (realCounts).
  */
 export function qtyOrOne(v: string | number | null | undefined): number {
   if (v === null || v === undefined || (typeof v === "string" && v.trim() === "")) return 1;
@@ -42,6 +45,12 @@ export function qtyOrOne(v: string | number | null | undefined): number {
 export { num, money } from "@/lib/money";
 
 export type Rates = Record<string, number>;
+
+/**
+ * Whether a buying row's real cost counts: once its amount is filled in (not blank), even when the row comes to 0 -
+ * an amount of 0, or a quantity of 0. Until then its estimate counts. The server's rule (lib/jobCostTotals realCounts).
+ */
+export const realCounts = (r: Pick<BuyingRow, "realAmount">): boolean => amountFilledIn(r.realAmount);
 
 /** A currency's rate against CZK. null = no rate for this currency. */
 function rateOf(currency: string, rates: Rates): number | null {
@@ -120,7 +129,9 @@ export interface CostsTotals {
   estTotal: number;
   /** total of Real in the billing currency, filled rows only */
   realStrictTotal: number;
-  /** costs: Σ Real, falling back to Est. */
+  /** A row in the totals has its real amount filled in: the Real total is there, even when it is 0. */
+  hasReal: boolean;
+  /** costs: Σ of each row's Real once its amount is filled in (even at 0), its Est. only while that is blank */
   buyTotal: number;
   /** The row's total in the billing currency; null = the row's currency has no rate. */
   sellRowTotals: Record<string, number | null>;
@@ -143,6 +154,13 @@ export interface CostsTotals {
   missingCurrencies: string[];
   /** Number of rows left out for a missing rate. */
   unconvertibleRowCount: number;
+  /**
+   * Currencies without a rate of estimates beside a real cost: those rows stay in the totals at their real cost, and
+   * only their estimate is left out - of the Est. total, of Real − Estimated and of the over / under marks.
+   */
+  estimateMissingCurrencies: string[];
+  /** Number of rows whose estimate is left out so. */
+  estimateLeftOutCount: number;
 }
 
 export function computeCosts(
@@ -153,15 +171,17 @@ export function computeCosts(
 ): CostsTotals {
   const missing = new Set<string>();
   let unconvertibleRowCount = 0;
+  const estimateMissing = new Set<string>();
+  let estimateLeftOutCount = 0;
 
   const billingRate = rateOf(billingCur, rates);
   if (billingRate === null) missing.add(billingCur);
 
-  /** Converts to the billing currency through CZK. null = a rate is missing on either side. */
-  const conv = (value: number, currency: string): number | null => {
+  /** Converts to the billing currency through CZK. null = a rate is missing on either side (named in `report`). */
+  const conv = (value: number, currency: string, report: Set<string> = missing): number | null => {
     const from = rateOf(currency, rates);
     if (from === null) {
-      missing.add(currency);
+      report.add(currency);
       return null;
     }
     if (billingRate === null) return null;
@@ -180,41 +200,53 @@ export function computeCosts(
   let buyTotal = 0;
   let estTotal = 0;
   let realStrictTotal = 0;
+  let hasReal = false;
   let rxeTotal = 0;
   let hasRxe = false;
 
   for (const r of buying) {
     // a row = quantity × unit price, an empty quantity = 1, a typed 0 = 0
     const est = num(r.estAmount) * qtyOrOne(r.estQty);
-    const real = num(r.realAmount) * qtyOrOne(r.realQty);
-    const estRaw = conv(est, r.estCurrency);
+    const realFilled = realCounts(r);
+    const real = realFilled ? num(r.realAmount) * qtyOrOne(r.realQty) : 0;
+    // An amount of 0 needs no rate: a real cost of 0 in a currency without one keeps the row in the totals. An estimate
+    // beside a real cost is not what the row counts, so its missing rate is named apart (estimateMissing).
+    const estRaw = est ? conv(est, r.estCurrency, realFilled ? estimateMissing : missing) : 0;
     const realRaw = real ? conv(real, r.realCurrency) : 0;
     const estC = estRaw === null ? null : round2(estRaw);
     const realC = realRaw === null ? null : round2(realRaw);
+    // the row's base: its Real Cost once its amount is filled in (even at 0), its Est. Amount only while that is blank
+    const basis = realFilled ? realC : estC;
+    buyRowOver[r.id] = false;
+    buyRowUnder[r.id] = false;
 
-    // A row whose side in use can't be converted stays out of the totals.
-    if (estC === null || realC === null) {
+    // A row whose side that counts can't be converted stays out of the totals.
+    if (basis === null) {
       buyRowTotals[r.id] = null;
-      buyRowOver[r.id] = false;
-      buyRowUnder[r.id] = false;
       unconvertibleRowCount += 1;
       continue;
     }
 
-    estTotal += estC;
-    if (real) realStrictTotal += realC;
-
-    // the row's base: Real Cost, until it is filled in -> Est. Amount
-    const basis = real ? realC : estC;
     buyTotal += basis;
-    buyCZKRaw += real ? czkOf(real, r.realCurrency) : czkOf(est, r.estCurrency);
+    buyCZKRaw += realFilled ? czkOf(real, r.realCurrency) : czkOf(est, r.estCurrency);
     buyRowTotals[r.id] = basis;
+    if (realFilled) {
+      realStrictTotal += basis;
+      hasReal = true;
+    }
 
-    buyRowOver[r.id] = !!(est && real && realC - estC > 0.001);
-    buyRowUnder[r.id] = !!(est && real && estC - realC > 0.001);
+    // Its estimate without a rate (beside the real cost it counts): out of the Est. total, nothing to set the real cost against.
+    if (estC === null) {
+      estimateLeftOutCount += 1;
+      continue;
+    }
+    estTotal += estC;
 
-    if (est && real) {
-      const d = realC - estC;
+    // Real − Estimated and its marks: only when both are filled in, an estimate or a real cost of 0 too.
+    if (amountFilledIn(r.estAmount) && realFilled) {
+      buyRowOver[r.id] = basis - estC > 0.001;
+      buyRowUnder[r.id] = estC - basis > 0.001;
+      const d = basis - estC;
       rxeTotal += d;
       hasRxe = true;
       rxeRows.push({
@@ -274,6 +306,7 @@ export function computeCosts(
     buyRowUnder,
     estTotal,
     realStrictTotal,
+    hasReal,
     buyTotal,
     sellRowTotals,
     sellTotal,
@@ -291,6 +324,8 @@ export function computeCosts(
     hasRxe,
     missingCurrencies: [...missing].sort(),
     unconvertibleRowCount,
+    estimateMissingCurrencies: [...estimateMissing].sort(),
+    estimateLeftOutCount,
   };
 }
 

@@ -27,4 +27,9 @@ describe("amounts as one sum in EUR", () => {
   it("keeps EUR as it is without any rate", () => {
     expect(eurTotal([["EUR", 12.5]], { CZK: 1 })).toEqual({ eur: 12.5, missing: [] });
   });
+
+  it("needs no rate for an amount of 0: a real cost of 0 in a currency without one leaves the sum known", () => {
+    expect(eurTotal([["CZK", 250], ["PLN", 0]], rates)).toEqual({ eur: 10, missing: [] });
+    expect(eurTotal([["PLN", 0]], { CZK: 1 })).toEqual({ eur: 0, missing: [] });
+  });
 });

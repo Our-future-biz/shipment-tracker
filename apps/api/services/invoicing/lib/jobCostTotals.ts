@@ -2,11 +2,13 @@
 // customer's Shipments tab reads these instead of loading every job's costs into the browser.
 // Rules (the same as Costs Breakdown, apps/web/.../tabs/costsCalc.ts):
 //  - a row = quantity × unit price (blank quantity = 1; a 0 typed on purpose stays 0, as on invoices)
-//  - buying counts the real cost once it is filled in, otherwise the estimate
+//  - buying counts the real cost once its amount is filled in, even when it comes to 0, and the
+//    estimate only while the real amount is blank (countedCost)
 //  - selling counts only rows ticked "Invoice" — that is what gets billed
 //  - everything goes through CZK with the job's ČNB rates (fx job rates)
 //  - an amount in a currency without a rate is NEVER taken at 1: the job's totals are then null
-//    (a total that leaves something out is not shown), and the currency is reported.
+//    (a total that leaves something out is not shown), and the currency is reported. A cost of 0
+//    needs no rate.
 // Pure, so it is unit-tested.
 
 import { qtyOrOne, toNumber } from "./invoiceCalc";
@@ -33,6 +35,27 @@ export interface CostSellRow {
 
 /** The totals without the job's id; see ShipmentCostTotals. */
 export type JobCostTotals = Omit<ShipmentCostTotals, "shipmentId">;
+
+/**
+ * Whether an amount is filled in: not blank (null or empty text) - a 0 typed is filled in. A cost line's real cost
+ * counts from then on, and its estimate is one to set a real cost against (Operations money's like for like).
+ */
+export const filledIn = (amount: string | null): boolean => amount !== null && amount.trim() !== "";
+
+/** Whether a buying line's real cost counts: once its amount is filled in, even when the line comes to 0. */
+export const realCounts = (r: Pick<CostBuyRow, "realAmount">): boolean => filledIn(r.realAmount);
+
+/**
+ * What a buying line counts at, in its own currency: its real cost once its amount is filled in, even when it comes
+ * to 0 (an amount of 0, or a quantity of 0), and its estimate only while the real amount is blank. The one rule of
+ * every buying figure: Costs Breakdown (web costsCalc), these totals, Operations money, a sailing's Earnings and the
+ * Job Profit report.
+ */
+export function countedCost(r: CostBuyRow): { amount: number; currency: string } {
+  return realCounts(r)
+    ? { amount: toNumber(r.realAmount) * qtyOrOne(r.realQty), currency: r.realCurrency || "CZK" }
+    : { amount: toNumber(r.estAmount) * qtyOrOne(r.estQty), currency: r.estCurrency || "CZK" };
+}
 
 function rateOf(currency: string, rates: CzkRates): number | null {
   if (!currency || currency === "CZK") return 1;
@@ -63,9 +86,10 @@ export function jobCostTotals(
 
   let cost = 0;
   for (const r of buying) {
-    const real = toNumber(r.realAmount) * qtyOrOne(r.realQty);
-    const est = toNumber(r.estAmount) * qtyOrOne(r.estQty);
-    const v = real ? czk(real, r.realCurrency || "CZK") : czk(est, r.estCurrency || "CZK");
+    const { amount, currency: cur } = countedCost(r);
+    // A cost of 0 needs no rate: a real cost of 0 in a currency without one leaves nothing out.
+    if (!amount) continue;
+    const v = czk(amount, cur);
     if (v !== null) cost += v;
   }
   let revenue = 0;

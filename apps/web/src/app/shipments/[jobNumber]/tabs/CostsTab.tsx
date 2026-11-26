@@ -11,7 +11,7 @@ import { api, apiErrorMessage, ErrCode, isAPIError } from "@/lib/api";
 import type { controllers } from "@/lib/api/client";
 import type { ShipmentItem } from "@/hooks/useShipments";
 import { businessDayOf, formatDate, formatDateTime } from "@/lib/date";
-import { amountInBox, normaliseAmount } from "@/lib/money";
+import { amountFilledIn, amountInBox, normaliseAmount } from "@/lib/money";
 import { onAmountBlur } from "./amountBox";
 import { RealCostInput } from "./RealCostInput";
 import { realCostSaves, shownRealCost, type ShownRealCost } from "./realCostQueue";
@@ -26,7 +26,7 @@ import { invoicePdfSource, useInvoiceDocList, type InvoiceDoc } from "@/hooks/us
 import { useFilePreview } from "@/hooks/useFilePreview";
 import { billingDocs, isOpenInvoice, notInvoicedMark } from "@/app/invoicing/_lib/openInvoices";
 import { chargeLabel, chargeOptions } from "@/lib/chargeCodes";
-import { money, signed, num, type BuyingRow, type SellingRow } from "./costsCalc";
+import { money, signed, num, realCounts, type BuyingRow, type SellingRow } from "./costsCalc";
 import { useCostsData } from "./useCostsData";
 import { useConsignments, useTripRefs } from "@/hooks/useTruckingConsignments";
 import { isTruckingCost, parseTruckingRef, truckingCostTag } from "@/lib/truckingCosts";
@@ -424,9 +424,9 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
     !!(r.category || r.description || r.vendor || r.estAmount || r.realAmount || r.invoiceNumber);
   const sellRowFilled = (r: SellingRow) => !!(r.category || r.description || r.customer || r.amount);
 
-  /** whether a row is filled — a filled row locks */
+  /** whether a row is filled — a filled row locks; an amount typed as 0 is filled in */
   const buyLocked = (r: BuyingRow) =>
-    billed || (!unlocked.has(r.id) && !!(r.category || num(r.estAmount) || num(r.realAmount)));
+    billed || (!unlocked.has(r.id) && (!!r.category || amountFilledIn(r.estAmount) || realCounts(r)));
   const sellLocked = (r: SellingRow) =>
     (!unlocked.has(r.id) || !invoicedKnown) && !!(r.category || num(r.amount));
 
@@ -605,9 +605,9 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
     await invalidate();
   };
 
-  /* ── A currency change on Estimated is mirrored to Real while Real is empty ── */
+  /* ── A currency change on Estimated is mirrored to Real while Real is empty: a real amount filled in, even 0, keeps its own ── */
   const changeEstCurrency = (r: BuyingRow, currency: string) => {
-    const mirror = !num(r.realAmount);
+    const mirror = !realCounts(r);
     updateBuy.mutate({ id: r.id, estCurrency: currency, ...(mirror ? { realCurrency: currency } : {}) });
   };
 
@@ -783,7 +783,8 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
     ) : (
       money(total)
     );
-  const buyRowTotal = (r: BuyingRow) => rowTotal(t.buyRowTotals[r.id], r.estCurrency, r.realCurrency);
+  // Only the side the row counts needs its rate: its real cost once its amount is filled in, else its estimate.
+  const buyRowTotal = (r: BuyingRow) => rowTotal(t.buyRowTotals[r.id], realCounts(r) ? r.realCurrency : r.estCurrency);
   const sellRowTotal = (r: SellingRow) => rowTotal(t.sellRowTotals[r.id], r.currency);
 
   // No blocking screen: the cards always render. Until the data arrives the tables are
@@ -1146,10 +1147,10 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
                   curFirst={billed}
                   amount={
                     <td className={FOOT}>
-                      {t.realStrictTotal ? money(t.realStrictTotal) : <span className={EMPTY}>—</span>}
+                      {t.hasReal ? money(t.realStrictTotal) : <span className={EMPTY}>—</span>}
                     </td>
                   }
-                  cur={<td className={FOOT_UNIT}>{t.realStrictTotal ? billingCur : ""}</td>}
+                  cur={<td className={FOOT_UNIT}>{t.hasReal ? billingCur : ""}</td>}
                 />
                 <td colSpan={2} className={FOOT_LINE} />
                 <td colSpan={2} className={`${FOOT_LINE} ${STICKY_BTNS} !bg-slate-50`} />
@@ -1537,14 +1538,17 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
       </div>
 
       {/* Rows in a currency the rate sheet does not cover are left out of every
-          total — say so rather than letting the numbers look complete. */}
-      {t.missingCurrencies.length > 0 && (
+          total — say so rather than letting the numbers look complete. A row that counts its real
+          cost stays in at it when only its estimate has no rate: that estimate is what is left out. */}
+      {(t.missingCurrencies.length > 0 || t.estimateMissingCurrencies.length > 0) && (
         <div className={`${WARNING_BANNER} mb-4`}>
           <WarningOutlined className={WARNING_ICON} />
           <span className={WARNING_TEXT}>
-            <strong>ČNB publishes no rate for {t.missingCurrencies.join(", ")}.</strong>{" "}
-            {t.unconvertibleRowCount} row{t.unconvertibleRowCount === 1 ? " is" : "s are"} left out of
-            the totals below.
+            <strong>ČNB publishes no rate for {[...new Set([...t.missingCurrencies, ...t.estimateMissingCurrencies])].sort().join(", ")}.</strong>
+            {t.unconvertibleRowCount > 0 &&
+              ` ${t.unconvertibleRowCount} row${t.unconvertibleRowCount === 1 ? " is" : "s are"} left out of the totals below.`}
+            {t.estimateLeftOutCount > 0 &&
+              ` The estimate of ${t.estimateLeftOutCount} row${t.estimateLeftOutCount === 1 ? "" : "s"} is left out of the estimated total and of Real − Estimated; ${t.estimateLeftOutCount === 1 ? "it counts its" : "they count their"} real cost.`}
           </span>
         </div>
       )}

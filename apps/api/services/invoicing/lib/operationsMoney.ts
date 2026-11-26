@@ -3,13 +3,15 @@
 // ones the app has: work not yet invoiced is lib/receivables' unbilledOf, the totals are lib/jobCostTotals
 // (Costs Breakdown), a supplier invoice is counted as Accounts Payable counts it (lib/supplierInvoices and
 // the rows of services/supplierInvoice). Money is never added across currencies: every amount names its own.
+// Buying counts the real cost once its amount is filled in, even when it comes to 0, and the estimate only
+// while the real amount is blank (lib/jobCostTotals countedCost).
 //
 // A part that could not be read arrives as null and answers null (a figure) or nothing (a list) - never 0.
 
 import { businessDay } from "../../../lib/businessDate";
 import { chargeLabel, toChargeCode } from "../../../lib/chargeCodes";
 import { round2 } from "./invoiceCalc";
-import { jobCostTotals, type CostBuyRow, type CzkRates } from "./jobCostTotals";
+import { filledIn, jobCostTotals, realCounts, type CostBuyRow, type CzkRates } from "./jobCostTotals";
 import { unbilledOf } from "./receivables";
 import { claimsOf, daysOverdue, dueDayOf, holdsPayment, lineAmount, sumByCurrency, type CostClaimLike } from "./supplierInvoices";
 import type {
@@ -161,6 +163,9 @@ const byJob = <T extends { shipmentId: string }>(rows: readonly T[]): Map<string
 
 const realOf = (r: CostBuyRow) => lineAmount(r.realAmount, r.realQty);
 const estimateOf = (r: CostBuyRow) => lineAmount(r.estAmount, r.estQty);
+/** The side of a buying line that counts (lib/jobCostTotals countedCost), as the invoice bills it, in its own currency. */
+const countedOf = (r: CostBuyRow) =>
+  realCounts(r) ? { amount: realOf(r), currency: r.realCurrency || "CZK" } : { amount: estimateOf(r), currency: r.estCurrency || "CZK" };
 const hasValue = (r: Pick<MoneySellRow, "amount" | "qty">) => lineAmount(r.amount, r.qty) !== 0;
 
 const NO_TOTALS: OperationsMoneyTotals = {
@@ -179,8 +184,9 @@ const NO_TOTALS: OperationsMoneyTotals = {
 /**
  * Costs Breakdown's totals of one job in CZK at its own rates. Selling, cost and profit are lib/jobCostTotals as it
  * is; the estimate and the real cost so far are the same sum over one column each - and, to compare like with
- * like, over only the lines that have both. A figure whose amounts have a currency with no rate is null and the
- * currency is named - an amount is never taken at 1. `noRate` says why a currency has none when one is missing.
+ * like, over only the lines that have both filled in (an estimate or a real cost of 0 too). A figure whose amounts
+ * have a currency with no rate is null and the currency is named - an amount is never taken at 1, and a 0 needs no
+ * rate. `noRate` says why a currency has none when one is missing.
  */
 export function moneyTotals(
   buying: readonly MoneyBuyRow[],
@@ -190,12 +196,13 @@ export function moneyTotals(
   noRate: Exclude<OperationsMoneyRatesNote, ""> = "missing",
 ): OperationsMoneyTotals {
   const main = jobCostTotals([...buying], [...selling], billingCurrency || "CZK", rates, "CZK");
-  // One column alone: the rows with a value in it, the other column left blank.
+  // One column alone: the rows with it filled in, the other column left blank.
   const column = (rows: CostBuyRow[]) => jobCostTotals(rows, [], "CZK", rates, "CZK");
-  const estimates = column(buying.filter((r) => estimateOf(r) !== 0).map((r) => ({ ...r, realAmount: null, realQty: null })));
-  const reals = column(buying.filter((r) => realOf(r) !== 0).map((r) => ({ ...r, estAmount: null, estQty: null })));
-  // The lines with both: what was estimated for them, and what they cost. One not known, the two can't be compared.
-  const both = buying.filter((r) => estimateOf(r) !== 0 && realOf(r) !== 0);
+  const estimates = column(buying.filter((r) => filledIn(r.estAmount)).map((r) => ({ ...r, realAmount: null, realQty: null })));
+  const reals = column(buying.filter(realCounts).map((r) => ({ ...r, estAmount: null, estQty: null })));
+  // The lines with both: what was estimated for them, and what they cost - an estimate of 0 and a real cost of 0 are
+  // both there to compare. One not known, the two can't be compared.
+  const both = buying.filter((r) => filledIn(r.estAmount) && realCounts(r));
   const estimateOfReal = column(both.map((r) => ({ ...r, realAmount: null, realQty: null }))).costCzk;
   const realOfEstimated = column(both.map((r) => ({ ...r, estAmount: null, estQty: null }))).costCzk;
   const comparable = estimateOfReal !== null && realOfEstimated !== null;
@@ -216,9 +223,10 @@ export function moneyTotals(
 }
 
 /**
- * The delay charges bought on a job that no selling line sells on: a buy line of those codes with a value (its real
- * cost, its estimate until then), unless a valued selling line has the same charge code - or the older or newer code
- * of the same charge (OLDER_CODES) - or was copied from it. Per charge code and currency.
+ * The delay charges bought on a job that no selling line sells on: a buy line of those codes with a value (the side
+ * that counts: its real cost once its amount is filled in, even when it comes to 0, its estimate only while the real
+ * amount is blank), unless a valued selling line has the same charge code - or the older or newer code of the same
+ * charge (OLDER_CODES) - or was copied from it. Per charge code and currency.
  */
 export function notRechargedOf(buying: readonly MoneyBuyRow[], selling: readonly MoneySellRow[]): OperationsMoneyNotRecharged[] {
   const sold = selling.filter(hasValue);
@@ -228,8 +236,7 @@ export function notRechargedOf(buying: readonly MoneyBuyRow[], selling: readonly
   for (const r of buying) {
     const code = toChargeCode(r.category);
     if (!RECHARGED.has(code) || sameChargeAs(code).some((same) => soldCodes.has(same)) || soldFrom.has(r.id)) continue;
-    const real = realOf(r);
-    const line = real ? { amount: real, currency: r.realCurrency || "CZK" } : { amount: estimateOf(r), currency: r.estCurrency || "CZK" };
+    const line = countedOf(r);
     if (!line.amount) continue;
     byCode.set(code, [...(byCode.get(code) ?? []), line]);
   }
@@ -243,9 +250,9 @@ const bookedOn = (h: Pick<MoneySupplierInvoice, "receivedAt" | "createdAt">) => 
 
 const supplierIdOf = (h: Pick<MoneySupplierInvoice, "supplierCustomerId" | "haulierId">) => h.supplierCustomerId ?? h.haulierId;
 
-/** Whether a line is above its estimate, as Accounts Payable marks it: both amounts there, in one currency, the real one higher. */
+/** Whether a line is above its estimate, as Accounts Payable marks it: both amounts filled in (a 0 too), in one currency, the real one higher. */
 const aboveEstimate = (l: CostBuyRow) =>
-  l.estAmount !== null && l.realAmount !== null && l.estCurrency === l.realCurrency && Math.round((realOf(l) - estimateOf(l)) * 100) / 100 > 0.005;
+  filledIn(l.estAmount) && realCounts(l) && l.estCurrency === l.realCurrency && Math.round((realOf(l) - estimateOf(l)) * 100) / 100 > 0.005;
 
 /**
  * The supplier invoices of one job, counted as Accounts Payable counts its rows. `ownLines` are the invoices' live
@@ -283,7 +290,7 @@ export function supplierInvoicesOf(
       if (h.status === "refused" || h.paidOn || bookedOn(h) <= billedOn) continue;
       const lines = linesOf.get(h.id) ?? [];
       const above = lines.some(aboveEstimate);
-      const billed = sumByCurrency(lines.filter((l) => l.realAmount !== null).map((l) => ({ amount: realOf(l), currency: l.realCurrency })));
+      const billed = sumByCurrency(lines.filter(realCounts).map((l) => ({ amount: realOf(l), currency: l.realCurrency })));
       for (const a of billed) {
         afterBilling.push({ id: h.id, number: h.invoiceNumber, supplier: factsOf(h)?.companyName || h.vendor, bookedOn: bookedOn(h), currency: a.currency, amount: a.amount, aboveEstimate: above });
       }
@@ -385,7 +392,7 @@ export function operationsMoneyJobs(facts: OperationsMoneyFacts): OperationsMone
       creditOwed: all?.creditOwed ?? [],
       lateChargeSince: all?.lateSince ?? null,
       sellingLines: sells ? sells.filter(hasValue).length : null,
-      costLines: buys ? buys.filter((r) => realOf(r) !== 0 || estimateOf(r) !== 0).length : null,
+      costLines: buys ? buys.filter((r) => countedOf(r).amount !== 0).length : null,
       totals:
         sells && buys
           ? {

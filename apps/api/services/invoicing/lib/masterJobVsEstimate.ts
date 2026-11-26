@@ -2,6 +2,7 @@ import { lineTotalCents } from "./masterJobSplit";
 
 // A master job's buying costs against their estimates, read as profit (Master Jobs → Costs
 // Breakdown, "Vs estimate"): real − estimated, so above 0 the cost came out higher than estimated.
+// A line's real cost is there once its amount is filled in, even when it comes to 0.
 // Pure, so it has its test; the service hands it today's ČNB rates.
 
 /** Real − estimated, in `currency`. */
@@ -32,15 +33,20 @@ const total = (amount: string | null, qty: string | null) => {
 /**
  * A line's real cost against its estimate: in the line's currency, or in CZK at today's ČNB rate
  * when the two differ (`czkPer`: CZK per 1 unit, null without a rate). Null until the line has
- * both, or without a rate it needs.
+ * both, or without a rate it needs - a 0 needs none.
  */
 export function lineVsEstimate(line: ComparedLine, czkPer: (currency: string) => number | null): LineVsEstimate | null {
   const est = total(line.estAmount, line.estQty);
   const real = total(line.realAmount, line.realQty);
   if (est == null || real == null) return null;
-  const estRate = czkPer(line.estCurrency);
-  const realRate = czkPer(line.realCurrency);
-  const czk = estRate != null && realRate != null ? real * realRate - est * estRate : null;
+  const inCzk = (amount: number, currency: string) => {
+    if (amount === 0) return 0;
+    const rate = czkPer(currency);
+    return rate == null ? null : amount * rate;
+  };
+  const estCzk = inCzk(est, line.estCurrency);
+  const realCzk = inCzk(real, line.realCurrency);
+  const czk = estCzk != null && realCzk != null ? realCzk - estCzk : null;
   if (line.estCurrency === line.realCurrency) return { delta: real - est, currency: line.realCurrency, czk };
   return czk == null ? null : { delta: czk, currency: "CZK", czk };
 }

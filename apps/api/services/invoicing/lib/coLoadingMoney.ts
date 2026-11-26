@@ -4,14 +4,15 @@
 // kinds are not counted there; they are added up apart, to be listed. Pure, so it is unit-tested.
 //
 // Line rules are Costs Breakdown's (lib/jobCostTotals): a row = quantity × unit price (blank
-// quantity = 1); buying counts the real cost once filled, otherwise the estimate; selling counts only
-// rows ticked "Invoice". Unlike there, an amount in a currency with no rate is left out and its
-// currency named (decision D11): the rest of the shipment, and of the sailing, is still shown.
+// quantity = 1); buying counts the real cost once its amount is filled in, even when it comes to 0,
+// and the estimate only while the real amount is blank (countedCost); selling counts only rows ticked
+// "Invoice". Unlike there, an amount in a currency with no rate is left out and its currency named
+// (decision D11): the rest of the shipment, and of the sailing, is still shown. A 0 needs no rate.
 
 import { chargeGroup, toChargeCode } from "../../../lib/chargeCodes";
 import type { CoLoadingMoneyItem } from "../interfaces/interfaces";
 import { qtyOrOne, toNumber } from "./invoiceCalc";
-import type { CzkRates } from "./jobCostTotals";
+import { countedCost, type CzkRates } from "./jobCostTotals";
 
 /**
  * The charge codes that are inland delivery (decision D2): moving the cargo over land at
@@ -147,13 +148,13 @@ export function coLoadingMoney(buying: readonly MoneyBuyRow[], selling: readonly
   let unrecognisedLines = 0;
   let handRoadLines = 0;
   for (const r of buying) {
-    const real = toNumber(r.realAmount) * qtyOrOne(r.realQty);
-    const est = toNumber(r.estAmount) * qtyOrOne(r.estQty);
-    const value = real ? czk(real, r.realCurrency || "CZK") : czk(est, r.estCurrency || "CZK");
+    const { amount, currency } = countedCost(r);
+    const value = czk(amount, currency);
     const basket = basketOf(r);
-    // A line with a value that the catalogue does not know is counted as the shipment's own, and said to be so.
-    if (basket === "other" && chargeGroup(codeOf(r.category)) === null && (real || est)) unrecognisedLines++;
-    if (!r.sourceTruckingRef && !r.sourceMasterJobRef && ROAD_CODES.includes(codeOf(r.category)) && (real || est)) handRoadLines++;
+    // A line with a value that the catalogue does not know is counted as the shipment's own, and said to be so. Its
+    // value is the side that counts: a real cost of 0 filled in over an estimate is no value.
+    if (basket === "other" && chargeGroup(codeOf(r.category)) === null && amount) unrecognisedLines++;
+    if (!r.sourceTruckingRef && !r.sourceMasterJobRef && ROAD_CODES.includes(codeOf(r.category)) && amount) handRoadLines++;
     if (value !== null) baskets[basket] += value;
   }
 
